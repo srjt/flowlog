@@ -1,0 +1,259 @@
+import { PIPELINE_CONFIG, PIPELINE_VERSION } from '@/constants/pipelineConfig';
+import { STEP_LABELS } from '@/constants/pipelineSteps';
+import { storageProvider } from '@/providers/storage';
+import type { IStorageProvider } from '@/providers/storage';
+import { CoachingService } from '@/services/CoachingService';
+import { ExtractionService } from '@/services/ExtractionService';
+import { QualityGateService } from '@/services/QualityGateService';
+import { TranscriptionService } from '@/services/TranscriptionService';
+import { getSportContext } from '@/sports';
+import type { ISportContext } from '@/sports/ISportContext';
+import type {
+  CoachingInput,
+  PipelineInput,
+  PipelineOutput,
+  ProcessingStep,
+  ProcessingStepName,
+} from '@/types/pipeline';
+import { logger, reportToMonitoring } from '@/utils/logger';
+
+export type { PipelineInput, PipelineOutput };
+
+/**
+ * Optional progress callback so the processing screen can render live step
+ * state. Receives the full step list on every transition.
+ */
+export type PipelineProgress = (steps: ProcessingStep[]) => void;
+
+interface PipelineDeps {
+  transcription?: TranscriptionService;
+  extraction?: ExtractionService;
+  coaching?: CoachingService;
+  qualityGate?: QualityGateService;
+  storage?: IStorageProvider;
+}
+
+/**
+ * THE single orchestrator. No screen or component calls a provider directly —
+ * everything funnels through `run`. Sport context is injected once at the top
+ * (Stage 0) and threaded through every stage; the pipeline contains zero
+ * sport-specific branching.
+ */
+export class FlowlogPipeline {
+  private readonly transcription: TranscriptionService;
+  private readonly extraction: ExtractionService;
+  private readonly coaching: CoachingService;
+  private readonly qualityGate: QualityGateService;
+  private readonly storage: IStorageProvider;
+
+  constructor(deps: PipelineDeps = {}) {
+    this.transcription = deps.transcription ?? new TranscriptionService();
+    this.extraction = deps.extraction ?? new ExtractionService();
+    this.coaching = deps.coaching ?? new CoachingService();
+    this.qualityGate = deps.qualityGate ?? new QualityGateService();
+    this.storage = deps.storage ?? storageProvider;
+  }
+
+  async run(
+    input: PipelineInput,
+    onProgress?: PipelineProgress,
+  ): Promise<PipelineOutput> {
+    const steps = this.initSteps();
+    const emit = () => onProgress?.([...steps]);
+    const begin = (name: ProcessingStepName) => {
+      const step = steps.find((s) => s.name === name)!;
+      step.status = 'running';
+      step.startedAt = Date.now();
+      emit();
+    };
+    const done = (name: ProcessingStepName, detail?: string) => {
+      const step = steps.find((s) => s.name === name)!;
+      step.status = 'done';
+      step.finishedAt = Date.now();
+      if (detail) step.detail = detail;
+      emit();
+    };
+    const fail = (name: ProcessingStepName, detail: string) => {
+      const step = steps.find((s) => s.name === name)!;
+      step.status = 'failed';
+      step.finishedAt = Date.now();
+      step.detail = detail;
+      emit();
+    };
+
+    try {
+      // ── Stage 0: sport context ──────────────────────────────────────────
+      begin('context');
+      const sportContext: ISportContext = getSportContext(input.sportKey);
+      done('context', sportContext.displayName);
+
+      // ── Stage 1: transcription (vocabulary-primed) ──────────────────────
+      begin('transcription');
+      const transcription = await this.transcription.transcribe(
+        input.audioUri,
+        sportContext,
+      );
+      done('transcription', `${transcription.durationSeconds.toFixed(0)}s`);
+
+      // ── Stage 2a: extraction ────────────────────────────────────────────
+      begin('extraction');
+      const extraction = await this.extraction.extract(
+        transcription.transcript,
+        sportContext,
+        input.skillLevel,
+      );
+      done('extraction', `${extraction.positionsVisited.length} positions`);
+
+      // History for coaching context (best-effort — never block on it).
+      const { recentMistakes, dominantWeakness } = await this.loadHistory(
+        input.userId,
+        input.sportKey,
+      );
+
+      // ── Stage 2b: coaching ──────────────────────────────────────────────
+      begin('coaching');
+      const coachingInput: CoachingInput = {
+        extraction,
+        sportContext,
+        recentMistakes,
+        skillLevel: input.skillLevel,
+        dominantWeakness,
+      };
+      const initialCoaching = await this.coaching.generate(coachingInput);
+      done('coaching');
+
+      // ── Stage 3: quality gate (retries with stricter prompt) ────────────
+      begin('quality_gate');
+      const gate = await this.qualityGate.enforce(
+        initialCoaching,
+        sportContext,
+        (strict) => this.coaching.generate(coachingInput, strict),
+      );
+      done(
+        'quality_gate',
+        gate.passed
+          ? `passed (${gate.attempts} attempt${gate.attempts > 1 ? 's' : ''})`
+          : 'fallback used',
+      );
+
+      // ── Stage 4: persistence ────────────────────────────────────────────
+      begin('persistence');
+      const audioStoragePath = await this.safeUploadAudio(
+        input.userId,
+        input.audioUri,
+      );
+      const session = await this.storage.saveSession({
+        userId: input.userId,
+        sportKey: input.sportKey,
+        sessionDate: input.sessionDate.toISOString(),
+        audioStoragePath,
+        rawTranscript: transcription.transcript,
+        positionsVisited: extraction.positionsVisited,
+        keyMistake: extraction.keyMistake,
+        opponentAction: extraction.opponentAction,
+        sentiment: extraction.sentiment,
+        coachingCue: gate.coaching.cue,
+        targetPosition: gate.coaching.targetPosition,
+        qualityGatePassed: gate.passed,
+        pipelineVersion: PIPELINE_VERSION,
+      });
+      done('persistence');
+
+      return {
+        sessionId: session.id,
+        structuredSummary: this.buildSummary(extraction, sportContext),
+        coachingCue: gate.coaching.cue,
+        targetPosition: gate.coaching.targetPosition,
+        sentiment: extraction.sentiment,
+        qualityGatePassed: gate.passed,
+        processingSteps: steps,
+      };
+    } catch (err) {
+      const running = steps.find((s) => s.status === 'running');
+      if (running) fail(running.name, (err as Error).message);
+      reportToMonitoring('pipeline_failed', {
+        sport: input.sportKey,
+        userId: input.userId,
+        error: (err as Error).message,
+      });
+      throw err;
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  private initSteps(): ProcessingStep[] {
+    const order: ProcessingStepName[] = [
+      'context',
+      'transcription',
+      'extraction',
+      'coaching',
+      'quality_gate',
+      'persistence',
+    ];
+    return order.map((name) => ({
+      name,
+      label: STEP_LABELS[name],
+      status: 'pending',
+    }));
+  }
+
+  private async loadHistory(
+    userId: string,
+    sportKey: string,
+  ): Promise<{ recentMistakes: string[]; dominantWeakness: string | null }> {
+    try {
+      const [recentMistakes, trends] = await Promise.all([
+        this.storage.getRecentMistakes(
+          userId,
+          PIPELINE_CONFIG.recentMistakesWindow,
+        ),
+        this.storage.getUserTrends(userId, sportKey),
+      ]);
+      return {
+        recentMistakes,
+        dominantWeakness: trends?.dominantWeakness ?? null,
+      };
+    } catch (err) {
+      // History is enrichment, not a hard dependency — degrade gracefully.
+      logger.warn('history load failed; proceeding without it', err);
+      return { recentMistakes: [], dominantWeakness: null };
+    }
+  }
+
+  private async safeUploadAudio(
+    userId: string,
+    audioUri: string,
+  ): Promise<string | null> {
+    try {
+      return await this.storage.uploadAudio(userId, audioUri);
+    } catch (err) {
+      // A failed upload shouldn't lose the analysed session.
+      logger.warn('audio upload failed; saving session without audio', err);
+      return null;
+    }
+  }
+
+  private buildSummary(
+    extraction: {
+      positionsVisited: string[];
+      keyMistake: string;
+      opponentAction: string;
+      sentiment: string;
+    },
+    sportContext: ISportContext,
+  ): string {
+    const positions =
+      extraction.positionsVisited.length > 0
+        ? extraction.positionsVisited.join(', ')
+        : 'none noted';
+    return [
+      `Positions this ${sportContext.sessionUnit}: ${positions}.`,
+      `Key mistake: ${extraction.keyMistake || 'none identified'}.`,
+      `Opponent/challenge: ${extraction.opponentAction || 'n/a'}.`,
+      `Mood: ${extraction.sentiment}.`,
+    ].join(' ');
+  }
+}
+
+/** Default singleton for app use. Tests construct their own with mocked deps. */
+export const flowlogPipeline = new FlowlogPipeline();

@@ -1,0 +1,8 @@
+# Supabase Edge Functions live here.
+#
+# Planned functions (not yet implemented):
+#   - compute-trends   : recompute user_trends after each session insert.
+#   - process-session  : optional server-side pipeline execution for cost control.
+#
+# Each function is its own subdirectory with an index.ts entry point. See
+# docs/DATABASE.md and docs/PIPELINE.md.

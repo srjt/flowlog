@@ -1,0 +1,8 @@
+# Supabase local config. `project_id` is set when you run `supabase init` /
+# `supabase link`. Adjust to match your project ref.
+project_id = "flowlog"
+
+[functions.process-session]
+# The pipeline runs server-side. It verifies the caller's JWT itself, so we
+# keep JWT verification on (the client sends its auth token).
+verify_jwt = true

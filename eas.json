@@ -1,0 +1,46 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "base": {
+      "node": "20.18.0",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ufxsnyymhwazgvyjkxdw.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Uwhn2Gzl-CXWpfBOHnX43Q_dPOuYxMo",
+        "EXPO_PUBLIC_DEMO_MODE": "false",
+        "EXPO_PUBLIC_LOCAL_PIPELINE": "false",
+        "EXPO_PUBLIC_TRANSCRIPTION_PROVIDER": "gemini",
+        "EXPO_PUBLIC_AI_PROVIDER": "gemini"
+      }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "testflight": {
+      "extends": "base",
+      "autoIncrement": true,
+      "distribution": "store",
+      "channel": "testflight"
+    }
+  },
+  "submit": {
+    "testflight": {
+      "ios": {
+        "appleId": "REPLACE_WITH_YOUR_APPLE_ID_EMAIL",
+        "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID",
+        "appleTeamId": "REPLACE_WITH_YOUR_APPLE_TEAM_ID"
+      }
+    }
+  }
+}
