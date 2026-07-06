@@ -113,6 +113,31 @@ so the generated worklets regenerate from scratch:
 npx eas-cli@latest build -p ios --profile testflight --clear-cache --auto-submit
 ```
 
+Two EAS-specific pitfalls surfaced getting this to actually build (TestFlight
+builds 7–10), independent of the fix itself:
+
+- **Commit before building.** Without `eas.json` `cli.requireCommit: true`,
+  EAS's uncommitted-changes packaging path can serve a stale version of one
+  file (e.g. `package-lock.json`) alongside a fresh version of another (e.g.
+  `package.json`) from the same upload — a known class of bug
+  ([eas-cli#1501](https://github.com/expo/eas-cli/issues/1501)). We now set
+  `requireCommit: true`, so always commit before running `eas build`.
+- **Generate the lockfile with the SAME npm version EAS uses.** `eas.json`
+  pins `node: "20.19.4"`, which bundles **npm 10.8.2**. A lockfile written by
+  a newer local npm (11.x) can be silently accepted by `npm ci` locally while
+  npm 10.8.2 on EAS rejects it ("Missing: X from lock file") — npm's lockfile
+  sync-check logic differs across majors. If `npm ci` ever disagrees between
+  your machine and an EAS log, download the exact Node build EAS uses and
+  regenerate the lock with its bundled npm:
+  ```bash
+  curl -fsSL -o /tmp/node20.tar.gz https://nodejs.org/dist/v20.19.4/node-v20.19.4-darwin-arm64.tar.gz
+  tar xzf /tmp/node20.tar.gz -C /tmp
+  rm -rf node_modules
+  /tmp/node-v20.19.4-darwin-arm64/bin/npm install   # rewrites package-lock.json
+  /tmp/node-v20.19.4-darwin-arm64/bin/npm ci --include=dev   # must pass
+  ```
+  (swap `darwin-arm64` for your EAS build image's platform/arch if different).
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
