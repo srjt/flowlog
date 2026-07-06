@@ -53,6 +53,15 @@ export class AuthService {
    * redirects the page and parses the returned session automatically. On native
    * we open an in-app browser session and exchange the returned code for a
    * session. The auth-state listener in the root layout then loads the profile.
+   *
+   * `openAuthSessionAsync`'s own result can unreliably report 'dismiss'/'cancel'
+   * even when the provider auto-completed via an already-signed-in session (a
+   * known Expo issue — expo/expo#6289) — the sheet closes very fast and the
+   * promise resolves before it correctly captures the redirect. The OS still
+   * delivers the redirect to the app as a normal deep link in that case (it's
+   * our own registered `flowlog://` scheme), typically a beat after the browser
+   * promise settles, so an inconclusive result waits briefly for a `Linking`
+   * listener to catch it as a fallback source for the redirect URL.
    */
   async signInWithOAuth(provider: OAuthProvider): Promise<void> {
     const redirectTo = redirectUrl();
@@ -63,9 +72,30 @@ export class AuthService {
     if (error) throw new Error(error.message);
     if (Platform.OS === 'web' || !data?.url) return; // web redirects the page
 
-    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-    if (result.type !== 'success' || !result.url) return; // user cancelled
-    const code = new URL(result.url).searchParams.get('code');
+    let resolveDeepLink: (url: string) => void;
+    const deepLinkArrived = new Promise<string>((resolve) => {
+      resolveDeepLink = resolve;
+    });
+    const linkingSub = Linking.addEventListener('url', (event) => {
+      if (event.url.startsWith(redirectTo)) resolveDeepLink(event.url);
+    });
+
+    let finalUrl: string | null;
+    try {
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      finalUrl =
+        result.type === 'success' && result.url
+          ? result.url
+          : await Promise.race([
+              deepLinkArrived,
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+            ]);
+    } finally {
+      linkingSub.remove();
+    }
+    if (!finalUrl) return; // user genuinely cancelled — no redirect ever arrived
+
+    const code = new URL(finalUrl).searchParams.get('code');
     if (!code) throw new Error('Sign-in did not return an authorization code.');
     const { error: exchangeError } =
       await supabase.auth.exchangeCodeForSession(code);
