@@ -22,7 +22,7 @@ export default function SignupScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const { setAuthUser } = useUserStore();
+  const { setAuthUser, setProfile } = useUserStore();
 
   const passwordTooShort = password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
 
@@ -97,7 +97,22 @@ export default function SignupScreen() {
         ) : null}
         <Button title="Sign up" loading={busy} onPress={onSignup} />
 
-        <SocialAuthButtons busy={busy} setBusy={setBusy} onError={setError} />
+        <SocialAuthButtons
+          busy={busy}
+          setBusy={setBusy}
+          onError={setError}
+          onSuccess={async () => {
+            // Mirrors login's onSuccess: load session/profile deterministically
+            // before navigating, rather than relying on the root layout's
+            // async auth-state listener to have updated the store in time.
+            const user = await authService.getSessionUser();
+            if (user) {
+              setAuthUser(user);
+              setProfile(await authService.getProfile(user.id));
+            }
+            router.replace('/');
+          }}
+        />
 
         <Button
           title="I already have an account"

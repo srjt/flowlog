@@ -115,7 +115,24 @@ export default function LoginScreen() {
 
         <Button title="Log in" loading={busy} onPress={onLogin} />
 
-        <SocialAuthButtons busy={busy} setBusy={setBusy} onError={setError} />
+        <SocialAuthButtons
+          busy={busy}
+          setBusy={setBusy}
+          onError={setError}
+          onSuccess={async () => {
+            // Don't rely on the root layout's auth-state listener alone — its
+            // async timing relative to this callback isn't guaranteed, and if
+            // `/` renders before it updates the store, Index bounces straight
+            // back to login. Load the session/profile here first so the
+            // redirect always sees fresh state, same as the password path above.
+            const user = await authService.getSessionUser();
+            if (user) {
+              setAuthUser(user);
+              setProfile(await authService.getProfile(user.id));
+            }
+            router.replace('/');
+          }}
+        />
 
         <View className="mt-2 items-center gap-2">
           <Text variant="caption">New to Flowlog?</Text>

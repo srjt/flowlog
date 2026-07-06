@@ -9,21 +9,26 @@ import { logger } from '@/utils/logger';
  * every platform; Apple only on iOS, where it's required by App Store policy
  * when other social logins are present. On web the call redirects the page; on
  * native it opens an in-app browser session. The auth-state listener in the root
- * layout handles the resulting session.
+ * layout loads the resulting profile into the store, but nothing navigates the
+ * screen away on its own — `onSuccess` does that (mirrors what the email/password
+ * screens do explicitly after their own sign-in calls).
  */
 export function SocialAuthButtons({
   busy,
   setBusy,
   onError,
+  onSuccess,
 }: {
   busy: boolean;
   setBusy: (b: boolean) => void;
   onError: (message: string) => void;
+  onSuccess: () => void;
 }) {
   const run = async (provider: OAuthProvider) => {
     setBusy(true);
     try {
-      await authService.signInWithOAuth(provider);
+      const signedIn = await authService.signInWithOAuth(provider);
+      if (signedIn) onSuccess();
     } catch (err) {
       logger.warn('oauth sign-in failed', err);
       onError((err as Error).message);

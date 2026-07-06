@@ -50,9 +50,13 @@ export class AuthService {
 
   /**
    * Sign in with an OAuth provider (PKCE — no client secret). On web the SDK
-   * redirects the page and parses the returned session automatically. On native
-   * we open an in-app browser session and exchange the returned code for a
-   * session. The auth-state listener in the root layout then loads the profile.
+   * redirects the page and parses the returned session automatically — the
+   * caller doesn't need to do anything further. On native we open an in-app
+   * browser session and exchange the returned code for a session ourselves;
+   * returns true only when that exchange actually completes, so the caller
+   * knows to navigate (the auth-state listener in the root layout loads the
+   * profile, but nothing else ever navigates away from wherever this was
+   * called from — unlike the email/password screens, which do it explicitly).
    *
    * `openAuthSessionAsync`'s own result can unreliably report 'dismiss'/'cancel'
    * even when the provider auto-completed via an already-signed-in session (a
@@ -63,14 +67,14 @@ export class AuthService {
    * promise settles, so an inconclusive result waits briefly for a `Linking`
    * listener to catch it as a fallback source for the redirect URL.
    */
-  async signInWithOAuth(provider: OAuthProvider): Promise<void> {
+  async signInWithOAuth(provider: OAuthProvider): Promise<boolean> {
     const redirectTo = redirectUrl();
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo, skipBrowserRedirect: Platform.OS !== 'web' },
     });
     if (error) throw new Error(error.message);
-    if (Platform.OS === 'web' || !data?.url) return; // web redirects the page
+    if (Platform.OS === 'web' || !data?.url) return false; // web redirects the page
 
     let resolveDeepLink: (url: string) => void;
     const deepLinkArrived = new Promise<string>((resolve) => {
@@ -93,13 +97,14 @@ export class AuthService {
     } finally {
       linkingSub.remove();
     }
-    if (!finalUrl) return; // user genuinely cancelled — no redirect ever arrived
+    if (!finalUrl) return false; // user genuinely cancelled — no redirect ever arrived
 
     const code = new URL(finalUrl).searchParams.get('code');
     if (!code) throw new Error('Sign-in did not return an authorization code.');
     const { error: exchangeError } =
       await supabase.auth.exchangeCodeForSession(code);
     if (exchangeError) throw new Error(exchangeError.message);
+    return true;
   }
 
   /** Send a password-reset email. Always resolves so we don't leak which emails exist. */
