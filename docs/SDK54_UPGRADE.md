@@ -177,6 +177,39 @@ real URL/key substrings (present after the fix, absent before), and confirming
 `npm test` still passes unchanged (Jest's Babel transform is gated off
 inlining under `NODE_ENV=test`, so `jest.setup.js`'s override still works).
 
+## Build 11 crash — expo-font resolved to an SDK 56 version, not SDK 54's
+Build 11 (carrying the env-var fix above) got further — the `EnvError` was
+gone — but still crashed on launch (`SIGSEGV`) with:
+```
+[Error: Cannot find native module 'ExpoFontLoader']
+Unhandled JS Exception: Error: Cannot find native module 'ExpoFontLoader'
+```
+`expo-font` was never a direct dependency in `package.json` — only pulled in
+transitively via `@expo/vector-icons`'s unusually loose peer range
+(`>=14.0.4`). npm satisfied that with whatever was newest on the registry:
+**`expo-font@56.0.7`**, an SDK-56-era release, while `expo/bundledNativeModules.json`
+says SDK 54 wants `~14.0.12`. Because it wasn't a direct dependency, `npx expo
+install --check` / `expo-doctor` never saw it to flag the mismatch — both only
+validate declared dependencies. The newer version's native module didn't
+register under the legacy bridge name `ExpoFontLoader` that the rest of the
+SDK-54 stack expects, so every font-loading call (icons, `expo-router`) threw
+at native-module lookup time.
+
+Fixed with `npx expo install expo-font`, which added it as a direct dependency
+pinned to `~14.0.12` and correctly downgraded the resolved version; it also
+auto-registered the `expo-font` config plugin in `app.json`. Verified
+autolinking now discovers it (`npx expo-modules-autolinking search --platform
+ios`), `expo-doctor` is clean (17/17), and swept every other `expo-*` package
+present only transitively against `bundledNativeModules.json` to confirm none
+of the others have the same silent-mismatch problem (they don't — `expo-font`
+was uniquely affected by that one loose peer range).
+
+**Lesson:** any `expo-*` package your code (or a UI library like
+`@expo/vector-icons`) actually calls into at runtime should be a **direct**
+dependency with Expo's own SDK-pinned version range, even if npm would resolve
+it transitively anyway — otherwise nothing in the standard tooling (`expo
+install --check`, `expo-doctor`) can catch a version drift.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
