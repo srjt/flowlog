@@ -15,16 +15,24 @@ Tagline: "Talk. Reflect. Improve."
 - **Phase:** 1 — Project scaffold, provider abstraction layer, sport context system
 - **Active Sport:** BJJ (beachhead market)
 - **Stubbed Sport:** Golf (structure only)
-- **Last Updated:** 2026-06-14
-- **Build Status:** Scaffold complete and VERIFIED. `npm test` (59 tests,
-  6 suites) passes, `tsc --noEmit` is clean, and `expo export` bundles all 1090
-  modules with Expo Router discovering every screen. Recording capture (expo-av)
-  and Supabase auth are stubbed with TODOs.
-- **Pinned toolchain (do NOT bump without re-verifying):** `metro@0.80.9`,
-  `nativewind@4.0.36`, `react-native-reanimated@~3.10.1`. These are the
-  Expo SDK 51 / RN 0.74 compatible versions. Newer NativeWind (4.2.x) pulls a
-  new-architecture Reanimated/worklets chain that breaks the SDK 51 bundle.
-  See `docs/DECISIONS.md` #009.
+- **Last Updated:** 2026-06-20
+- **Build Status:** Migrating to **Expo SDK 54** (RN 0.81 / React 19.1 /
+  Reanimated 4). Reason: Apple requires the iOS 26 SDK (Xcode 26) for all App
+  Store / TestFlight uploads, and SDK 51 (RN 0.74) native modules crash at launch
+  on the iOS 26 runtime (expo-updates `ErrorRecovery` abort, then an RN
+  ExceptionsManager rethrow). After bumping deps, run `npx expo install --fix`
+  on a real machine, then `npm test` / `tsc --noEmit` / `expo export` to
+  re-verify before the EAS rebuild. See `docs/TESTFLIGHT.md`.
+- **New Architecture is ON** (`app.json` `newArchEnabled: true`) — Reanimated 4
+  requires it. `expo-updates` is temporarily disabled (`updates.enabled: false`)
+  to isolate the migration; re-enable once a 54 build launches cleanly.
+- **Toolchain (SDK 54 compatible — let `expo install --fix` set exact pins):**
+  `react-native@0.81`, `react@19.1`, `nativewind@^4.2`,
+  `react-native-reanimated@~4.1` + `react-native-worklets` (its worklet plugin
+  must be last in `babel.config.js`). The old `metro@0.80.9` overrides have been
+  REMOVED (SDK 54 needs metro 0.83). `expo-av` still works in 54 (removed in 55)
+  — migrate to `expo-audio` before SDK 55. Supersedes `docs/DECISIONS.md` #009,
+  which applied only to SDK 51.
 
 ## Pipeline Runtime (IMPORTANT)
 

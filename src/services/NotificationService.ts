@@ -42,7 +42,9 @@ export function configureNotificationHandler(): void {
   if (!isSupported()) return;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
+      // SDK 54 split the old `shouldShowAlert` into banner + list.
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: false,
       shouldSetBadge: false,
     }),
@@ -139,6 +141,7 @@ export async function applyReminderPrefs(
           },
           trigger: {
             // expo weekday is 1–7 (Sun–Sat); our prefs use 0–6 (Sun–Sat).
+            type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
             weekday: day + 1,
             hour: prefs.hour,
             minute: prefs.minute,
@@ -189,6 +192,7 @@ export async function applyDigestPrefs(
         data: { url: DIGEST_ROUTE },
       },
       trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
         weekday: prefs.day + 1,
         hour: prefs.hour,
         minute: prefs.minute,

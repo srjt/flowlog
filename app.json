@@ -13,14 +13,18 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.flowlog.app",
+      "bundleIdentifier": "io.flowlog.app",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Flowlog records a short voice reflection after your training session."
+        "NSMicrophoneUsageDescription": "Flowlog records a short voice reflection after your training session.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.flowlog.app",
       "permissions": [
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
         "RECORD_AUDIO",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
@@ -55,6 +59,13 @@
       "eas": {
         "projectId": "c76e4bb3-89c5-49bb-8953-e3eed50ef545"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": false,
+      "url": "https://u.expo.dev/c76e4bb3-89c5-49bb-8953-e3eed50ef545"
     }
   }
 }

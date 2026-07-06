@@ -1,4 +1,5 @@
-import * as FileSystem from 'expo-file-system';
+// SDK 54: the classic readAsStringAsync/EncodingType API now lives under /legacy.
+import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
 import { env } from '@/config/env';
