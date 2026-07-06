@@ -138,6 +138,45 @@ builds 7–10), independent of the fix itself:
   ```
   (swap `darwin-arm64` for your EAS build image's platform/arch if different).
 
+## Build 10 crash — EXPO_PUBLIC_ vars missing at runtime (real cause, not PAC)
+Build 10 (the first successful upload after the worklets bundle-mode fix above)
+still crashed on launch — deterministically, on every launch, unlike the
+non-deterministic memory-corruption crashes earlier in this doc. A live
+Console.app capture during a repro showed the real cause immediately:
+```
+EnvError: [env] Missing required environment variable "EXPO_PUBLIC_SUPABASE_URL"
+Unhandled JS Exception: EnvError: ...
+TypeError: Cannot read property 'ErrorBoundary' of undefined
+  at ContextNavigator → ExpoRoot → App
+```
+...then `SIGABRT`. Confirmed by extracting the shipped `.ipa` and grepping the
+compiled Hermes bytecode (`main.jsbundle`): the real Supabase URL string
+appeared **zero** times; the bare key name `"EXPO_PUBLIC_SUPABASE_URL"` appeared
+once — proof the value was never inlined, only looked up dynamically by name.
+
+Root cause: [`src/config/env.ts`](../src/config/env.ts) read every var, including
+`EXPO_PUBLIC_*` ones, via `raw[key]` — a dynamic, variable-indexed lookup
+(`const raw = process.env`, then `raw[key]` where `key` is a function
+parameter). Metro's Babel env-inlining plugin can only statically replace a
+literal `process.env.EXPO_PUBLIC_X` member expression with a string at bundle
+time; it cannot see through bracket-notation indirection. In dev/Jest a real
+`process.env` object exists, so the dynamic lookup works and masked the bug
+completely — `jest.setup.js`'s `process.env.EXPO_PUBLIC_SUPABASE_URL = '...'`
+runtime assignment made every test pass. In the release Hermes bytecode bundle
+there is no real `process.env` on-device — only whatever got statically
+inlined — so the lookup always returned `undefined`, 100% reproducibly.
+
+Fix: `env.ts`'s helpers (`required`/`optional`/`asBool`/`asInt`/`asEnum`) now
+accept an optional `literal` argument. Every `EXPO_PUBLIC_*` call site passes
+its value as a literal `process.env.EXPO_PUBLIC_X` expression (e.g.
+`required('EXPO_PUBLIC_SUPABASE_URL', process.env.EXPO_PUBLIC_SUPABASE_URL)`),
+so Metro can inline it; server-only vars are unchanged and keep the dynamic
+`raw[key]` lookup (correct — those must never reach the client bundle).
+Verified by re-running `expo export` and grepping the output bundle for the
+real URL/key substrings (present after the fix, absent before), and confirming
+`npm test` still passes unchanged (Jest's Babel transform is gated off
+inlining under `NODE_ENV=test`, so `jest.setup.js`'s override still works).
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash

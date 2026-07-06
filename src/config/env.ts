@@ -32,8 +32,22 @@ function warn(message: string): void {
   console.warn(`[env] ${message}`);
 }
 
-function required(key: string): string {
-  const value = raw[key];
+// `literal`, when passed, MUST be a static `process.env.EXPO_PUBLIC_X` member
+// expression at the call site (not a variable or computed key). Metro's Babel
+// env-inlining plugin only rewrites that exact literal pattern into a string at
+// bundle time — it cannot see through `raw[key]` dynamic lookups, which read as
+// `undefined` in a release Hermes bundle (there is no real `process.env` object
+// on-device, only whatever got statically inlined). Server-only vars have no
+// `literal` and keep using `raw[key]`, which is correct there: they run in a
+// real Node process (tests, the edge function) and must never be inlined into
+// the client bundle. See docs/SDK54_UPGRADE.md — "EXPO_PUBLIC_ vars missing at
+// runtime" for the incident this fixes.
+function resolve(key: string, literal: string | undefined): string | undefined {
+  return literal !== undefined ? literal : raw[key];
+}
+
+function required(key: string, literal?: string): string {
+  const value = resolve(key, literal);
   if (value === undefined || value === null || value.trim() === '') {
     throw new EnvError(
       `Missing required environment variable "${key}". ` +
@@ -43,13 +57,13 @@ function required(key: string): string {
   return value.trim();
 }
 
-function optional(key: string, fallback = ''): string {
-  const value = raw[key];
+function optional(key: string, fallback = '', literal?: string): string {
+  const value = resolve(key, literal);
   return value === undefined || value === null ? fallback : value.trim();
 }
 
-function asInt(key: string, fallback: number): number {
-  const value = raw[key];
+function asInt(key: string, fallback: number, literal?: string): number {
+  const value = resolve(key, literal);
   if (value === undefined || value.trim() === '') return fallback;
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) {
@@ -60,8 +74,8 @@ function asInt(key: string, fallback: number): number {
   return parsed;
 }
 
-function asBool(key: string, fallback: boolean): boolean {
-  const value = raw[key];
+function asBool(key: string, fallback: boolean, literal?: string): boolean {
+  const value = resolve(key, literal);
   if (value === undefined || value.trim() === '') return fallback;
   return value.trim().toLowerCase() === 'true';
 }
@@ -70,8 +84,9 @@ function asEnum<T extends string>(
   key: string,
   allowed: readonly T[],
   fallback: T,
+  literal?: string,
 ): T {
-  const value = (raw[key]?.trim() ?? '') as T;
+  const value = (resolve(key, literal)?.trim() ?? '') as T;
   if (value === '') return fallback;
   if (!allowed.includes(value)) {
     throw new EnvError(
@@ -157,8 +172,14 @@ function buildEnv(): Env {
       'development',
     ),
 
-    SUPABASE_URL: required('EXPO_PUBLIC_SUPABASE_URL'),
-    SUPABASE_ANON_KEY: required('EXPO_PUBLIC_SUPABASE_ANON_KEY'),
+    SUPABASE_URL: required(
+      'EXPO_PUBLIC_SUPABASE_URL',
+      process.env.EXPO_PUBLIC_SUPABASE_URL,
+    ),
+    SUPABASE_ANON_KEY: required(
+      'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+      process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+    ),
     SUPABASE_SERVICE_ROLE_KEY: optional('SUPABASE_SERVICE_ROLE_KEY'),
 
     TRANSCRIPTION_PROVIDER: asEnum<TranscriptionProviderKey>(
@@ -178,7 +199,11 @@ function buildEnv(): Env {
     ANTHROPIC_API_KEY: optional('ANTHROPIC_API_KEY'),
     OPENAI_CHAT_API_KEY: optional('OPENAI_CHAT_API_KEY'),
     GEMINI_API_KEY: optional('GEMINI_API_KEY'),
-    GEMINI_MODEL: optional('EXPO_PUBLIC_GEMINI_MODEL', 'gemini-2.5-flash'),
+    GEMINI_MODEL: optional(
+      'EXPO_PUBLIC_GEMINI_MODEL',
+      'gemini-2.5-flash',
+      process.env.EXPO_PUBLIC_GEMINI_MODEL,
+    ),
 
     REVENUECAT_API_KEY_IOS: optional('REVENUECAT_API_KEY_IOS'),
     REVENUECAT_API_KEY_ANDROID: optional('REVENUECAT_API_KEY_ANDROID'),
@@ -196,22 +221,44 @@ function buildEnv(): Env {
     FEATURE_VIDEO_INTEGRATION: asBool('FEATURE_VIDEO_INTEGRATION', false),
     FEATURE_GOLF_SPORT: asBool('FEATURE_GOLF_SPORT', false),
 
-    DEMO_MODE: asBool('EXPO_PUBLIC_DEMO_MODE', false),
+    DEMO_MODE: asBool(
+      'EXPO_PUBLIC_DEMO_MODE',
+      false,
+      process.env.EXPO_PUBLIC_DEMO_MODE,
+    ),
 
-    LOCAL_PIPELINE: asBool('EXPO_PUBLIC_LOCAL_PIPELINE', false),
+    LOCAL_PIPELINE: asBool(
+      'EXPO_PUBLIC_LOCAL_PIPELINE',
+      false,
+      process.env.EXPO_PUBLIC_LOCAL_PIPELINE,
+    ),
     LOCAL_TRANSCRIPTION_PROVIDER: asEnum<TranscriptionProviderKey>(
       'EXPO_PUBLIC_TRANSCRIPTION_PROVIDER',
       ['whisper', 'assemblyai', 'deepgram', 'gemini'],
       'whisper',
+      process.env.EXPO_PUBLIC_TRANSCRIPTION_PROVIDER,
     ),
     LOCAL_AI_PROVIDER: asEnum<AIProviderKey>(
       'EXPO_PUBLIC_AI_PROVIDER',
       ['claude', 'openai', 'gemini'],
       'claude',
+      process.env.EXPO_PUBLIC_AI_PROVIDER,
     ),
-    LOCAL_OPENAI_API_KEY: optional('EXPO_PUBLIC_OPENAI_API_KEY'),
-    LOCAL_ANTHROPIC_API_KEY: optional('EXPO_PUBLIC_ANTHROPIC_API_KEY'),
-    LOCAL_GEMINI_API_KEY: optional('EXPO_PUBLIC_GEMINI_API_KEY'),
+    LOCAL_OPENAI_API_KEY: optional(
+      'EXPO_PUBLIC_OPENAI_API_KEY',
+      '',
+      process.env.EXPO_PUBLIC_OPENAI_API_KEY,
+    ),
+    LOCAL_ANTHROPIC_API_KEY: optional(
+      'EXPO_PUBLIC_ANTHROPIC_API_KEY',
+      '',
+      process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
+    ),
+    LOCAL_GEMINI_API_KEY: optional(
+      'EXPO_PUBLIC_GEMINI_API_KEY',
+      '',
+      process.env.EXPO_PUBLIC_GEMINI_API_KEY,
+    ),
   };
 
   // Provider-credential checks are WARNINGS, not fatal errors.
