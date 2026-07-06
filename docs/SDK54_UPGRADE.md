@@ -255,6 +255,37 @@ something that previously worked), that's the known residual risk of this
 config; investigate linker flags (`-ObjC`/`-all_load`) before reverting, since
 reverting reopens this heap-corruption class of crash.
 
+## Build 15 attempt 1 — fmt library fails to compile under Xcode 26 (unrelated to the risk above)
+The very first from-source build hit a *different* problem than the
+dead-code-stripping risk we were watching for — a straight compile error, not
+a runtime crash:
+```
+call to consteval function 'fmt::basic_format_string<...>...' is not a
+constant expression
+```
+5 of these, all in `fmt/include/fmt/format-inl.h`. Root cause (confirmed via
+[expo#44229](https://github.com/expo/expo/issues/44229), which reports the
+identical error on SDK 54 too): React Native vendors `fmt 11.0.2`, which turns
+on `FMT_USE_CONSTEVAL` when it detects a modern-enough Clang. Xcode 26's Apple
+Clang enforces stricter consteval rules than fmt 11.0.2 accounts for, so its
+`FMT_STRING` macro fails to compile. **Only affects building from source** —
+prebuilt binaries were built with a compatible Clang at release time, so this
+never surfaced before. Already fixed upstream in React Native; not yet in an
+Expo SDK 54/55 release.
+
+Fixed with a local config plugin, [`plugins/withFmtConstevalFix.js`](../plugins/withFmtConstevalFix.js)
+(registered in `app.json`, since there's no committed `ios/` directory to hand-edit
+— `expo prebuild` regenerates the Podfile on every EAS build): it patches the
+generated Podfile's `post_install` hook to flip `FMT_USE_CONSTEVAL` from `1` to
+`0` in the installed `fmt` pod's `base.h`, right after CocoaPods installs it.
+That disables fmt's compile-time format-string checking; it falls back to its
+normal runtime validation, so this is safe. Verified by running
+`npx expo prebuild --platform ios --no-install --clean` locally and confirming
+the generated `ios/Podfile` contains the patch in the right place and passes
+`ruby -c` syntax checking (no local CocoaPods/Xcode available to compile it
+for real — that only happens on EAS). Remove this plugin once Expo ships an RN
+version with a fixed `fmt`.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
