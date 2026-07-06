@@ -210,12 +210,58 @@ dependency with Expo's own SDK-pinned version range, even if npm would resolve
 it transitively anyway — otherwise nothing in the standard tooling (`expo
 install --check`, `expo-doctor`) can catch a version drift.
 
+## Build 14 crash — async-void TurboModule NSException heap corruption (recurring)
+After the OAuth navigation fix above, a genuinely new bug surfaced on build 14:
+a segfault in `hermes::vm::JSObject::getPrototypeOf` (an `instanceof` check),
+during `Runtime::drainJobs()` microtask draining, no app frames in the trace.
+Feedback comment: "Failing after enabling mic" — i.e. it happened using
+`Audio.requestPermissionsAsync()` / `Audio.setAudioModeAsync()` /
+`Audio.Recording.createAsync()` in [`app/(tabs)/record.tsx`](../app/(tabs)/record.tsx).
+
+This is the **same confirmed root cause** already identified earlier in this
+doc's Bundle Mode section — [facebook/hermes#1957](https://github.com/facebook/hermes/issues/1957):
+an async void TurboModule method throws an `NSException`;
+`ObjCTurboModule::performVoidMethodInvocation` converts it to a JSError from a
+background dispatch-queue thread, and Hermes's JSI runtime isn't thread-safe —
+that cross-thread access corrupts the heap, which then surfaces later, in
+whatever unrelated Hermes VM operation happens to touch the corrupted memory
+next (last time `regExpExec`, this time `getPrototypeOf`). Hitting this at a
+**second, unrelated call site** (mic/audio, not just launch) confirmed it's a
+systemic vulnerability — any async-void native module call anywhere in the app
+can trigger it — not something fixable by patching one call site.
+
+The confirmed upstream fix ([facebook/react-native#56265](https://github.com/facebook/react-native/pull/56265))
+was already identified when Bundle Mode was applied, but not used at the time
+because it requires compiling React Native from source (that file ships
+prebuilt otherwise) — `expo-build-properties` `buildReactNativeFromSource: true`
+was previously avoided because [expo#44356](https://github.com/expo/expo/issues/44356)
+showed it can cause a *different* crash (dead-code-stripped TurboModule
+registrations) for another team. After hitting this bug twice at unrelated call
+sites, that trade-off flipped: applied now via:
+
+- `app.json`: `expo-build-properties` plugin,
+  `ios.buildReactNativeFromSource: true`.
+- `patches/react-native+0.81.5.patch`: backports the exact upstream fix to
+  `RCTTurboModule.mm`'s `performVoidMethodInvocation` — mirrors the sibling
+  function `performMethodInvocation`'s existing pattern (already present in our
+  RN 0.81.5), which re-throws the raw exception instead of converting it when
+  the call is async, avoiding the cross-thread JSI access entirely.
+
+**This could not be verified locally** — a from-source build only compiles on
+EAS, and local `expo export` doesn't touch native code at all. If a future
+build reintroduces the dead-code-stripping symptom from expo#44356 (native
+modules silently failing to register, `Cannot find native module 'X'` for
+something that previously worked), that's the known residual risk of this
+config; investigate linker flags (`-ObjC`/`-all_load`) before reverting, since
+reverting reopens this heap-corruption class of crash.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
 git checkout -- package.json babel.config.js metro.config.js app.json eas.json \
   CLAUDE.md src/providers/transcription/GeminiTranscriptionProvider.ts
-rm -rf patches   # removes the metro bundle-mode SHA-1 patch
+rm -rf patches   # removes the metro bundle-mode SHA-1 patch and the
+                 # RCTTurboModule.mm async-void-NSException patch
 ```
 
 ## After it launches cleanly
