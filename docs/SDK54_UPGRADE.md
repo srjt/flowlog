@@ -286,6 +286,64 @@ the generated `ios/Podfile` contains the patch in the right place and passes
 for real — that only happens on EAS). Remove this plugin once Expo ships an RN
 version with a fixed `fmt`.
 
+## Build 16 crash 1 — onboarding PATCH /rest/v1/profiles always 400 (DB migrations never applied)
+Reproduced on the "Enable microphone & start" onboarding step: `EXC_BAD_ACCESS`
+in `hermes::vm::JSObject::getPrototypeOf`, reached via `instanceof` during
+`Runtime::drainJobs()`. Static analysis chased this as a Hermes/Proxy bug for
+several rounds (Supabase's `userNotAvailableProxy`, `react-native-worklets`'
+`INACCESSIBLE_OBJECT`) — a controlled reinstall test (fresh app, no persisted
+storage) ruled out the session-restore theory, since that Proxy only fires when
+*restoring* a stale persisted session.
+
+The real cause surfaced from Supabase's own dashboard logs (`Logs → API`), not
+the client crash log: `completeOnboarding()`'s `.update()` call (PostgREST
+`PATCH /rest/v1/profiles`) was failing with `400` on *every* attempt. Read-only
+`npx supabase migration list` confirmed why — `supabase_migrations.schema_migrations`
+didn't exist on the live project (Postgres `42P01`), meaning **none** of
+`supabase/migrations/001-004` had ever been applied via the CLI. The tables
+existed (created some other way, historically), but `profiles.onboarding_complete`
+(migration 004) genuinely didn't — PostgREST rejects updates referencing
+unrecognized columns with 400, and something in Supabase-js/Hermes's handling of
+that failure is what actually crashed.
+
+Fixed on the database, not in code — no rebuild needed for this part:
+```bash
+npx supabase migration repair --status applied 001 002 003   # bookkeeping only; 001-003's tables already existed
+npx supabase db push                                          # applies only the genuinely-pending 004
+```
+Takeaway: never assume `supabase/migrations/*.sql` reflects the live schema
+just because the files exist in the repo — `supabase migration list` is
+read-only and cheap; check it before chasing a "schema mismatch" as a client
+bug.
+
+## Build 16 crash 2 — sign-in race between the explicit onSuccess path and the root layout's auth listener
+Same crash signature as above, now reproducing on sign-in itself instead of
+onboarding-finish (confirmed via a live Console.app capture): the OAuth code
+exchange completes (200), then two `getUser()`-shaped network calls fire and
+resolve within milliseconds of each other, and the crash follows within ~50ms
+of both completing.
+
+Root cause: two independent code paths both react to the same sign-in and both
+mutate the user store. `app/(auth)/login.tsx` and `signup.tsx` each pass an
+explicit `onSuccess` handler to `SocialAuthButtons` that deterministically
+calls `getSessionUser()` → `getProfile()` → `setAuthUser`/`setProfile` →
+navigates. Separately, `app/_layout.tsx` subscribes to
+`authService.onAuthChange()`, which fired on *every* Supabase auth event
+including `SIGNED_IN` — doing the exact same `getUser()`/`getProfile()`/store
+work a second time, concurrently, unawaited relative to the first. Two
+independent async chains landing on Hermes's microtask queue at nearly the
+same tick is what crashed it — the earlier Proxy/`instanceof` theories were
+chasing the same underlying concurrent-microtask crash shape, just from a
+different trigger each time.
+
+Fixed by making `AuthService.onAuthChange()` only fire on sign-out (session
+`null`) — every sign-in path already handles its own success deterministically
+(password login/signup, both OAuth `onSuccess` handlers, and this file's own
+`getSessionUser()` call on cold launch for session restore), so reacting to
+`SIGNED_IN` in the listener was always redundant, not just risky. Note the
+same redundant-listener pattern likely existed for the password-login path
+too (not just OAuth) — this fix covers both.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash

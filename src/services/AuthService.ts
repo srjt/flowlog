@@ -115,17 +115,36 @@ export class AuthService {
     if (error) throw new Error(error.message);
   }
 
+  /**
+   * Deliberately uses `getUser()` (a network round-trip that re-verifies with
+   * Supabase's server) instead of reading `session.user` from `getSession()`
+   * — Supabase's own documented best practice, since `session.user` isn't
+   * re-verified server-side. Trade-off: requires network access.
+   */
   async getSessionUser(): Promise<AuthUser | null> {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.user ? toAuthUser(data.session.user) : null;
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) return null;
+    return toAuthUser(data.user);
   }
 
-  /** Subscribe to auth changes; returns an unsubscribe function. */
-  onAuthChange(cb: (user: AuthUser | null) => void): () => void {
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      cb(session?.user ? toAuthUser(session.user) : null);
-    });
-    return () => data.subscription.unsubscribe();
+  /**
+   * Subscribe to sign-outs only (session revoked elsewhere, refresh token
+   * expired, etc.) — NOT sign-ins. Every sign-in path in this app (password
+   * login/signup, both OAuth `onSuccess` handlers, and this service's own
+   * session-restore call on cold launch) already sets the store explicitly
+   * and deterministically with its own result. Reacting to SIGNED_IN here too
+   * raced a second, independent getUser()/getProfile() chain against the same
+   * store on every sign-in — two concurrent chains landing on Hermes's
+   * microtask queue at nearly the same tick, which crashed the app outright.
+   * See docs/SDK54_UPGRADE.md.
+   */
+  onAuthChange(cb: (user: null) => void): () => void {
+    const { data: subscription } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!session) cb(null);
+      },
+    );
+    return () => subscription.subscription.unsubscribe();
   }
 
   /** Create the profile row on first sign-up if it doesn't exist (RLS-scoped). */

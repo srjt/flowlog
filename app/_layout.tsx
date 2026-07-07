@@ -60,12 +60,10 @@ export default function RootLayout() {
       const profile = await authService.getProfile(user.id);
       if (active) setProfile(profile);
     });
-    const unsubscribe = authService.onAuthChange(async (user) => {
+    // Only fires on sign-out (see AuthService.onAuthChange) -- sign-ins are
+    // handled explicitly by each screen's own success path above.
+    const unsubscribe = authService.onAuthChange((user) => {
       setAuthUser(user);
-      if (user) {
-        const profile = await authService.getProfile(user.id);
-        setProfile(profile);
-      }
     });
     return () => {
       active = false;
