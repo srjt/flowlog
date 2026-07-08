@@ -445,6 +445,45 @@ machine — see the Xcode/macOS-version discussion above) or upstream input
 (a detailed report to React Native/Hermes/Expo, since this crash signature
 was not found in any existing public issue as of this writing).
 
+## Auth bypass — testing everything else while sign-in stays unresolved
+Confirmed via three unrelated trigger paths (OAuth, password signup, and — via
+a live device test — that a crashed sign-in never persists a session, so
+"just relaunch" doesn't recover one either) that the crash lives somewhere in
+Supabase-js's own post-auth processing, not in any app-level code, and not
+tied to any one sign-in method. Rather than keep spending build cycles on
+narrower guesses, the pragmatic call: unblock everything *else* (profile
+config, recording, the real edge-function pipeline, DB persistence) by
+skipping the sign-in/signup UI entirely for now.
+
+`src/services/authBypass.ts`'s `bootstrapAuthBypassSession()` — gated by
+`isAuthBypass` (`src/config/featureFlags.ts`), on when both
+`EXPO_PUBLIC_AUTH_BYPASS_EMAIL`/`_PASSWORD` are set — makes a **raw `fetch()`**
+call to Supabase's `/auth/v1/token?grant_type=password` endpoint (no
+Supabase-js involved at all) for a dedicated test account, then writes the
+resulting session directly into the exact AsyncStorage key
+(`sb-<project-ref>-auth-token`) and shape `supabase.auth.getSession()`
+restores from on cold launch. `app/_layout.tsx` calls it before its existing
+session-restore call. This deliberately never touches
+`signInWithPassword`/`signInWithOAuth`/`exchangeCodeForSession`/`setSession`
+— every method already proven or suspected to hit the crash — so the rest of
+the app sees an already-authenticated user exactly as it would after a normal
+successful login on a previous day, with real Supabase for everything
+downstream (unlike `isDemoMode`/`isLocalPipeline`, which bypass Supabase
+entirely and wouldn't exercise the real pipeline/DB at all).
+
+Deliberately fetches a **fresh** session at launch rather than baking a
+static one into the build: a token baked in at build time would likely
+already be past its 1-hour expiry by the time the build reaches TestFlight
+and gets installed, forcing an immediate `autoRefreshToken` refresh on
+launch — which re-enters Supabase-js's own session-saving code, the exact
+risk this is trying to avoid.
+
+**Not a fix** — the sign-in crash itself remains open. Delete
+`src/services/authBypass.ts`, its one call site in `app/_layout.tsx`, the
+`AUTH_BYPASS_EMAIL`/`AUTH_BYPASS_PASSWORD` fields in `src/config/env.ts`, and
+the `EXPO_PUBLIC_AUTH_BYPASS_*` entries in `eas.json`'s `testflight` profile
+once real sign-in is resolved.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash

@@ -35,6 +35,10 @@
       "distribution": "store",
       "ios": {
         "image": "latest"
+      },
+      "env": {
+        "EXPO_PUBLIC_AUTH_BYPASS_EMAIL": "testuser@gmail.com",
+        "EXPO_PUBLIC_AUTH_BYPASS_PASSWORD": "bjjboss"
       }
     }
   },

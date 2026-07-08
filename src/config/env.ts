@@ -156,6 +156,15 @@ export interface Env {
   LOCAL_OPENAI_API_KEY: string;
   LOCAL_ANTHROPIC_API_KEY: string;
   LOCAL_GEMINI_API_KEY: string;
+
+  // Auth bypass. TEMPORARY, TESTING ONLY: when both are set, the app signs in
+  // as this fixed test account directly against Supabase's token endpoint on
+  // launch (bypassing the login/signup screens) so real Supabase data/pipeline
+  // testing can proceed while the sign-in UI crash (see docs/SDK54_UPGRADE.md)
+  // is investigated separately. Never enable in a real build — credentials
+  // ship in the client bundle.
+  AUTH_BYPASS_EMAIL: string;
+  AUTH_BYPASS_PASSWORD: string;
 }
 
 /**
@@ -258,6 +267,17 @@ function buildEnv(): Env {
       'EXPO_PUBLIC_GEMINI_API_KEY',
       '',
       process.env.EXPO_PUBLIC_GEMINI_API_KEY,
+    ),
+
+    AUTH_BYPASS_EMAIL: optional(
+      'EXPO_PUBLIC_AUTH_BYPASS_EMAIL',
+      '',
+      process.env.EXPO_PUBLIC_AUTH_BYPASS_EMAIL,
+    ),
+    AUTH_BYPASS_PASSWORD: optional(
+      'EXPO_PUBLIC_AUTH_BYPASS_PASSWORD',
+      '',
+      process.env.EXPO_PUBLIC_AUTH_BYPASS_PASSWORD,
     ),
   };
 

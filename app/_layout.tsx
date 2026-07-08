@@ -4,8 +4,9 @@ import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '../global.css';
-import { isDemoMode, isLocalPipeline } from '@/config/featureFlags';
+import { isAuthBypass, isDemoMode, isLocalPipeline } from '@/config/featureFlags';
 import { authService } from '@/services/AuthService';
+import { bootstrapAuthBypassSession } from '@/services/authBypass';
 import {
   addReminderResponseListener,
   configureNotificationHandler,
@@ -54,12 +55,15 @@ export default function RootLayout() {
     let active = true;
     // Production: restore the session, then hydrate the profile so the entry
     // route knows whether to send the user through onboarding.
-    authService.getSessionUser().then(async (user) => {
+    (async () => {
+      // TEMPORARY, TESTING ONLY -- see src/services/authBypass.ts.
+      if (isAuthBypass) await bootstrapAuthBypassSession();
+      const user = await authService.getSessionUser();
       if (!active || !user) return;
       setAuthUser(user);
       const profile = await authService.getProfile(user.id);
       if (active) setProfile(profile);
-    });
+    })();
     // Only fires on sign-out (see AuthService.onAuthChange) -- sign-ins are
     // handled explicitly by each screen's own success path above.
     const unsubscribe = authService.onAuthChange((user) => {

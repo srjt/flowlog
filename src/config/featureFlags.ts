@@ -31,6 +31,14 @@ export const isDemoMode: boolean = env.DEMO_MODE;
  */
 export const isLocalPipeline: boolean = env.LOCAL_PIPELINE;
 
+/**
+ * Auth bypass: on when a fixed test account's credentials are configured.
+ * TEMPORARY, TESTING ONLY — see env.ts for the full rationale.
+ */
+export const isAuthBypass: boolean = Boolean(
+  env.AUTH_BYPASS_EMAIL && env.AUTH_BYPASS_PASSWORD,
+);
+
 export type FeatureFlag = keyof typeof featureFlags;
 
 /** Sessions required before progression-gated features unlock. */
