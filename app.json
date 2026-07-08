@@ -48,16 +48,7 @@
           "color": "#5B8DEF"
         }
       ],
-      "expo-font",
-      [
-        "expo-build-properties",
-        {
-          "ios": {
-            "buildReactNativeFromSource": true
-          }
-        }
-      ],
-      "./plugins/withFmtConstevalFix"
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

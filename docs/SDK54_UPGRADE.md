@@ -344,6 +344,61 @@ Fixed by making `AuthService.onAuthChange()` only fire on sign-out (session
 same redundant-listener pattern likely existed for the password-login path
 too (not just OAuth) — this fix covers both.
 
+## Build 17 crash — same JSProxy::getPrototypeOf signature persists after the onAuthChange race fix; testing buildReactNativeFromSource as the cause
+The sign-in race fix above (build 17) did not resolve the crash — confirmed via
+two more symbolicated `.ips`/`.crash` files, including one gathered after a
+genuine full delete+reinstall (ruling out stale AsyncStorage/Keychain data).
+Both show the **identical** stack trace to build 14/16's crash:
+`JSProxy::getPrototypeOf` → `ordinaryHasInstance` → `instanceOfOperator_RJS` →
+`Runtime::drainJobs()`/`drainMicrotasks`, `SIGSEGV` at a near-null address
+(`0x28`). The crashing thread is confirmed to be `RCTJSThreadManager`'s run
+loop via `RuntimeScheduler_Modern::performMicrotaskCheckpoint` — the **main JS
+runtime**, not a separate UI/worklet runtime thread.
+
+Extensive candidate search (a dedicated sub-agent pass over
+`node_modules`) ruled out every plausible trap-less-`getPrototypeOf` `Proxy` in
+the reachable dependency chain: `@supabase/auth-js`'s `userNotAvailableProxy`/
+`insecureUserWarningProxy` (wrong trigger conditions, and disproven directly by
+the clean-reinstall test), `react-native-worklets`'s `INACCESSIBLE_OBJECT`
+(only materializes on the UI/worklet runtime, not the main JS thread this
+crash is confirmed on), `Proxy.revocable()` (zero usages anywhere in
+`node_modules`), and no `new Proxy(` usage at all in `expo-router`,
+`@react-navigation/*`, or `zustand`.
+
+Reading Hermes's actual `JSProxy::getPrototypeOf` source: this crash shape
+requires the Proxy's internal `target`/`handler` slots to already be
+null/invalid **before** the function is even called — not a JS-level Proxy
+misconfiguration a library would produce, but memory corruption. That's the
+same *class* of bug as the build 14 async-void-TurboModule heap corruption
+already fixed via `buildReactNativeFromSource: true` + the backported patch —
+raising the question of whether that from-source build itself introduced a
+*different* corruption source (e.g. an ABI mismatch between the freshly-built
+RN core and the still-prebuilt `hermes.framework`), given the crash's first
+appearance coincides with that change and worklets Bundle Mode (a separate,
+already-applied fix) should independently prevent the original callGuardDEV
+trigger from ever firing, making the from-source build's own patch
+non-load-bearing.
+
+No local Xcode available to test this via live debugger (this machine has
+only Command Line Tools, and Xcode 26.6 requires macOS Tahoe 26.2 — the dev
+machine is on Sonoma 14.8.2 and can't be upgraded). Testing via EAS build
+instead: **reverted** `expo-build-properties`'s `ios.buildReactNativeFromSource`
+and the now-coupled `./plugins/withFmtConstevalFix` (only needed when building
+from source — see the fmt section above) from `app.json`, going back to
+Expo's prebuilt RN core. `patches/react-native+0.81.5.patch` was left in place
+un-removed (harmless — patch-package still applies it to a source file that
+simply won't be compiled with the prebuilt core; trivial to re-enable by
+restoring the two `app.json` plugin entries if this doesn't pan out).
+
+**Not yet verified as the fix** — this is a single-variable test to confirm or
+rule out the from-source build as the cause, not a confirmed root-caused
+resolution. If this build 18 crashes identically, the from-source build is
+ruled out and the investigation continues elsewhere (native/JSI-level, per the
+sub-agent's other finding, or a genuine unreported Hermes engine bug). If the
+crash disappears, the *original* callGuardDEV risk this config was protecting
+against needs to be watched for on subsequent builds, though Bundle Mode
+should independently prevent it.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
