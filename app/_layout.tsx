@@ -27,6 +27,7 @@ export default function RootLayout() {
   const setAuthUser = useUserStore((s) => s.setAuthUser);
   const setProfile = useUserStore((s) => s.setProfile);
   const setOnboardingComplete = useUserStore((s) => s.setOnboardingComplete);
+  const setAuthBootstrapped = useUserStore((s) => s.setAuthBootstrapped);
   const setReminderPrefs = useUserStore((s) => s.setReminderPrefs);
 
   // Reminder notifications: configure foreground display, hydrate saved prefs,
@@ -50,19 +51,26 @@ export default function RootLayout() {
         setAuthUser({ id: 'dev-user', email: 'dev@flowlog.app' });
       }
       setOnboardingComplete(true);
+      setAuthBootstrapped(true);
       return;
     }
     let active = true;
     // Production: restore the session, then hydrate the profile so the entry
-    // route knows whether to send the user through onboarding.
+    // route knows whether to send the user through onboarding. Index waits on
+    // authBootstrapped before redirecting, so a real (or bypassed, see
+    // src/services/authBypass.ts) logged-in user isn't sent to /login just
+    // because this async lookup hasn't resolved on Index's first render yet.
     (async () => {
       // TEMPORARY, TESTING ONLY -- see src/services/authBypass.ts.
       if (isAuthBypass) await bootstrapAuthBypassSession();
       const user = await authService.getSessionUser();
-      if (!active || !user) return;
-      setAuthUser(user);
-      const profile = await authService.getProfile(user.id);
-      if (active) setProfile(profile);
+      if (!active) return;
+      if (user) {
+        setAuthUser(user);
+        const profile = await authService.getProfile(user.id);
+        if (active) setProfile(profile);
+      }
+      if (active) setAuthBootstrapped(true);
     })();
     // Only fires on sign-out (see AuthService.onAuthChange) -- sign-ins are
     // handled explicitly by each screen's own success path above.
@@ -73,7 +81,7 @@ export default function RootLayout() {
       active = false;
       unsubscribe();
     };
-  }, [setAuthUser, setProfile, setOnboardingComplete]);
+  }, [setAuthUser, setProfile, setOnboardingComplete, setAuthBootstrapped]);
 
   return (
     <SafeAreaProvider>

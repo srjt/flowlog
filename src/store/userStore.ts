@@ -21,6 +21,15 @@ interface UserState {
   skillLevel: SkillLevel;
   /** Whether first-run onboarding (sport/skill pick, mic priming) is done. */
   onboardingComplete: boolean;
+  /**
+   * Whether the initial auth restore (session lookup, profile fetch) has
+   * completed at least once. Index gates its redirect on this so it doesn't
+   * route to /login before an async session restore has had a chance to
+   * populate authUser -- without it, a real logged-in user (or the auth
+   * bypass, see src/services/authBypass.ts) would flash the login screen and
+   * get stuck there, since nothing re-routes a user already past Index.
+   */
+  authBootstrapped: boolean;
   /** Local post-training reminder preferences (mirrors persisted prefs). */
   reminderPrefs: ReminderPrefs;
   /** Weekly digest preferences (mirrors persisted prefs). */
@@ -31,6 +40,7 @@ interface UserState {
   setActiveSport: (sport: SportKey) => void;
   setSkillLevel: (level: SkillLevel) => void;
   setOnboardingComplete: (complete: boolean) => void;
+  setAuthBootstrapped: (done: boolean) => void;
   setReminderPrefs: (prefs: ReminderPrefs) => void;
   setDigestPrefs: (prefs: DigestPrefs) => void;
   reset: () => void;
@@ -42,6 +52,7 @@ export const useUserStore = create<UserState>((set) => ({
   activeSport: 'bjj',
   skillLevel: 'White Belt',
   onboardingComplete: false,
+  authBootstrapped: false,
   reminderPrefs: DEFAULT_REMINDER_PREFS,
   digestPrefs: DEFAULT_DIGEST_PREFS,
 
@@ -56,6 +67,7 @@ export const useUserStore = create<UserState>((set) => ({
   setActiveSport: (activeSport) => set({ activeSport }),
   setSkillLevel: (skillLevel) => set({ skillLevel }),
   setOnboardingComplete: (onboardingComplete) => set({ onboardingComplete }),
+  setAuthBootstrapped: (authBootstrapped) => set({ authBootstrapped }),
   setReminderPrefs: (reminderPrefs) => set({ reminderPrefs }),
   setDigestPrefs: (digestPrefs) => set({ digestPrefs }),
   reset: () =>

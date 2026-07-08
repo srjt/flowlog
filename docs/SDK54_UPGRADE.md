@@ -484,6 +484,26 @@ risk this is trying to avoid.
 the `EXPO_PUBLIC_AUTH_BYPASS_*` entries in `eas.json`'s `testflight` profile
 once real sign-in is resolved.
 
+### Bug found while testing the bypass: Index redirected to /login before the async restore resolved
+Build 19 shipped the bypass above but the tester still landed on the login
+screen on every launch — a bug in the bypass wiring, not the underlying
+crash. `app/index.tsx` read `authUser` from the store and redirected
+synchronously on its first render; the root layout's session restore (now
+with the bypass's extra `fetch()` round-trip in front of it) is async, so
+`authUser` is still `null` at that first render regardless of whether a
+real or bypassed session is about to load successfully. Once `Index`
+redirects to `/login`, nothing routes the user away from it even after the
+store updates moments later — only `Index` itself decides where to go, and
+by then it's unmounted.
+
+This same race always existed for a normal returning (already logged-in)
+user too, just narrow enough to usually pass unnoticed as a brief flash
+rather than a stuck screen. Fixed generally: added `authBootstrapped`
+(`src/store/userStore.ts`), set once the root layout's initial restore
+resolves (in every branch: demo/local mode and production, whether or not a
+user was found). `Index` now renders a loading spinner instead of
+redirecting until that flag is true.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
