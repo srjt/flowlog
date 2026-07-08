@@ -399,6 +399,52 @@ crash disappears, the *original* callGuardDEV risk this config was protecting
 against needs to be watched for on subsequent builds, though Bundle Mode
 should independently prevent it.
 
+## Build 18 result — inconclusive; buildReactNativeFromSource restored
+The revert built successfully and genuinely took effect — confirmed via the
+crash log's binary images, which now show `React.framework` and
+`ReactNativeDependencies.framework` as separate prebuilt frameworks (build 17
+had RN statically linked directly into the main `Flowlog` binary, as expected
+when building from source).
+
+The crash still happened, in the same operational shape: `instanceof` →
+`getPrototypeOf` → `drainMicrotasks`, on the main JS thread, right after an
+async continuation. **But** the crash address changed from a consistent
+near-null `0x28` (every prior occurrence) to a large, effectively-random
+`0x4647646c` — inconsistent with a single deterministic bug and more
+consistent with a *different* corruption source now in play.
+
+The reason: reverting `buildReactNativeFromSource` doesn't just change how RN
+compiles — it also silently stops `patches/react-native+0.81.5.patch` from
+applying, since that patch targets `RCTTurboModule.mm`, a source file that
+only gets compiled when building from source. Build 18 wasn't a clean
+single-variable test: it removed the from-source build **and** reintroduced
+the exact heap-corruption class of bug that patch exists to prevent
+(facebook/hermes#1957 / facebook/react-native#56265), at the same time. The
+changed crash address is consistent with a second, different corruption
+source now contributing, not with `buildReactNativeFromSource` being cleanly
+ruled in or out.
+
+Investigated `@react-native-async-storage/async-storage` as a candidate
+uncovered call site (Supabase persists sessions through it on every sign-in,
+and its native methods are async-completion-via-block, the same shape as the
+original bug) — but its `codegenConfig`/podspec confirm it's a real Codegen'd
+TurboModule exposing `Promise`-returning methods to JS, and
+`ObjCTurboModule`'s dispatcher routes by the JS-facing signature, not the raw
+ObjC one — so its calls go through `performMethodInvocation` (the
+already-safe, promise-based path), not the vulnerable
+`performVoidMethodInvocation`. Weakens this as the specific culprit, though a
+different not-yet-identified async-void call site remains possible.
+
+**Reverted the revert** — `ios.buildReactNativeFromSource: true` and
+`./plugins/withFmtConstevalFix` restored in `app.json` (now identical to the
+state before build 18's test commit), since removing them cost a known
+protection without yielding clean evidence. The `JSProxy`/`JSObject`
+`getPrototypeOf` crash remains **unresolved and not root-caused**. Next
+diagnosis needs either genuine native-debugger access (blocked on this
+machine — see the Xcode/macOS-version discussion above) or upstream input
+(a detailed report to React Native/Hermes/Expo, since this crash signature
+was not found in any existing public issue as of this writing).
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
