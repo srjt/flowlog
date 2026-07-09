@@ -4,7 +4,12 @@ import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '../global.css';
-import { isAuthBypass, isDemoMode, isLocalPipeline } from '@/config/featureFlags';
+import { RootErrorBoundary } from '@/components/RootErrorBoundary';
+import {
+  isAuthBypass,
+  isDemoMode,
+  isLocalPipeline,
+} from '@/config/featureFlags';
 import { authService } from '@/services/AuthService';
 import { bootstrapAuthBypassSession } from '@/services/authBypass';
 import {
@@ -86,14 +91,16 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(onboarding)" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="(flow)" />
-        <Stack.Screen name="session/[id]" />
-      </Stack>
+      <RootErrorBoundary>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(onboarding)" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="(flow)" />
+          <Stack.Screen name="session/[id]" />
+        </Stack>
+      </RootErrorBoundary>
     </SafeAreaProvider>
   );
 }

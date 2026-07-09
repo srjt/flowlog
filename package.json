@@ -1,7 +1,7 @@
 {
   "name": "flowlog",
   "version": "0.1.0",
-  "main": "expo-router/entry",
+  "main": "./index.js",
   "private": true,
   "description": "Flowlog — a voice reflection tool for serious hobbyists. Talk. Reflect. Improve.",
   "scripts": {
