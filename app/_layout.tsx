@@ -5,13 +5,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '../global.css';
 import { RootErrorBoundary } from '@/components/RootErrorBoundary';
-import {
-  isAuthBypass,
-  isDemoMode,
-  isLocalPipeline,
-} from '@/config/featureFlags';
+import { isDemoMode, isLocalPipeline } from '@/config/featureFlags';
 import { authService } from '@/services/AuthService';
-import { bootstrapAuthBypassSession } from '@/services/authBypass';
 import {
   addReminderResponseListener,
   configureNotificationHandler,
@@ -62,12 +57,10 @@ export default function RootLayout() {
     let active = true;
     // Production: restore the session, then hydrate the profile so the entry
     // route knows whether to send the user through onboarding. Index waits on
-    // authBootstrapped before redirecting, so a real (or bypassed, see
-    // src/services/authBypass.ts) logged-in user isn't sent to /login just
-    // because this async lookup hasn't resolved on Index's first render yet.
+    // authBootstrapped before redirecting, so an already-logged-in user isn't
+    // sent to /login just because this async lookup hasn't resolved on Index's
+    // first render yet.
     (async () => {
-      // TEMPORARY, TESTING ONLY -- see src/services/authBypass.ts.
-      if (isAuthBypass) await bootstrapAuthBypassSession();
       const user = await authService.getSessionUser();
       if (!active) return;
       if (user) {

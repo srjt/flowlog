@@ -25,9 +25,9 @@ interface UserState {
    * Whether the initial auth restore (session lookup, profile fetch) has
    * completed at least once. Index gates its redirect on this so it doesn't
    * route to /login before an async session restore has had a chance to
-   * populate authUser -- without it, a real logged-in user (or the auth
-   * bypass, see src/services/authBypass.ts) would flash the login screen and
-   * get stuck there, since nothing re-routes a user already past Index.
+   * populate authUser -- without it, a returning logged-in user would flash
+   * the login screen and get stuck there, since nothing re-routes a user
+   * already past Index.
    */
   authBootstrapped: boolean;
   /** Local post-training reminder preferences (mirrors persisted prefs). */

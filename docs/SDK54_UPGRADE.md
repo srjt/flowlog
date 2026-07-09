@@ -450,6 +450,14 @@ machine — see the Xcode/macOS-version discussion above) or upstream input
 was not found in any existing public issue as of this writing).
 
 ## Auth bypass — testing everything else while sign-in stays unresolved
+> **Removed after build 22** (see the build 22 section): the record/pipeline
+> flow was confirmed working on-device, so the bypass
+> (`src/services/authBypass.ts`, its `_layout.tsx` call, the
+> `AUTH_BYPASS_*` env fields, and the `eas.json` entries) was deleted and the
+> real login page restored in build 23 — which doubles as the first test of
+> whether the Family B sign-in crash still exists on the new worklets stack.
+> Kept for history.
+
 Confirmed via three unrelated trigger paths (OAuth, password signup, and — via
 a live device test — that a crashed sign-in never persists a session, so
 "just relaunch" doesn't recover one either) that the crash lives somewhere in
@@ -672,6 +680,13 @@ crash post-dates Bundle Mode adoption, and Bundle Mode ran the worklets
 runtime entry on the MAIN runtime at every launch — removed now, so retest
 real sign-in after Family A is confirmed fixed before assuming Family B still
 exists.
+
+**Build 22 device result: CONFIRMED WORKING.** Cold launch → Record tab
+(reanimated pulse fine), full record → pipeline → session persisted to
+Supabase. Family A is fixed. The auth bypass was then removed (build 23) to
+restore the real login page — which is also the Family B retest: if sign-in
+crashes again, the new diagnostics (error boundary screen / Console.app
+`[flowlog] GLOBAL JS ERROR` lines) will show the real error this time.
 
 ## Rollback
 Most of this is one git commit's worth of diffs:
