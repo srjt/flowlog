@@ -1,0 +1,13 @@
+diff --git a/node_modules/@react-native/babel-preset/src/configs/main.js b/node_modules/@react-native/babel-preset/src/configs/main.js
+index 2cf830c..1b2e772 100644
+--- a/node_modules/@react-native/babel-preset/src/configs/main.js
++++ b/node_modules/@react-native/babel-preset/src/configs/main.js
+@@ -86,7 +86,7 @@ const getPreset = (src, options) => {
+     );
+   }
+ 
+-  if (hasClass) {
++  if (hasClass && !isHermes) {
+     extraPlugins.push([require('@babel/plugin-transform-classes')]);
+   }
+ 

@@ -504,13 +504,114 @@ resolves (in every branch: demo/local mode and production, whether or not a
 user was found). `Index` now renders a loading spinner instead of
 redirecting until that flag is true.
 
+## Build 20 — bypass unblocked new screens, revealing a different crash class
+With the bypass landing straight in the app (confirmed working), the tester
+reached `onboarding-finish`'s DB write and — for the first time ever in this
+investigation — `app/(tabs)/record.tsx`, the only screen using
+`react-native-reanimated`/`react-native-worklets`. The resulting crash was
+structurally new: `RCTFatalException`/`SIGABRT`, not the native `SIGSEGV`
+pattern from every build before it. The live capture showed a clean (if
+unhelpfully generic) JS-level stack:
+```
+Unhandled JS Exception: [object Object]
+*** Terminating app due to uncaught exception 'RCTFatalException: ...
+_construct@5196:66
+Wrapper@5168:24
+_callSuper@3807:109
+SyntheticError@5012:37
+handleException@5094:34
+handleError@29512:43
+reportFatalError@757:38
+guardedLoadModule@96:42
+metroRequire@42:91
+loadRoute@128110:41
+getQualifiedRouteComponent@111363:31
+```
+`RCTFatalException` is React Native's *normal* handling of an uncaught JS
+exception — not memory corruption. The thrown value stringified to
+`"[object Object]"` with an empty `name`, consistent with a malformed Error
+instance rather than a deliberately-thrown app error.
+
+## Root cause found: `@react-native/babel-preset` downlevels classes for Hermes too
+`_construct`/`Wrapper`/`_callSuper` are `@babel/runtime` helpers
+(`helpers/construct.js`, `helpers/wrapNativeSuper.js`, `helpers/callSuper.js`)
+that Babel emits when it transpiles `class X extends Error {}` down to an
+ES5-compatible form — `Wrapper` calls `Reflect.construct(Error, args,
+newTarget)`, and `_callSuper` does the same one level up. `SyntheticError` is
+React Native's own internal class (`class SyntheticError extends Error`,
+constructed by `handleException`/`reportFatalError` — RN's *global error
+handler* — every time **anything** throws an uncaught error anywhere in the
+app), so this ES5 downlevel path runs on every unhandled exception, not just
+this one.
+
+Checked `node_modules/@react-native/babel-preset/src/configs/main.js`
+(`"main": "src/index.js"` in its `package.json` — it ships and runs as source,
+no separate build step, so it's patchable the same way as the RN core patch
+above). Every ES2015+ syntax transform in that file is explicitly gated behind
+`!isHermes` (arrow functions, optional chaining, nullish coalescing, logical
+assignment, computed properties, spread, object-rest-spread — Hermes supports
+all of these natively, so the preset skips lowering them) — **except
+`@babel/plugin-transform-classes`**, which runs unconditionally whenever the
+source contains the string `class`:
+```js
+if (hasClass) {
+  extraPlugins.push([require('@babel/plugin-transform-classes')]);
+}
+```
+Hermes has supported native ES2015 classes, including `extends`-ing built-ins
+like `Error`, since its first release — this transform gains nothing for a
+Hermes target and only exists (per the surrounding pattern) because it was
+never added to the `!isHermes` gate the other syntax transforms already use.
+Patched to match:
+```js
+if (hasClass && !isHermes) {
+  extraPlugins.push([require('@babel/plugin-transform-classes')]);
+}
+```
+via `patches/@react-native+babel-preset+0.81.5.patch` (same `patch-package`
+mechanism as the existing RN-core and Metro patches; picked up automatically
+by the `postinstall` hook).
+
+**Locally verified** (no build spent): a cold `expo export --no-bytecode
+--no-minify` before vs. after the patch shows `SyntheticError` compiling to
+native `class SyntheticError extends Error { ... }` instead of the
+`_construct`/`_callSuper`/`Wrapper` chain. `npm run typecheck` and `npm test`
+both pass identically before/after (the 3 pre-existing `notifications.test.ts`
+failures — `Notifications.SchedulableTriggerInputTypes.CALENDAR` undefined in
+the test mock — are confirmed unrelated: reproduced with the patch reverted
+too; tracked separately, not part of this fix).
+
+A pre-built third-party dependency (bundled `AssertionError`, Metro module
+1571) still shows the same `_wrapNativeSuper`/`Reflect.construct` shape —
+expected and out of scope, since it ships already-compiled and was never
+processed by this project's Babel config to begin with, patched or not.
+
+**Why this plausibly explains the whole session, not just this crash**: every
+crash since build 16 has centered on `Reflect.construct`/`getPrototypeOf`/
+`instanceof` around Error-like objects (`ErrorConstructor`/`JSError::setMessage`
+in the very first crash; `JSProxy`/`JSObject::getPrototypeOf` during
+`instanceof` in builds 16-19) — different surface triggers (DB error, auth
+race, OAuth redirect, module load) but the same construction path underneath,
+because `SyntheticError` is what RN's own error handler builds to report
+*any* of them. If that shared path was the thing breaking, unrelated errors
+that should have been caught and displayed gracefully could instead crash the
+app via the reporting mechanism itself — which would explain why the trigger
+kept moving across builds while the crash shape stayed so similar.
+
+**Not yet confirmed on-device** — this is a strong, evidence-backed hypothesis
+(direct match to the exact crashing stack trace, consistent with every prior
+crash's frames, and cleanly, locally verified in the compiled bundle) but not
+proven until a real TestFlight build reproduces the full flow without
+crashing.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
 git checkout -- package.json babel.config.js metro.config.js app.json eas.json \
   CLAUDE.md src/providers/transcription/GeminiTranscriptionProvider.ts
-rm -rf patches   # removes the metro bundle-mode SHA-1 patch and the
-                 # RCTTurboModule.mm async-void-NSException patch
+rm -rf patches   # removes the metro bundle-mode SHA-1 patch, the
+                 # RCTTurboModule.mm async-void-NSException patch, and the
+                 # babel-preset Hermes-class-transform patch
 ```
 
 ## After it launches cleanly
