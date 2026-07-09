@@ -14,18 +14,11 @@ module.exports = function (api) {
 
   // Reanimated 4 moved its worklet transform into react-native-worklets.
   // This plugin MUST be listed last. Skipped under Jest (no rendering/worklets).
-  //
-  // bundleMode: worklets are serialized into the Metro bundle at build time
-  // instead of having their source re-parsed at runtime by valueUnpacker. On
-  // physical iOS 26 devices that runtime parse hits a `callGuardDEV` symbol and
-  // throws a Hermes SyntaxError, which propagates as an unhandled C++ exception
-  // through ObjCTurboModule::performVoidMethodInvocation and SIGABRTs at launch
-  // (the crash simulators never see). Turning off runtime parsing removes the
-  // trigger. Pairs with the bundle-mode Metro config in metro.config.js.
-  // Refs: reanimated#9443, expo#44606, react-native#54859.
-  const plugins = isTest
-    ? []
-    : [['react-native-worklets/plugin', { bundleMode: true }]];
+  // Bundle Mode was REMOVED with worklets 0.8.3: the 0.5.1 valueUnpacker's
+  // broken `callGuardDEV` reference (the physical-iOS-26 launch crash) is gone
+  // from 0.8.x, so the default runtime path is safe again. History + fallback:
+  // docs/SDK54_UPGRADE.md.
+  const plugins = isTest ? [] : [['react-native-worklets/plugin']];
 
   return { presets, plugins };
 };

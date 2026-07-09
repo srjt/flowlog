@@ -63,6 +63,10 @@ Tether the iPhone to the Mac and read the real error via Console.app (filter
 abort. Paste that message back for a targeted fix.
 
 ## Physical iOS 26 launch crash — worklets bundle-mode fix (the real one)
+> **Superseded — Bundle Mode was removed in build 22** (see "Build 22" at the
+> bottom): worklets 0.8.3 no longer has the defect this worked around. Kept
+> for history and as the fallback recipe's context.
+
 The app built fine and ran on simulators but crashed ~100–400 ms into launch on
 **physical** iOS 26 devices (TestFlight build 6). Two non-deterministic native
 signatures from the same binary:
@@ -595,6 +599,79 @@ attempted — next diagnosis session should start here, or consider reporting
 both bugs upstream (the Hermes parser's class-then-`(` ASI handling, and
 the original `SyntheticError` construction crash) since neither was found
 in an existing public issue as of this writing.
+
+## Build 22 — strategy reset: bundle mode removed (worklets 0.8.3 / reanimated 4.3.2) + permanent crash diagnostics
+A from-scratch review of the whole crash history reframed the build 20 crash:
+the "[object Object]" exception is thrown during expo-router's lazy `require()`
+of `record.tsx` — the first route to import reanimated, which is when worklets'
+full `init()` runs on the RN runtime: native `WorkletsModule` require, UI
+runtime creation, and several synchronous `executeOnUIRuntimeSync` cross-runtime
+calls, all under the hand-rolled worklets-0.5.1 Bundle Mode config. Ruled out
+along the way: reanimated version-check throws (`__DEV__`-only, skipped in
+release), Metro module-ID collisions (generated worklet IDs are hash-derived,
+~10^10 and up; sequential app IDs are 0–N), and `ReanimatedError`/
+`WorkletsError` as the thrown value (both are real `Error` instances built via
+`new Error()` — they'd stringify readably, not as "[object Object]").
+
+**The fix direction: stop needing Bundle Mode at all.** Verified in the
+published packages (unpkg + installed source): worklets **0.8.3**'s runtime
+valueUnpacker no longer references `callGuardDEV` (the broken 0.5.1 reference
+that crashed iOS 26 launches and forced Bundle Mode), its Babel plugin no
+longer injects it into serialized worklet code (0 references), and
+`setupCallGuard()` now installs `globalThis.__callGuardDEV` during init anyway.
+`react-native-reanimated@4.3.2` peer-accepts RN `0.81 – 0.85` and requires
+worklets `0.8.x` exactly. SDK 54's `bundledNativeModules.json` still pins the
+old versions, so both packages are listed in `package.json`'s
+`expo.install.exclude` — **do not let `npx expo install --fix` downgrade
+them** (expo-doctor passes 17/17 with the exclusions).
+
+What changed:
+- `package.json`: reanimated `~4.1.1 → ~4.3.2`, worklets `0.5.1 → ~0.8.3`,
+  `expo.install.exclude` added.
+- `babel.config.js`: `{ bundleMode: true }` removed from the worklets plugin
+  (plugin itself stays, still last).
+- `metro.config.js`: the entire hand-inlined bundle-mode block deleted — back
+  to stock `expo/metro-config` + nativewind.
+- `patches/metro+0.83.3.patch` deleted (existed only for bundle mode's
+  mid-build generated-file SHA-1 issue). `patches/react-native+0.81.5.patch`
+  KEPT (TurboModule NSException fix — unrelated, still needed).
+- Lockfile regenerated with node 20.19.4's npm 10.8.2 (the EAS pin) and gated
+  with `npm ci --include=dev`.
+
+**Permanent crash diagnostics** (separate commit, rides every future build):
+- `src/utils/errorReporter.ts` — zero-import module loaded first via a new
+  root `index.js` entry (`package.json` `main` changed from
+  `expo-router/entry`; exported bundles rename `entry-*.hbc → index-*.hbc`).
+  Wraps `ErrorUtils`' global handler: deep-serializes any thrown value (own
+  props, prototype chain, getter-safe, circular-safe) to `console.error` in
+  os_log-sized chunks, then calls through to the previous handler. Zero-import
+  because `env.ts` throws at import time — the reporter must be able to report
+  that.
+- `src/components/RootErrorBoundary.tsx` — wraps the `<Stack>` in
+  `app/_layout.tsx`. Catches route modules that throw during expo-router's
+  lazy require (expo-router doesn't try/catch the require; Suspense alone
+  doesn't catch the rejection) and renders the serialized error full-screen —
+  plain RN primitives only, so the tester can screenshot the real error.
+
+Verified locally before the build: tests (same 3 known notification-mock
+failures only), typecheck, expo-doctor 17/17, cold `expo export` (bytecode ON),
+the minified no-bytecode export compiles under the local `hermesc` with zero
+diagnostics (the build-21 lesson), and the bundle contains zero
+`__generatedWorklets` references.
+
+**Fallback if the old launch-time signature returns** (SIGABRT on
+`com.meta.react.turbomodulemanager.queue` at launch, before any UI): keep
+0.8.3 and re-enable bundle mode the OFFICIAL way — the 0.8.3 plugin still
+accepts `bundleMode: true` and ships its own metro overrides in
+`react-native-worklets/lib/module/bundleMode/metroOverrides.native.js`. Do NOT
+resurrect the deleted 0.5.1-era hand-rolled metro block.
+
+Family B (the `JSProxy::getPrototypeOf` sign-in SIGSEGVs, builds 16-19)
+remains open and bypassed by the auth bypass. Worth noting: every Family B
+crash post-dates Bundle Mode adoption, and Bundle Mode ran the worklets
+runtime entry on the MAIN runtime at every launch — removed now, so retest
+real sign-in after Family A is confirmed fixed before assuming Family B still
+exists.
 
 ## Rollback
 Most of this is one git commit's worth of diffs:

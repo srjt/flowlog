@@ -26,13 +26,18 @@ Tagline: "Talk. Reflect. Improve."
 - **New Architecture is ON** (`app.json` `newArchEnabled: true`) — Reanimated 4
   requires it. `expo-updates` is temporarily disabled (`updates.enabled: false`)
   to isolate the migration; re-enable once a 54 build launches cleanly.
-- **Toolchain (SDK 54 compatible — let `expo install --fix` set exact pins):**
-  `react-native@0.81`, `react@19.1`, `nativewind@^4.2`,
-  `react-native-reanimated@~4.1` + `react-native-worklets` (its worklet plugin
-  must be last in `babel.config.js`). The old `metro@0.80.9` overrides have been
-  REMOVED (SDK 54 needs metro 0.83). `expo-av` still works in 54 (removed in 55)
-  — migrate to `expo-audio` before SDK 55. Supersedes `docs/DECISIONS.md` #009,
-  which applied only to SDK 51.
+- **Toolchain (SDK 54 compatible):** `react-native@0.81`, `react@19.1`,
+  `nativewind@^4.2`, `react-native-reanimated@~4.3.2` +
+  `react-native-worklets@~0.8.3` (its worklet plugin must be last in
+  `babel.config.js`). Reanimated/worklets are INTENTIONALLY ahead of SDK 54's
+  pins (listed in `package.json` `expo.install.exclude`) — do NOT let
+  `expo install --fix` downgrade them; see `docs/SDK54_UPGRADE.md` build 22.
+  Worklets Bundle Mode was removed with 0.8.3. The app entry is `./index.js`
+  (loads `src/utils/errorReporter.ts` before expo-router so fatal JS errors
+  are readable). The old `metro@0.80.9` overrides have been REMOVED (SDK 54
+  needs metro 0.83). `expo-av` still works in 54 (removed in 55) — migrate to
+  `expo-audio` before SDK 55. Supersedes `docs/DECISIONS.md` #009, which
+  applied only to SDK 51.
 
 ## Pipeline Runtime (IMPORTANT)
 
