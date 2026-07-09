@@ -504,6 +504,98 @@ resolves (in every branch: demo/local mode and production, whether or not a
 user was found). `Index` now renders a loading spinner instead of
 redirecting until that flag is true.
 
+## Build 20 — bypass unblocked new screens, revealing a different crash class
+With the bypass landing straight in the app, the tester reached
+`onboarding-finish`'s DB write and — for the first time ever in this
+investigation — `app/(tabs)/record.tsx`, the only screen using
+`react-native-reanimated`/`react-native-worklets`. The resulting crash was
+structurally new: `RCTFatalException`/`SIGABRT`, not the native `SIGSEGV`
+pattern from every build before it. The live capture showed a clean (if
+unhelpfully generic) JS-level stack:
+```
+Unhandled JS Exception: [object Object]
+*** Terminating app due to uncaught exception 'RCTFatalException: ...
+_construct@5196:66
+Wrapper@5168:24
+_callSuper@3807:109
+SyntheticError@5012:37
+handleException@5094:34
+handleError@29512:43
+reportFatalError@757:38
+guardedLoadModule@96:42
+loadRoute@128110:41
+getQualifiedRouteComponent@111363:31
+```
+`RCTFatalException` is React Native's *normal* handling of an uncaught JS
+exception, not memory corruption. `_construct`/`Wrapper`/`_callSuper` are
+`@babel/runtime` helpers Babel emits when downleveling `class X extends
+Error {}` to an ES5-compatible form; `SyntheticError` is RN's own internal
+class, constructed by its global error handler to report *any* uncaught
+error anywhere in the app.
+
+## Investigated and reverted: disabling the class downlevel for Hermes
+`node_modules/@react-native/babel-preset/src/configs/main.js` gates every
+other ES2015+ syntax transform behind `!isHermes` (Hermes supports them
+natively) except `@babel/plugin-transform-classes`, which runs
+unconditionally. That looked like a plausible explanation for the whole
+session's crash pattern (every crash since build 16 centered on
+`Reflect.construct`/`getPrototypeOf`/`instanceof` around Error-like
+objects), so it was patched via `patch-package` to add the same `!isHermes`
+gate as every other transform in that file, verified locally (`typecheck`,
+`npm test`, and a cold `expo export --no-bytecode` showing `SyntheticError`
+compiling to a native `class SyntheticError extends Error {}`), committed,
+and built.
+
+**The build failed** — not a runtime crash this time, a compile-time one, in
+the Xcode "Run fastlane" step: `hermesc` (the standalone Hermes bytecode
+compiler C++ tool, invoked from `$PODS_ROOT/hermes-engine/destroot/bin/
+hermesc` during the iOS build — a *different* binary from the prebuilt one
+at `node_modules/react-native/sdks/hermesc/osx-bin/hermesc` that `expo
+export`'s own bytecode step uses locally) rejected the **minified** bundle
+with `error: invalid statement encountered` at ~20 locations in
+`main.jsbundle`, then gave up ("too many errors emitted"). The earlier local
+verification had used `--no-bytecode`, which skips `hermesc` entirely, and
+separately `--no-minify`, so it never actually exercised the code path that
+broke.
+
+Reproduced locally (`expo export --no-bytecode` then feeding the bundle
+directly to the prebuilt `hermesc` binary) to find the actual cause: every
+failure site is a native `class Foo { ... }` declaration immediately
+followed by `(` starting the next statement, no separator between them —
+e.g. minified output like `}(0,n.setPlatformObject)(...)`. A class
+declaration is a complete statement per the ECMAScript grammar and doesn't
+need a semicolon before what follows, so Terser (Metro's minifier) safely
+omits one. Hermes's parser evidently mishandles that exact adjacency,
+reading `class Foo{...}(expr)` as one continued statement instead of two —
+a real, pre-existing `hermesc` parser bug, most likely exactly *why*
+`@babel/plugin-transform-classes` was never gated behind `!isHermes` in the
+upstream preset: doing so was probably tried before and silently breaks
+minified Hermes builds this way, so the unconditional transform is likely
+load-bearing, not an oversight.
+
+**Reverted** (`git revert`) — both the `patches/@react-native+babel-preset+
+0.81.5.patch` file and the doc section describing it as a fix. Confirmed
+buildable again: with the Metro transform cache fully cleared (`expo export
+--clear`; a stale cache initially made the revert look like it hadn't taken
+effect, since Metro doesn't hash a babel preset's own source as part of its
+per-file cache key), the reverted bundle contains zero native `class`
+declarations and the prebuilt `hermesc` compiles it cleanly.
+
+**Where this leaves the original crash investigation**: the
+`SyntheticError`/`Reflect.construct`-around-Error-construction hypothesis is
+still plausible for the *runtime* crash pattern seen in builds 16-20 — that
+part of the reasoning doesn't depend on skipping the transform, only on
+what the ES5-downleveled `Wrapper`/`_construct`/`_callSuper` chain does at
+`new SyntheticError(...)` time. But the fix as attempted (stop generating
+that chain) isn't viable, since it trades a runtime bug for a build-time
+one. A narrower fix would need to change what those specific
+`@babel/runtime` helpers do internally (risky, invasive, modifies a shared
+low-level primitive) rather than avoiding them altogether. Not yet
+attempted — next diagnosis session should start here, or consider reporting
+both bugs upstream (the Hermes parser's class-then-`(` ASI handling, and
+the original `SyntheticError` construction crash) since neither was found
+in an existing public issue as of this writing.
+
 ## Rollback
 Most of this is one git commit's worth of diffs:
 ```bash
