@@ -53,6 +53,7 @@ const DEMO_RESULTS: Record<SportKey, DemoResult[]> = {
         'Situations this round: approach shots, mid-irons. Key mistake: weight hanging back at impact. Mood: neutral.',
     },
   ],
+  wrestling: [],
   tennis: [],
   climbing: [],
   chess: [],

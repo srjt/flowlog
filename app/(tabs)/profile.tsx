@@ -5,9 +5,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DigestSettings } from '@/components/DigestSettings';
 import { ReminderSettings } from '@/components/ReminderSettings';
 import { Button, Card, Text } from '@/components/ui';
-import { featureFlags, isDemoMode } from '@/config/featureFlags';
+import { isDemoMode } from '@/config/featureFlags';
 import { authService } from '@/services/AuthService';
-import { getSportContext, registeredSportKeys } from '@/sports';
+import {
+  COMING_SOON_SPORTS,
+  getSportContext,
+  registeredSportKeys,
+} from '@/sports';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUserStore } from '@/store/userStore';
 import type { SportKey } from '@/types/sport';
@@ -25,13 +29,8 @@ export default function ProfileScreen() {
   const sportKeys = registeredSportKeys();
   const activeContext = getSportContext(activeSport);
 
-  // Golf is gated by its feature flag, but always available in demo mode so it
-  // can be prototyped.
-  const isSportEnabled = (key: SportKey) =>
-    key === 'bjj' || featureFlags.golfSport || isDemoMode;
-
   const changeSport = (key: SportKey) => {
-    if (key === activeSport || !isSportEnabled(key)) return;
+    if (key === activeSport) return;
     setActiveSport(key);
     const levels = getSportContext(key).skillLevels;
     setSkillLevel(levels[0] ?? '');
@@ -67,33 +66,38 @@ export default function ProfileScreen() {
           <Text variant="caption">SPORT</Text>
           <View className="flex-row flex-wrap gap-2">
             {sportKeys.map((key) => {
-              const enabled = isSportEnabled(key);
               const selected = key === activeSport;
               return (
                 <Pressable
                   key={key}
                   accessibilityRole="button"
                   accessibilityLabel={getSportContext(key).displayName}
-                  accessibilityState={{ selected, disabled: !enabled }}
-                  disabled={!enabled}
+                  accessibilityState={{ selected }}
                   onPress={() => changeSport(key)}
                   className={`rounded-xl border px-4 py-3 ${
                     selected
                       ? 'border-primary bg-primary/20'
                       : 'border-muted bg-surface'
-                  } ${enabled ? '' : 'opacity-40'}`}
+                  }`}
                 >
-                  <Text variant="body">
-                    {getSportContext(key).displayName}
-                    {!enabled ? ' 🔒' : ''}
-                  </Text>
+                  <Text variant="body">{getSportContext(key).displayName}</Text>
                 </Pressable>
               );
             })}
+            {COMING_SOON_SPORTS.map(({ key, displayName }) => (
+              <Pressable
+                key={key}
+                accessibilityRole="button"
+                accessibilityLabel={displayName}
+                accessibilityState={{ disabled: true }}
+                disabled
+                className="rounded-xl border border-muted bg-surface px-4 py-3 opacity-40"
+              >
+                <Text variant="body">{displayName} 🔒</Text>
+              </Pressable>
+            ))}
           </View>
-          {!featureFlags.golfSport && !isDemoMode ? (
-            <Text variant="caption">Golf — coming soon.</Text>
-          ) : null}
+          <Text variant="caption">Wrestling — coming soon.</Text>
         </View>
 
         <View className="gap-2">

@@ -1,4 +1,8 @@
-import { getSportContext, registeredSportKeys } from '@/sports';
+import {
+  COMING_SOON_SPORTS,
+  getSportContext,
+  registeredSportKeys,
+} from '@/sports';
 import type { ISportContext } from '@/sports/ISportContext';
 import { BJJ_VOCABULARY_FLAT } from '@/sports/bjj/bjjVocabulary';
 
@@ -19,8 +23,13 @@ function assertValidContext(ctx: ISportContext) {
 }
 
 describe('sport registry', () => {
-  it('registers bjj and golf', () => {
-    expect(registeredSportKeys().sort()).toEqual(['bjj', 'golf']);
+  it('registers only bjj (golf was deregistered, structure kept)', () => {
+    expect(registeredSportKeys()).toEqual(['bjj']);
+  });
+
+  it('advertises wrestling as coming soon without registering it', () => {
+    expect(COMING_SOON_SPORTS.map((s) => s.key)).toEqual(['wrestling']);
+    expect(() => getSportContext('wrestling')).toThrow(/Unknown sport/);
   });
 
   it('throws on an unknown sport key', () => {
@@ -47,8 +56,6 @@ describe('bjj context', () => {
   });
 
   it('has a non-empty generic-phrase blocklist', () => {
-    expect(
-      getSportContext('bjj').qualityGatePhrases.length,
-    ).toBeGreaterThan(0);
+    expect(getSportContext('bjj').qualityGatePhrases.length).toBeGreaterThan(0);
   });
 });

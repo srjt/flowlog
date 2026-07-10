@@ -1,17 +1,28 @@
 import type { ISportContext } from '@/sports/ISportContext';
 import { bjjContext } from '@/sports/bjj/bjjContext';
-import { golfContext } from '@/sports/golf/golfContext';
 import type { SportKey } from '@/types/sport';
 
 /**
  * Sport registry — maps a sport key to its context. This is THE expansion
  * point: adding a sport means adding three files under `src/sports/{key}/`
  * and one line here. No pipeline, service, or provider code changes.
+ *
+ * Golf's context files still exist under `src/sports/golf/` but it is
+ * deliberately NOT registered: it was structure-only (no real content) and
+ * is off the roadmap for now. Re-registering it is one import + one line.
  */
 const sportRegistry: Record<string, ISportContext> = {
   bjj: bjjContext,
-  golf: golfContext,
 };
+
+/**
+ * Sports advertised in pickers as on the roadmap but not yet selectable.
+ * Display-only — they have no context, so they can never reach the pipeline.
+ */
+export const COMING_SOON_SPORTS: ReadonlyArray<{
+  key: SportKey;
+  displayName: string;
+}> = [{ key: 'wrestling', displayName: 'Wrestling' }];
 
 /**
  * Fetch a sport context by key. Throws on unknown keys so misconfiguration

@@ -7,7 +7,13 @@
  */
 
 /** Every supported (or planned) sport key. The string union is the contract. */
-export type SportKey = 'bjj' | 'golf' | 'tennis' | 'climbing' | 'chess';
+export type SportKey =
+  | 'bjj'
+  | 'wrestling'
+  | 'golf'
+  | 'tennis'
+  | 'climbing'
+  | 'chess';
 
 /** Convenience re-export so callers can `import { ISportContext } from '@/types/sport'`. */
 export type { ISportContext } from '@/sports/ISportContext';

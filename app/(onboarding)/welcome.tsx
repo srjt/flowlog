@@ -5,9 +5,13 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Card, Text } from '@/components/ui';
-import { featureFlags, isDemoMode, isLocalPipeline } from '@/config/featureFlags';
+import { isDemoMode, isLocalPipeline } from '@/config/featureFlags';
 import { authService } from '@/services/AuthService';
-import { getSportContext, registeredSportKeys } from '@/sports';
+import {
+  COMING_SOON_SPORTS,
+  getSportContext,
+  registeredSportKeys,
+} from '@/sports';
 import { useUserStore } from '@/store/userStore';
 import type { SportKey } from '@/types/sport';
 import { logger } from '@/utils/logger';
@@ -47,11 +51,8 @@ export default function Welcome() {
   const [finishing, setFinishing] = useState(false);
 
   const sportKeys = registeredSportKeys();
-  const isSportEnabled = (key: SportKey) =>
-    key === 'bjj' || featureFlags.golfSport || isDemoMode;
 
   const pickSport = (key: SportKey) => {
-    if (!isSportEnabled(key)) return;
     setSport(key);
     setSkill(getSportContext(key).skillLevels[0] ?? '');
   };
@@ -112,13 +113,12 @@ export default function Welcome() {
             <View className="gap-2">
               <Text variant="title">Pick your sport</Text>
               <Text variant="caption">
-                This tailors the vocabulary and coaching. You can switch later in
-                Profile.
+                This tailors the vocabulary and coaching. You can switch later
+                in Profile.
               </Text>
             </View>
             <View className="gap-3">
               {sportKeys.map((key) => {
-                const enabled = isSportEnabled(key);
                 const selected = key === sport;
                 return (
                   <Pressable
@@ -126,22 +126,33 @@ export default function Welcome() {
                     testID={`onboarding-sport-${key}`}
                     accessibilityRole="button"
                     accessibilityLabel={getSportContext(key).displayName}
-                    accessibilityState={{ selected, disabled: !enabled }}
-                    disabled={!enabled}
+                    accessibilityState={{ selected }}
                     onPress={() => pickSport(key)}
                     className={`rounded-xl border px-4 py-4 ${
                       selected
                         ? 'border-primary bg-primary/20'
                         : 'border-muted bg-surface'
-                    } ${enabled ? '' : 'opacity-40'}`}
+                    }`}
                   >
                     <Text variant="body">
                       {getSportContext(key).displayName}
-                      {enabled ? '' : ' 🔒 coming soon'}
                     </Text>
                   </Pressable>
                 );
               })}
+              {COMING_SOON_SPORTS.map(({ key, displayName }) => (
+                <Pressable
+                  key={key}
+                  testID={`onboarding-sport-${key}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={displayName}
+                  accessibilityState={{ disabled: true }}
+                  disabled
+                  className="rounded-xl border border-muted bg-surface px-4 py-4 opacity-40"
+                >
+                  <Text variant="body">{displayName} 🔒 coming soon</Text>
+                </Pressable>
+              ))}
             </View>
             <Button
               testID="onboarding-sport-next"
