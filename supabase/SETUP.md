@@ -46,27 +46,37 @@ create policy "own audio read" on storage.objects for select to authenticated
          and (storage.foldername(name))[1] = auth.uid()::text);
 ```
 
-## 5. Set the edge-function secrets (Gemini)
+## 5. Set the edge-function secrets (Whisper transcription + Gemini analysis)
 
 Dashboard → Edge Functions → Secrets (or the CLI below). Set:
 
 ```bash
 supabase secrets set GEMINI_API_KEY=AIza...        # your Gemini key
-supabase secrets set TRANSCRIPTION_PROVIDER=gemini  # transcription on Gemini
+supabase secrets set TRANSCRIPTION_PROVIDER=whisper # transcription on Whisper ASR
+supabase secrets set OPENAI_API_KEY=sk-...          # key for Whisper (needs credit!)
 supabase secrets set AI_PROVIDER=gemini             # analysis on Gemini
 # optional: supabase secrets set GEMINI_MODEL=gemini-2.5-flash   # text stages
-# optional: supabase secrets set GEMINI_TRANSCRIPTION_MODEL=gemini-pro-latest
-#   Transcription-only model override (falls back to GEMINI_MODEL). Set to
-#   gemini-pro-latest in production 2026-07-10: transcription accuracy gates
-#   extraction + coaching quality, and pro on a 60-90s clip costs cents.
-#   Unset it (or point it at a flash model) to save cost if quality allows.
-#
-#   Use the `-latest` ALIASES here, not pinned versions: Google retires pinned
-#   models for new API users (gemini-2.5-pro 404s with "no longer available to
-#   new users" even though it still appears in the models LIST endpoint).
-#   Before changing this secret, verify the model with a real generateContent
-#   call — listing a model does NOT prove it's invocable with your key.
 ```
+
+Production runs transcription on **Whisper** (switched 2026-07-10): Gemini's
+LLM-based "transcription" hallucinated plausible sport terms into unclear gym
+audio (the vocabulary priming amplified it), while Whisper is a dedicated ASR
+that degrades to ordinary-word confusion instead of invented jargon, returns a
+real duration (which re-arms the min-length gate — Gemini's path reported 0,
+so the gate never fired), and costs ~$0.006/min. Gemini still runs the
+extraction/coaching text stages. To fall back to Gemini transcription:
+`supabase secrets set TRANSCRIPTION_PROVIDER=gemini`, and optionally
+`GEMINI_TRANSCRIPTION_MODEL=gemini-pro-latest` (transcription-only override,
+falls back to GEMINI_MODEL).
+
+Model-name gotchas learned the hard way:
+- Use Gemini's `-latest` ALIASES, not pinned versions: Google retires pinned
+  models for new API users (gemini-2.5-pro 404s with "no longer available to
+  new users" even though it still appears in the models LIST endpoint).
+- Before pointing a secret at any model, verify with a REAL
+  generateContent/transcription call — listing a model does not prove it's
+  invocable with your key, and an unfunded OpenAI key fails every call with
+  `insufficient_quota`.
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are injected
 automatically — don't set them.
