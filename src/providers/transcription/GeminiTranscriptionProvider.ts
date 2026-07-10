@@ -53,11 +53,18 @@ export class GeminiTranscriptionProvider implements ITranscriptionProvider {
 
     const { base64, mimeType } = await this.loadAudio(audioUri);
 
+    // Mirrored by the server pipeline (supabase/functions/_shared/ai.ts) —
+    // keep the wording in sync when tuning either side.
     const prompt =
-      'Generate a verbatim transcript of the speech in this audio. It is a ' +
-      'short post-training spoken reflection by an athlete. Domain terms that ' +
-      `may appear: ${vocabulary.slice(0, 120).join(', ')}. Return ONLY the ` +
-      'transcript text — no labels, no timestamps, no commentary.';
+      'Transcribe the speech in this audio. It is a short post-training voice ' +
+      'reflection recorded by an athlete on a phone, possibly with gym ' +
+      'background noise. Sport vocabulary that may appear — when a word is ' +
+      'ambiguous, prefer these exact spellings: ' +
+      `${vocabulary.slice(0, 120).join(', ')}. ` +
+      'Transcribe in the original spoken language; do not translate, ' +
+      'summarize, or correct the speaker. Omit filler sounds ("um", "uh"). ' +
+      'Return ONLY the transcript text — no labels, no timestamps, no ' +
+      'commentary.';
 
     const url = `${GEMINI_BASE}/${this.model}:generateContent?key=${encodeURIComponent(
       this.apiKey,
@@ -77,6 +84,8 @@ export class GeminiTranscriptionProvider implements ITranscriptionProvider {
               ],
             },
           ],
+          // Verbatim transcription wants determinism, not creativity.
+          generationConfig: { temperature: 0 },
         }),
       });
     } catch (err) {
@@ -86,7 +95,9 @@ export class GeminiTranscriptionProvider implements ITranscriptionProvider {
 
     if (!response.ok) {
       const body = await safeText(response);
-      throw new Error(`Gemini transcription failed: ${response.status} ${body}`);
+      throw new Error(
+        `Gemini transcription failed: ${response.status} ${body}`,
+      );
     }
 
     const data = (await response.json()) as GeminiResponse;

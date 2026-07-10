@@ -43,6 +43,29 @@ function aiProvider(): string {
 function geminiModel(): string {
   return envOr('GEMINI_MODEL', 'gemini-2.5-flash');
 }
+function geminiTranscriptionModel(): string {
+  // Transcription accuracy gates everything downstream (extraction and the
+  // coaching cue), so it can run a stronger model than the text stages
+  // without touching their cost. Falls back to the shared model.
+  return envOr('GEMINI_TRANSCRIPTION_MODEL', geminiModel());
+}
+
+/**
+ * Gemini's audio API accepts wav/mp3/aiff/aac/ogg/flac. Native recordings
+ * upload as `audio/m4a` (AAC in an MPEG-4 container), which is NOT on that
+ * list — normalize container mimes to the codec mime Gemini understands.
+ */
+function geminiAudioMime(blobType: string): string {
+  const type = (blobType || '').toLowerCase();
+  if (
+    type === 'audio/m4a' ||
+    type === 'audio/x-m4a' ||
+    type === 'audio/mp4'
+  ) {
+    return 'audio/aac';
+  }
+  return type || 'audio/aac';
+}
 
 // ── Transcription ───────────────────────────────────────────────────────────
 export async function transcribe(
@@ -95,12 +118,17 @@ async function geminiTranscribe(
   vocabulary: string[],
 ): Promise<TranscriptionResult> {
   const base64 = await blobToBase64(audio);
-  const mimeType = audio.type || 'audio/wav';
+  const mimeType = geminiAudioMime(audio.type);
   const prompt =
-    'Generate a verbatim transcript of the speech in this audio. It is a ' +
-    'short post-training spoken reflection by an athlete. Domain terms that ' +
-    `may appear: ${vocabulary.slice(0, 120).join(', ')}. Return ONLY the ` +
-    'transcript text — no labels, no timestamps, no commentary.';
+    'Transcribe the speech in this audio. It is a short post-training voice ' +
+    'reflection recorded by an athlete on a phone, possibly with gym ' +
+    'background noise. Sport vocabulary that may appear — when a word is ' +
+    'ambiguous, prefer these exact spellings: ' +
+    `${vocabulary.slice(0, 120).join(', ')}. ` +
+    'Transcribe in the original spoken language; do not translate, ' +
+    'summarize, or correct the speaker. Omit filler sounds ("um", "uh"). ' +
+    'Return ONLY the transcript text — no labels, no timestamps, no ' +
+    'commentary.';
   const text = await geminiGenerate(
     [
       { text: prompt },
@@ -108,6 +136,9 @@ async function geminiTranscribe(
     ],
     4096,
     false,
+    // Verbatim transcription wants determinism, not creativity — and it runs
+    // on the (potentially stronger) transcription model.
+    { model: geminiTranscriptionModel(), temperature: 0 },
   );
   const transcript = text.trim();
   return {
@@ -216,13 +247,17 @@ async function geminiGenerate(
   parts: any[],
   maxOutputTokens: number,
   jsonMode: boolean,
+  opts: { model?: string; temperature?: number } = {},
 ): Promise<string> {
   const apiKey = requireSecret('GEMINI_API_KEY');
-  const url = `${GEMINI_BASE}/${geminiModel()}:generateContent?key=${encodeURIComponent(
+  const url = `${GEMINI_BASE}/${opts.model ?? geminiModel()}:generateContent?key=${encodeURIComponent(
     apiKey,
   )}`;
   // deno-lint-ignore no-explicit-any
-  const generationConfig: any = { maxOutputTokens, temperature: 0.4 };
+  const generationConfig: any = {
+    maxOutputTokens,
+    temperature: opts.temperature ?? 0.4,
+  };
   if (jsonMode) generationConfig.responseMimeType = 'application/json';
 
   const res = await fetch(url, {
