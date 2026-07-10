@@ -5,9 +5,13 @@ import {
   applyReminderPrefs,
   buildDigestBody,
   formatReminderTime,
+  reminderTimeForDay,
 } from '@/services/NotificationService';
 import type { SportTrends } from '@/services/TrendsService';
-import { DEFAULT_REMINDER_PREFS } from '@/types/notifications';
+import {
+  DEFAULT_REMINDER_PREFS,
+  type ReminderPrefs,
+} from '@/types/notifications';
 
 const sched = Notifications.scheduleNotificationAsync as jest.Mock;
 const cancelOne = Notifications.cancelScheduledNotificationAsync as jest.Mock;
@@ -35,6 +39,7 @@ describe('NotificationService — reminders', () => {
 
   it('schedules one stable-identifier weekly trigger per day, cancelling reminder ids first', async () => {
     const effective = await applyReminderPrefs({
+      ...DEFAULT_REMINDER_PREFS,
       enabled: true,
       days: [1, 3, 5],
       hour: 20,
@@ -51,6 +56,7 @@ describe('NotificationService — reminders', () => {
       'flowlog-reminder-5',
     ]);
     expect(calls[0].trigger).toEqual({
+      type: 'calendar',
       weekday: 2,
       hour: 20,
       minute: 30,
@@ -60,9 +66,63 @@ describe('NotificationService — reminders', () => {
     expect(effective.enabled).toBe(true);
   });
 
+  it('schedules each day at its own time in advanced (per-day) mode', async () => {
+    // The user's real schedule: Mon/Wed 8:30 PM, Sat 12 PM, Sun 11 AM.
+    await applyReminderPrefs({
+      ...DEFAULT_REMINDER_PREFS,
+      enabled: true,
+      days: [0, 1, 3, 6],
+      hour: 20,
+      minute: 30,
+      perDayTimes: true,
+      dayTimes: {
+        0: { hour: 11, minute: 0 },
+        6: { hour: 12, minute: 0 },
+      },
+    });
+
+    expect(sched).toHaveBeenCalledTimes(4);
+    const byDay = Object.fromEntries(
+      sched.mock.calls.map((c) => [c[0].identifier, c[0].trigger]),
+    );
+    // Days with an override use it; Mon/Wed fall back to the base time.
+    expect(byDay['flowlog-reminder-0']).toMatchObject({ hour: 11, minute: 0 });
+    expect(byDay['flowlog-reminder-6']).toMatchObject({ hour: 12, minute: 0 });
+    expect(byDay['flowlog-reminder-1']).toMatchObject({ hour: 20, minute: 30 });
+    expect(byDay['flowlog-reminder-3']).toMatchObject({ hour: 20, minute: 30 });
+  });
+
+  it('ignores stale per-day overrides when advanced mode is off', async () => {
+    await applyReminderPrefs({
+      ...DEFAULT_REMINDER_PREFS,
+      enabled: true,
+      days: [2],
+      hour: 7,
+      minute: 15,
+      perDayTimes: false,
+      dayTimes: { 2: { hour: 23, minute: 45 } },
+    });
+    expect(sched.mock.calls[0][0].trigger).toMatchObject({
+      hour: 7,
+      minute: 15,
+    });
+  });
+
   it('reschedules without duplicates across applies', async () => {
-    await applyReminderPrefs({ enabled: true, days: [1], hour: 8, minute: 0 });
-    await applyReminderPrefs({ enabled: true, days: [2], hour: 8, minute: 0 });
+    await applyReminderPrefs({
+      ...DEFAULT_REMINDER_PREFS,
+      enabled: true,
+      days: [1],
+      hour: 8,
+      minute: 0,
+    });
+    await applyReminderPrefs({
+      ...DEFAULT_REMINDER_PREFS,
+      enabled: true,
+      days: [2],
+      hour: 8,
+      minute: 0,
+    });
     expect(cancelOne).toHaveBeenCalledTimes(14); // 7 per apply
     expect(sched).toHaveBeenCalledTimes(2);
   });
@@ -70,6 +130,7 @@ describe('NotificationService — reminders', () => {
   it('forces enabled off and schedules nothing without permission', async () => {
     getPerm.mockResolvedValue({ granted: false });
     const effective = await applyReminderPrefs({
+      ...DEFAULT_REMINDER_PREFS,
       enabled: true,
       days: [1, 3],
       hour: 19,
@@ -77,6 +138,22 @@ describe('NotificationService — reminders', () => {
     });
     expect(effective.enabled).toBe(false);
     expect(sched).not.toHaveBeenCalled();
+  });
+
+  it('resolves per-day times with base-time fallback (shared UI/scheduler helper)', () => {
+    const prefs: ReminderPrefs = {
+      ...DEFAULT_REMINDER_PREFS,
+      hour: 20,
+      minute: 30,
+      perDayTimes: true,
+      dayTimes: { 6: { hour: 12, minute: 0 } },
+    };
+    expect(reminderTimeForDay(prefs, 6)).toEqual({ hour: 12, minute: 0 });
+    expect(reminderTimeForDay(prefs, 1)).toEqual({ hour: 20, minute: 30 });
+    expect(reminderTimeForDay({ ...prefs, perDayTimes: false }, 6)).toEqual({
+      hour: 20,
+      minute: 30,
+    });
   });
 
   it('disabling schedules nothing', async () => {
@@ -113,6 +190,7 @@ describe('NotificationService — weekly digest', () => {
     const call = sched.mock.calls[0][0];
     expect(call.identifier).toBe('flowlog-digest');
     expect(call.trigger).toEqual({
+      type: 'calendar',
       weekday: 1,
       hour: 18,
       minute: 0,

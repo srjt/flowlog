@@ -6,6 +6,7 @@ import type { SportTrends } from '@/services/TrendsService';
 import {
   DEFAULT_DIGEST_PREFS,
   DEFAULT_REMINDER_PREFS,
+  type DayTime,
   type DigestPrefs,
   type ReminderPrefs,
 } from '@/types/notifications';
@@ -132,6 +133,7 @@ export async function applyReminderPrefs(
       effective = { ...prefs, enabled: false };
     } else {
       for (const day of prefs.days) {
+        const time = reminderTimeForDay(prefs, day);
         await Notifications.scheduleNotificationAsync({
           identifier: `flowlog-reminder-${day}`,
           content: {
@@ -143,8 +145,8 @@ export async function applyReminderPrefs(
             // expo weekday is 1–7 (Sun–Sat); our prefs use 0–6 (Sun–Sat).
             type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
             weekday: day + 1,
-            hour: prefs.hour,
-            minute: prefs.minute,
+            hour: time.hour,
+            minute: time.minute,
             repeats: true,
           },
         });
@@ -231,6 +233,19 @@ export async function getInitialReminderUrl(): Promise<string | null> {
   const response = await Notifications.getLastNotificationResponseAsync();
   const url = response?.notification.request.content.data?.url;
   return typeof url === 'string' ? url : null;
+}
+
+/**
+ * The time a given weekday's reminder fires under `prefs`: the per-day
+ * override when advanced mode is on (falling back to the base time for days
+ * without one), the single base time otherwise. Single source of truth shared
+ * by the scheduler and the settings UI.
+ */
+export function reminderTimeForDay(prefs: ReminderPrefs, day: number): DayTime {
+  if (prefs.perDayTimes) {
+    return prefs.dayTimes[day] ?? { hour: prefs.hour, minute: prefs.minute };
+  }
+  return { hour: prefs.hour, minute: prefs.minute };
 }
 
 /** Format a 24h time as a friendly local string, e.g. "8:30 PM". */

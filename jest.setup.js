@@ -50,6 +50,8 @@ jest.mock('expo-notifications', () => ({
   scheduleNotificationAsync: jest.fn(async () => 'notif-id'),
   addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
   getLastNotificationResponseAsync: jest.fn(async () => null),
+  // Mirrors the real enum the scheduler's trigger objects reference.
+  SchedulableTriggerInputTypes: { CALENDAR: 'calendar' },
 }));
 
 // react-native-reanimated 3.10's bundled mock is broken (./src/mock not shipped),

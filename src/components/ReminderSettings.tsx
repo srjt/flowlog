@@ -6,6 +6,7 @@ import {
   applyReminderPrefs,
   formatReminderTime,
   hasNotificationPermission,
+  reminderTimeForDay,
   requestNotificationPermission,
 } from '@/services/NotificationService';
 import { useUserStore } from '@/store/userStore';
@@ -61,10 +62,20 @@ export function ReminderSettings() {
   };
 
   const toggleDay = async (day: number) => {
-    const days = prefs.days.includes(day)
-      ? prefs.days.filter((d) => d !== day)
-      : [...prefs.days, day].sort((a, b) => a - b);
-    await commit({ ...prefs, days });
+    const adding = !prefs.days.includes(day);
+    const days = adding
+      ? [...prefs.days, day].sort((a, b) => a - b)
+      : prefs.days.filter((d) => d !== day);
+    // In advanced mode a newly-added day starts at the base time, editable
+    // immediately via its own row.
+    const dayTimes =
+      adding && prefs.perDayTimes && !prefs.dayTimes[day]
+        ? {
+            ...prefs.dayTimes,
+            [day]: { hour: prefs.hour, minute: prefs.minute },
+          }
+        : prefs.dayTimes;
+    await commit({ ...prefs, days, dayTimes });
   };
 
   const shiftHour = async (delta: number) => {
@@ -72,6 +83,38 @@ export function ReminderSettings() {
   };
   const shiftMinute = async (delta: number) => {
     await commit({ ...prefs, minute: (prefs.minute + delta + 60) % 60 });
+  };
+
+  // Advanced mode: turning it on seeds every selected day with the base time
+  // (only days without an existing override), so nothing visibly changes until
+  // the user edits a specific day. Turning it off keeps the overrides around,
+  // inert, so toggling back restores them.
+  const togglePerDayTimes = async (value: boolean) => {
+    if (!value) {
+      await commit({ ...prefs, perDayTimes: false });
+      return;
+    }
+    const dayTimes = { ...prefs.dayTimes };
+    for (const day of prefs.days) {
+      dayTimes[day] ??= { hour: prefs.hour, minute: prefs.minute };
+    }
+    await commit({ ...prefs, perDayTimes: true, dayTimes });
+  };
+
+  const shiftDayTime = async (
+    day: number,
+    field: 'hour' | 'minute',
+    delta: number,
+  ) => {
+    const current = reminderTimeForDay(prefs, day);
+    const next =
+      field === 'hour'
+        ? { ...current, hour: (current.hour + delta + 24) % 24 }
+        : { ...current, minute: (current.minute + delta + 60) % 60 };
+    await commit({
+      ...prefs,
+      dayTimes: { ...prefs.dayTimes, [day]: next },
+    });
   };
 
   return (
@@ -103,8 +146,8 @@ export function ReminderSettings() {
 
       {denied ? (
         <Text variant="caption" className="text-accent">
-          Notifications are off for Flowlog. Enable them in your device settings,
-          then toggle this on again.
+          Notifications are off for Flowlog. Enable them in your device
+          settings, then toggle this on again.
         </Text>
       ) : null}
 
@@ -136,30 +179,79 @@ export function ReminderSettings() {
             </View>
           </View>
 
-          <View className="gap-2">
-            <Text variant="caption">TIME</Text>
-            <View className="flex-row items-center justify-between">
-              <Stepper
-                testIDDec="reminder-hour-dec"
-                testIDInc="reminder-hour-inc"
-                labelDec="Earlier hour"
-                labelInc="Later hour"
-                onDec={() => void shiftHour(-1)}
-                onInc={() => void shiftHour(1)}
-              />
-              <Text variant="heading">
-                {formatReminderTime(prefs.hour, prefs.minute)}
+          <View className="flex-row items-center justify-between">
+            <View className="flex-1 pr-3">
+              <Text variant="body">Different time per day</Text>
+              <Text variant="caption">
+                Set each training day’s own reminder time.
               </Text>
-              <Stepper
-                testIDDec="reminder-min-dec"
-                testIDInc="reminder-min-inc"
-                labelDec="Earlier minutes"
-                labelInc="Later minutes"
-                onDec={() => void shiftMinute(-15)}
-                onInc={() => void shiftMinute(15)}
-              />
             </View>
+            <Switch
+              testID="reminder-per-day-toggle"
+              value={prefs.perDayTimes}
+              onValueChange={(v) => void togglePerDayTimes(v)}
+            />
           </View>
+
+          {!prefs.perDayTimes ? (
+            <View className="gap-2">
+              <Text variant="caption">TIME</Text>
+              <View className="flex-row items-center justify-between">
+                <Stepper
+                  testIDDec="reminder-hour-dec"
+                  testIDInc="reminder-hour-inc"
+                  labelDec="Earlier hour"
+                  labelInc="Later hour"
+                  onDec={() => void shiftHour(-1)}
+                  onInc={() => void shiftHour(1)}
+                />
+                <Text variant="heading">
+                  {formatReminderTime(prefs.hour, prefs.minute)}
+                </Text>
+                <Stepper
+                  testIDDec="reminder-min-dec"
+                  testIDInc="reminder-min-inc"
+                  labelDec="Earlier minutes"
+                  labelInc="Later minutes"
+                  onDec={() => void shiftMinute(-15)}
+                  onInc={() => void shiftMinute(15)}
+                />
+              </View>
+            </View>
+          ) : (
+            <View className="gap-3">
+              <Text variant="caption">TIME PER DAY</Text>
+              {prefs.days.map((day) => {
+                const time = reminderTimeForDay(prefs, day);
+                return (
+                  <View key={day} className="gap-1">
+                    <Text variant="caption">{DAY_NAMES[day]}</Text>
+                    <View className="flex-row items-center justify-between">
+                      <Stepper
+                        testIDDec={`reminder-day-${day}-hour-dec`}
+                        testIDInc={`reminder-day-${day}-hour-inc`}
+                        labelDec={`${DAY_NAMES[day]} earlier hour`}
+                        labelInc={`${DAY_NAMES[day]} later hour`}
+                        onDec={() => void shiftDayTime(day, 'hour', -1)}
+                        onInc={() => void shiftDayTime(day, 'hour', 1)}
+                      />
+                      <Text variant="heading">
+                        {formatReminderTime(time.hour, time.minute)}
+                      </Text>
+                      <Stepper
+                        testIDDec={`reminder-day-${day}-min-dec`}
+                        testIDInc={`reminder-day-${day}-min-inc`}
+                        labelDec={`${DAY_NAMES[day]} earlier minutes`}
+                        labelInc={`${DAY_NAMES[day]} later minutes`}
+                        onDec={() => void shiftDayTime(day, 'minute', -15)}
+                        onInc={() => void shiftDayTime(day, 'minute', 15)}
+                      />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
           {prefs.days.length === 0 ? (
             <Text variant="caption" className="text-accent">
