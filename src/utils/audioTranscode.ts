@@ -86,6 +86,18 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoaFn(binary);
 }
 
+export function base64ToUint8Array(base64: string): Uint8Array {
+  const g = globalThis as unknown as { atob?: (data: string) => string };
+  const atobFn = g.atob;
+  if (!atobFn) throw new Error('atob unavailable for base64 decoding.');
+  const binary = atobFn(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 function floatToWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
   const bytesPerSample = 2;
   const buffer = new ArrayBuffer(44 + samples.length * bytesPerSample);

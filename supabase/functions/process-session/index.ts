@@ -91,6 +91,15 @@ Deno.serve(async (req: Request) => {
         400,
       );
     }
+    if (audioBlob.size === 0) {
+      // Historically caused by the React Native blob-upload pitfall (0-byte
+      // uploads that look successful). Fail with a clear message instead of
+      // letting an LLM "transcribe" silence into fabricated text.
+      return jsonResponse(
+        { error: 'Uploaded audio was empty (0 bytes) — the recording upload from the device failed. Please try recording again.' },
+        422,
+      );
+    }
     const transcription = await transcribe(audioBlob, sport.vocabulary);
     if (
       transcription.durationSeconds > 0 &&

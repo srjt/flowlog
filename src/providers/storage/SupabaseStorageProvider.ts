@@ -1,7 +1,12 @@
+// SDK 54: the classic readAsStringAsync/EncodingType API now lives under /legacy.
+import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
+
 import { supabase } from '@/lib/supabase';
 import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
 import type { NewSession, Session, UserTrends } from '@/types/session';
 import type { SportKey } from '@/types/sport';
+import { base64ToUint8Array } from '@/utils/audioTranscode';
 import { logger } from '@/utils/logger';
 
 const AUDIO_BUCKET = 'session-audio';
@@ -34,14 +39,56 @@ export class SupabaseStorageProvider implements IStorageProvider {
   }
 
   async uploadAudio(userId: string, audioUri: string): Promise<string> {
-    const blob = await (await fetch(audioUri)).blob();
-    const contentType = blob.type || 'audio/m4a';
-    const ext = EXT_BY_TYPE[contentType] ?? 'm4a';
-    const path = `${userId}/${Date.now()}.${ext}`;
+    // Web: browser Blobs carry real bytes — upload directly.
+    //
+    // Native: DO NOT upload a fetch(file://).blob() here. React Native's Blob
+    // is a reference to native memory, and handing it to supabase-js results
+    // in an EMPTY request body — the upload "succeeds" with the right path
+    // and content type but stores a 0-byte object. Every native recording
+    // uploaded through the old blob path was empty, which downstream made
+    // Gemini fabricate transcripts out of thin air (there was no audio to
+    // transcribe) and Whisper fail with an undecodable-file error. Reading
+    // the file into real bytes and uploading the ArrayBuffer is the
+    // supabase-recommended React Native path.
+    if (Platform.OS === 'web') {
+      const blob = await (await fetch(audioUri)).blob();
+      const contentType = blob.type || 'audio/m4a';
+      const ext = EXT_BY_TYPE[contentType] ?? 'm4a';
+      return this.uploadBytes(userId, blob, contentType, ext);
+    }
 
+    const base64 = await FileSystem.readAsStringAsync(audioUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const bytes = base64ToUint8Array(base64);
+    const uriExt = audioUri.split('.').pop()?.toLowerCase() ?? 'm4a';
+    const ext = Object.values(EXT_BY_TYPE).includes(uriExt) ? uriExt : 'm4a';
+    const contentType =
+      Object.entries(EXT_BY_TYPE).find(([, e]) => e === ext)?.[0] ??
+      'audio/m4a';
+    return this.uploadBytes(
+      userId,
+      bytes.buffer as ArrayBuffer,
+      contentType,
+      ext,
+    );
+  }
+
+  private async uploadBytes(
+    userId: string,
+    body: Blob | ArrayBuffer,
+    contentType: string,
+    ext: string,
+  ): Promise<string> {
+    const size = body instanceof ArrayBuffer ? body.byteLength : body.size;
+    if (size === 0) {
+      // Fail loudly instead of shipping an empty file into the pipeline.
+      throw new Error('Audio upload failed: the recording file is empty.');
+    }
+    const path = `${userId}/${Date.now()}.${ext}`;
     const { error } = await supabase.storage
       .from(AUDIO_BUCKET)
-      .upload(path, blob, { contentType, upsert: false });
+      .upload(path, body, { contentType, upsert: false });
 
     if (error) {
       logger.error('SupabaseStorageProvider.uploadAudio failed', error);
