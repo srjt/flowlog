@@ -54,17 +54,22 @@ export class GeminiTranscriptionProvider implements ITranscriptionProvider {
     const { base64, mimeType } = await this.loadAudio(audioUri);
 
     // Mirrored by the server pipeline (supabase/functions/_shared/ai.ts) —
-    // keep the wording in sync when tuning either side.
+    // keep the wording in sync when tuning either side. The vocabulary is
+    // framed as reference spellings, NOT preferences: telling the model to
+    // "prefer" sport terms made it bend unclear audio INTO those terms
+    // (hallucinated words the athlete never said).
     const prompt =
       'Transcribe the speech in this audio. It is a short post-training voice ' +
       'reflection recorded by an athlete on a phone, possibly with gym ' +
-      'background noise. Sport vocabulary that may appear — when a word is ' +
-      'ambiguous, prefer these exact spellings: ' +
-      `${vocabulary.slice(0, 120).join(', ')}. ` +
-      'Transcribe in the original spoken language; do not translate, ' +
-      'summarize, or correct the speaker. Omit filler sounds ("um", "uh"). ' +
-      'Return ONLY the transcript text — no labels, no timestamps, no ' +
-      'commentary.';
+      'background noise. Reference spellings for sport terms the speaker ' +
+      `might use: ${vocabulary.slice(0, 120).join(', ')}. ` +
+      'Use those spellings ONLY where the speaker clearly says that term — ' +
+      'never insert, substitute, or guess a sport term that was not distinctly ' +
+      'spoken. Where the audio is unclear, transcribe the closest ordinary ' +
+      'words you hear instead of guessing a sport term. Transcribe in the ' +
+      'original spoken language; do not translate, summarize, or correct the ' +
+      'speaker. Omit filler sounds ("um", "uh"). Return ONLY the transcript ' +
+      'text — no labels, no timestamps, no commentary.';
 
     const url = `${GEMINI_BASE}/${this.model}:generateContent?key=${encodeURIComponent(
       this.apiKey,

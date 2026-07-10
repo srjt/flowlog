@@ -78,13 +78,29 @@ export async function transcribe(
   return whisperTranscribe(audio, vocabulary);
 }
 
+/**
+ * OpenAI infers the audio container from the upload's FILENAME extension, so
+ * it must match the actual bytes — native recordings are m4a, web uploads are
+ * 16 kHz WAV. A mismatched name (e.g. `.wav` on AAC bytes) makes the decoder
+ * misparse the file.
+ */
+function whisperFilename(blobType: string): string {
+  const type = (blobType || '').toLowerCase();
+  if (type.includes('wav')) return 'session.wav';
+  if (type.includes('mp3') || type.includes('mpeg')) return 'session.mp3';
+  if (type.includes('ogg')) return 'session.ogg';
+  if (type.includes('flac')) return 'session.flac';
+  if (type.includes('webm')) return 'session.webm';
+  return 'session.m4a'; // m4a/mp4/aac and the native-recording default
+}
+
 async function whisperTranscribe(
   audio: Blob,
   vocabulary: string[],
 ): Promise<TranscriptionResult> {
   const apiKey = requireSecret('OPENAI_API_KEY');
   const form = new FormData();
-  form.append('file', audio, 'session.wav');
+  form.append('file', audio, whisperFilename(audio.type));
   form.append('model', WHISPER_MODEL);
   form.append('response_format', 'verbose_json');
   if (vocabulary.length > 0) {
@@ -122,13 +138,15 @@ async function geminiTranscribe(
   const prompt =
     'Transcribe the speech in this audio. It is a short post-training voice ' +
     'reflection recorded by an athlete on a phone, possibly with gym ' +
-    'background noise. Sport vocabulary that may appear — when a word is ' +
-    'ambiguous, prefer these exact spellings: ' +
-    `${vocabulary.slice(0, 120).join(', ')}. ` +
-    'Transcribe in the original spoken language; do not translate, ' +
-    'summarize, or correct the speaker. Omit filler sounds ("um", "uh"). ' +
-    'Return ONLY the transcript text — no labels, no timestamps, no ' +
-    'commentary.';
+    'background noise. Reference spellings for sport terms the speaker ' +
+    `might use: ${vocabulary.slice(0, 120).join(', ')}. ` +
+    'Use those spellings ONLY where the speaker clearly says that term — ' +
+    'never insert, substitute, or guess a sport term that was not distinctly ' +
+    'spoken. Where the audio is unclear, transcribe the closest ordinary ' +
+    'words you hear instead of guessing a sport term. Transcribe in the ' +
+    'original spoken language; do not translate, summarize, or correct the ' +
+    'speaker. Omit filler sounds ("um", "uh"). Return ONLY the transcript ' +
+    'text — no labels, no timestamps, no commentary.';
   const text = await geminiGenerate(
     [
       { text: prompt },
