@@ -54,7 +54,12 @@ Dashboard → Edge Functions → Secrets (or the CLI below). Set:
 supabase secrets set GEMINI_API_KEY=AIza...        # your Gemini key
 supabase secrets set TRANSCRIPTION_PROVIDER=gemini  # transcription on Gemini
 supabase secrets set AI_PROVIDER=gemini             # analysis on Gemini
-# optional: supabase secrets set GEMINI_MODEL=gemini-2.5-pro
+# optional: supabase secrets set GEMINI_MODEL=gemini-2.5-flash   # text stages
+# optional: supabase secrets set GEMINI_TRANSCRIPTION_MODEL=gemini-2.5-pro
+#   Transcription-only model override (falls back to GEMINI_MODEL). Set to
+#   gemini-2.5-pro in production 2026-07-09: transcription accuracy gates
+#   extraction + coaching quality, and pro on a 60-90s clip costs cents.
+#   Unset it (or set =gemini-2.5-flash) to save cost if quality allows.
 ```
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are injected
