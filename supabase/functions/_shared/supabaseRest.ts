@@ -99,6 +99,80 @@ export async function dbUpsert(
   }
 }
 
+/** PostgREST DELETE, e.g. `dbDelete(`sessions?user_id=eq.${id}`)`. */
+export async function dbDelete(query: string): Promise<void> {
+  const res = await fetch(`${baseUrl()}/rest/v1/${query}`, {
+    method: 'DELETE',
+    headers: { apikey: serviceKey(), Authorization: `Bearer ${serviceKey()}` },
+  });
+  if (!res.ok) {
+    throw new Error(`DB delete failed: ${res.status} ${await safeText(res)}`);
+  }
+}
+
+/**
+ * List object paths under a folder (service role). Returns FULL paths
+ * (prefix included) ready for `deleteStorageObjects`. Folders come back with
+ * a null id and are filtered out; audio paths are flat (`{userId}/{ts}.m4a`).
+ */
+export async function listStorageObjects(
+  bucket: string,
+  folder: string,
+): Promise<string[]> {
+  const res = await fetch(`${baseUrl()}/storage/v1/object/list/${bucket}`, {
+    method: 'POST',
+    headers: {
+      apikey: serviceKey(),
+      Authorization: `Bearer ${serviceKey()}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ prefix: folder, limit: 1000, offset: 0 }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Storage list failed: ${res.status} ${await safeText(res)}`,
+    );
+  }
+  const items = (await res.json()) as Array<{
+    name: string;
+    id: string | null;
+  }>;
+  return items.filter((i) => i.id !== null).map((i) => `${folder}/${i.name}`);
+}
+
+/** Bulk-delete storage objects (the endpoint supabase-js `remove()` uses). */
+export async function deleteStorageObjects(
+  bucket: string,
+  paths: string[],
+): Promise<void> {
+  if (paths.length === 0) return;
+  const res = await fetch(`${baseUrl()}/storage/v1/object/${bucket}`, {
+    method: 'DELETE',
+    headers: {
+      apikey: serviceKey(),
+      Authorization: `Bearer ${serviceKey()}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ prefixes: paths }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Storage delete failed: ${res.status} ${await safeText(res)}`,
+    );
+  }
+}
+
+/** Delete the auth user itself (admin endpoint, service role). */
+export async function deleteAuthUser(userId: string): Promise<void> {
+  const res = await fetch(`${baseUrl()}/auth/v1/admin/users/${userId}`, {
+    method: 'DELETE',
+    headers: { apikey: serviceKey(), Authorization: `Bearer ${serviceKey()}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Auth delete failed: ${res.status} ${await safeText(res)}`);
+  }
+}
+
 async function safeText(res: Response): Promise<string> {
   try {
     return await res.text();

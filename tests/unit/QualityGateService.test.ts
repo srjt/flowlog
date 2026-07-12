@@ -48,9 +48,14 @@ describe('QualityGateService.evaluate', () => {
   it.each(bjj.qualityGatePhrases)(
     'rejects cue containing generic phrase: "%s"',
     (phrase) => {
-      const result = gate.evaluate(coaching({ cue: `Honestly, ${phrase}.` }), bjj);
+      const result = gate.evaluate(
+        coaching({ cue: `Honestly, ${phrase}.` }),
+        bjj,
+      );
       expect(result.passed).toBe(false);
-      expect(result.failureReasons.join(' ').toLowerCase()).toContain('generic');
+      expect(result.failureReasons.join(' ').toLowerCase()).toContain(
+        'generic',
+      );
     },
   );
 });
@@ -89,9 +94,9 @@ describe('QualityGateService.enforce', () => {
     expect(result.passed).toBe(false);
     expect(result.usedFallback).toBe(true);
     // Fallback cue must itself respect the word cap.
-    expect(
-      result.coaching.cue.trim().split(/\s+/).length,
-    ).toBeLessThanOrEqual(25);
+    expect(result.coaching.cue.trim().split(/\s+/).length).toBeLessThanOrEqual(
+      25,
+    );
     // 1 initial + QUALITY_GATE_RETRY_LIMIT (2) retries.
     expect(result.attempts).toBe(3);
   });

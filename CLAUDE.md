@@ -24,8 +24,12 @@ Tagline: "Talk. Reflect. Improve."
   on a real machine, then `npm test` / `tsc --noEmit` / `expo export` to
   re-verify before the EAS rebuild. See `docs/TESTFLIGHT.md`.
 - **New Architecture is ON** (`app.json` `newArchEnabled: true`) — Reanimated 4
-  requires it. `expo-updates` is temporarily disabled (`updates.enabled: false`)
-  to isolate the migration; re-enable once a 54 build launches cleanly.
+  requires it. **OTA updates are ON** (`updates.enabled: true`, channel
+  `testflight` in `eas.json`): JS-only fixes ship with
+  `npx eas-cli update --channel testflight` — no EAS build needed. NEVER bump
+  `app.json` `version` in a JS-only change (runtimeVersion policy is
+  `appVersion`; a bump orphans shipped builds off the update stream). Version
+  bumps happen only alongside a planned EAS build.
 - **Toolchain (SDK 54 compatible):** `react-native@0.81`, `react@19.1`,
   `nativewind@^4.2`, `react-native-reanimated@~4.3.2` +
   `react-native-worklets@~0.8.3` (its worklet plugin must be last in

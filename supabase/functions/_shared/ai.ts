@@ -117,7 +117,9 @@ async function whisperTranscribe(
     body: form,
   });
   if (!res.ok) {
-    throw new Error(`Whisper failed: ${res.status} ${await safeText(res)}`);
+    const detail = await safeText(res);
+    console.error('whisper transcription failed:', res.status, detail.slice(0, 500));
+    throw new Error(`Whisper failed: ${res.status} ${detail}`);
   }
   const data = await res.json();
   const transcript = (data.text ?? '').trim();
@@ -249,7 +251,9 @@ async function claude(prompt: string, maxTokens: number): Promise<string> {
     }),
   });
   if (!res.ok) {
-    throw new Error(`Claude failed: ${res.status} ${await safeText(res)}`);
+    const detail = await safeText(res);
+    console.error('claude call failed:', res.status, detail.slice(0, 500));
+    throw new Error(`Claude failed: ${res.status} ${detail}`);
   }
   const data = await res.json();
   const block = (data.content ?? []).find(
@@ -284,7 +288,9 @@ async function geminiGenerate(
     body: JSON.stringify({ contents: [{ parts }], generationConfig }),
   });
   if (!res.ok) {
-    throw new Error(`Gemini failed: ${res.status} ${await safeText(res)}`);
+    const detail = await safeText(res);
+    console.error('gemini call failed:', res.status, detail.slice(0, 500));
+    throw new Error(`Gemini failed: ${res.status} ${detail}`);
   }
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;

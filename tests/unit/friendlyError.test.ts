@@ -11,9 +11,9 @@ describe('toFriendlyMessage', () => {
     expect(toFriendlyMessage(new Error('Recording too short: 5s'))).toMatch(
       /too short/i,
     );
-    expect(toFriendlyMessage(new Error('Gemini returned an empty transcript.'))).toMatch(
-      /too short/i,
-    );
+    expect(
+      toFriendlyMessage(new Error('Gemini returned an empty transcript.')),
+    ).toMatch(/too short/i);
   });
 
   it('maps auth failures', () => {
@@ -24,6 +24,20 @@ describe('toFriendlyMessage', () => {
     expect(
       toFriendlyMessage(new Error('Gemini failed: 429 quota exceeded')),
     ).toMatch(/try again/i);
+  });
+
+  it('maps the daily rate limit to its own message, not the generic 429 one', () => {
+    expect(
+      toFriendlyMessage(
+        new Error('Daily limit reached: up to 15 sessions per day.'),
+      ),
+    ).toMatch(/today.s session limit/i);
+  });
+
+  it('keeps plain 429/quota errors on the hiccup message (branch ordering)', () => {
+    expect(
+      toFriendlyMessage(new Error('Whisper failed: 429 rate limited')),
+    ).toMatch(/hiccuped/i);
   });
 
   it('falls back to a generic message for unknown errors', () => {

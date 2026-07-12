@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -41,5 +41,46 @@ describe('ProcessingScreen — error state', () => {
 
     // ...and no raw/technical detail leaks into the UI.
     expect(queryByText(/network error|stack|\.ts:|\b500\b/i)).toBeNull();
+  });
+
+  it('Try again keeps the take’s idempotency key and uploaded path intact', () => {
+    useSessionStore.setState({
+      status: 'error',
+      errorMessage: 'Something went wrong analyzing your session.',
+      audioUri: 'blob://recording',
+      clientSessionId: 'key-abc',
+      uploadedAudioPath: 'u1/take.m4a',
+      steps: [],
+      latestResult: null,
+    });
+
+    const { getByText } = render(<ProcessingScreen />);
+    fireEvent.press(getByText('Try again'));
+
+    // The same take must retry with the same key + already-uploaded audio —
+    // that's what makes the retry idempotent server-side.
+    const state = useSessionStore.getState();
+    expect(state.clientSessionId).toBe('key-abc');
+    expect(state.uploadedAudioPath).toBe('u1/take.m4a');
+  });
+
+  it('Discard clears the take state, including key and uploaded path', () => {
+    useSessionStore.setState({
+      status: 'error',
+      errorMessage: 'Something went wrong analyzing your session.',
+      audioUri: 'blob://recording',
+      clientSessionId: 'key-abc',
+      uploadedAudioPath: 'u1/take.m4a',
+      steps: [],
+      latestResult: null,
+    });
+
+    const { getByText } = render(<ProcessingScreen />);
+    fireEvent.press(getByText('Discard'));
+
+    const state = useSessionStore.getState();
+    expect(state.clientSessionId).toBeNull();
+    expect(state.uploadedAudioPath).toBeNull();
+    expect(state.audioUri).toBeNull();
   });
 });

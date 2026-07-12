@@ -33,6 +33,10 @@ export function usePipeline() {
       setError(null);
       setStatus('processing');
       try {
+        // Read the take's idempotency state at call time (set by submitReview)
+        // so "Try again" reuses the same key and any already-uploaded audio.
+        const { clientSessionId, uploadedAudioPath } =
+          useSessionStore.getState();
         const result = await pipelineClient.run(
           {
             audioUri,
@@ -40,8 +44,11 @@ export function usePipeline() {
             sportKey: activeSport,
             skillLevel,
             sessionDate: new Date(),
+            clientSessionId,
+            uploadedAudioPath,
           },
           (steps) => setSteps(steps),
+          (path) => useSessionStore.getState().setUploadedAudioPath(path),
         );
         setLatestResult(result);
         // In demo mode, prepend the new session so the Log reflects it live.

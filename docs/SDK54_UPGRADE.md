@@ -698,6 +698,11 @@ rm -rf patches   # removes the metro bundle-mode SHA-1 patch and the
 ```
 
 ## After it launches cleanly
-- Re-enable OTA updates: set `app.json` `updates.enabled: true`, restore the
-  `channel` on the `testflight` profile in `eas.json`, then `eas update`.
+- ~~Re-enable OTA updates~~ **DONE (build 25, 2026-07-12)**:
+  `updates.enabled: true` + `channel: "testflight"` shipped with the
+  pre-launch-hardening build. JS-only fixes now ship with
+  `npx eas-cli update --channel testflight --message "…"` after the usual
+  local gate + commit. Rule: never bump `app.json` `version` in a JS-only
+  change — runtimeVersion policy is `appVersion`, so a bump targets a runtime
+  no shipped build has and testers silently stop receiving updates.
 - Plan the `expo-av` → `expo-audio` migration before SDK 55 (av is removed there).

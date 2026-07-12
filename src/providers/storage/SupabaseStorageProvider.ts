@@ -181,12 +181,33 @@ export class SupabaseStorageProvider implements IStorageProvider {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
+    // Grab the audio path BEFORE the row disappears.
+    const { data } = await supabase
+      .from('sessions')
+      .select('audio_storage_path')
+      .eq('id', sessionId)
+      .maybeSingle();
+
     // RLS ("Users own their sessions", FOR ALL) restricts this to the owner.
     const { error } = await supabase
       .from('sessions')
       .delete()
       .eq('id', sessionId);
     if (error) throw new Error(`Delete session failed: ${error.message}`);
+
+    // Best-effort audio removal (needs the "own audio delete" storage
+    // policy). Row deletion stays authoritative: an orphaned object on a
+    // storage blip is acceptable; a deleted recording with a live row is not.
+    const path = (data as { audio_storage_path: string | null } | null)
+      ?.audio_storage_path;
+    if (path) {
+      const { error: storageError } = await supabase.storage
+        .from(AUDIO_BUCKET)
+        .remove([path]);
+      if (storageError) {
+        logger.warn('session audio delete failed (row removed)', storageError);
+      }
+    }
   }
 }
 

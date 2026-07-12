@@ -1,5 +1,8 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { router } from 'expo-router';
+import { AppState } from 'react-native';
+
+import { useSessionStore } from '@/store/sessionStore';
 
 // Demo mode keeps begin/finish synchronous (no real microphone).
 jest.mock('@/config/featureFlags', () => ({
@@ -82,5 +85,88 @@ describe('RecordScreen', () => {
     expect(queryByText('Submit')).toBeNull();
     expect(getByTestId('record-toggle')).toBeTruthy();
     expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('auto-stops at the max duration and says why', () => {
+    const { getByTestId, getByText } = render(<RecordScreen />);
+    act(() => fireEvent.press(getByTestId('record-toggle'))); // start
+    act(() => jest.advanceTimersByTime(90_000)); // hit the 90s ceiling
+
+    // Landed in review (not still recording), with the explanation visible.
+    expect(getByText('Submit')).toBeTruthy();
+    expect(getByText(/max length reached/i)).toBeTruthy();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('submitReview stamps a fresh idempotency key and clears the upload path', () => {
+    useSessionStore.setState({
+      clientSessionId: 'stale-key',
+      uploadedAudioPath: 'u1/stale.m4a',
+    });
+    const { getByTestId } = render(<RecordScreen />);
+    act(() => fireEvent.press(getByTestId('record-toggle')));
+    act(() => jest.advanceTimersByTime(20000));
+    act(() => fireEvent.press(getByTestId('record-toggle'))); // → review
+    act(() => fireEvent.press(getByTestId('review-submit')));
+
+    const { clientSessionId, uploadedAudioPath } = useSessionStore.getState();
+    expect(clientSessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(clientSessionId).not.toBe('stale-key');
+    expect(uploadedAudioPath).toBeNull();
+  });
+
+  describe('backgrounding mid-recording', () => {
+    const getBackgroundHandler = (
+      spy: jest.SpyInstance,
+    ): ((state: string) => void) => {
+      const call = spy.mock.calls.at(-1);
+      expect(call?.[0]).toBe('change');
+      return call?.[1] as (state: string) => void;
+    };
+
+    it('lands a valid partial take in review with an explanation', () => {
+      const spy = jest.spyOn(AppState, 'addEventListener');
+      const { getByTestId, getByText } = render(<RecordScreen />);
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // start
+      act(() => jest.advanceTimersByTime(25_000)); // ≥ 20s min
+
+      const handler = getBackgroundHandler(spy);
+      act(() => handler('background'));
+
+      expect(getByText('Submit')).toBeTruthy();
+      expect(getByText(/stopped when you left/i)).toBeTruthy();
+      expect(router.push).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('discards an under-minimum take back to idle with an explanation', () => {
+      const spy = jest.spyOn(AppState, 'addEventListener');
+      const { getByTestId, getByText, queryByText } = render(<RecordScreen />);
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // start
+      act(() => jest.advanceTimersByTime(5_000)); // < 20s min
+
+      const handler = getBackgroundHandler(spy);
+      act(() => handler('background'));
+
+      expect(getByText('Record')).toBeTruthy(); // idle again
+      expect(queryByText('Keep recording')).toBeNull(); // no false resume offer
+      expect(getByText(/under the 20s minimum/i)).toBeTruthy();
+      spy.mockRestore();
+    });
+
+    it("ignores 'inactive' (banners, control center) — the take keeps going", () => {
+      const spy = jest.spyOn(AppState, 'addEventListener');
+      const { getByTestId, queryByText } = render(<RecordScreen />);
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // start
+      act(() => jest.advanceTimersByTime(25_000));
+
+      const handler = getBackgroundHandler(spy);
+      act(() => handler('inactive'));
+
+      expect(queryByText('Submit')).toBeNull(); // still recording, no review
+      spy.mockRestore();
+    });
   });
 });

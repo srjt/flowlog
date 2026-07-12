@@ -86,13 +86,18 @@ export class AuthService {
 
     let finalUrl: string | null;
     try {
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectTo,
+      );
       finalUrl =
         result.type === 'success' && result.url
           ? result.url
           : await Promise.race([
               deepLinkArrived,
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+              new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), 1500),
+              ),
             ]);
     } finally {
       linkingSub.remove();
@@ -183,14 +188,17 @@ export class AuthService {
 
   /**
    * Persist the onboarding picks (sport + skill) and mark the profile onboarded.
-   * Called once when the user finishes the first-run flow.
+   * Called once when the user finishes the first-run flow. Throws on failure —
+   * the caller must NOT mark onboarding complete locally when the profile row
+   * still says otherwise (the next cold launch reads the row and would bounce
+   * the user back through onboarding, losing their picks).
    */
   async completeOnboarding(
     userId: string,
     activeSport: SportKey,
     skillLevel: SkillLevel,
   ): Promise<void> {
-    await supabase
+    const { error } = await supabase
       .from('profiles')
       .update({
         active_sport: activeSport,
@@ -198,6 +206,43 @@ export class AuthService {
         onboarding_complete: true,
       })
       .eq('id', userId);
+    if (error) throw new Error(`Onboarding save failed: ${error.message}`);
+  }
+
+  /**
+   * Permanently delete the signed-in user's account: audio recordings, all
+   * rows, and the auth user itself (server-side via the delete-account edge
+   * function — the client has no privileges to do any of this directly).
+   */
+  async deleteAccount(): Promise<void> {
+    const { error } = await supabase.functions.invoke('delete-account', {
+      body: { confirm: true },
+    });
+    if (error) {
+      throw new Error(error.message ?? 'Account deletion failed.');
+    }
+  }
+
+  /**
+   * Persist sport/skill changes made from Profile so they survive reinstall
+   * and other devices. Never touches onboarding_complete.
+   */
+  async updateProfile(
+    userId: string,
+    fields: { activeSport?: SportKey; skillLevel?: SkillLevel },
+  ): Promise<void> {
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (fields.activeSport !== undefined) {
+      patch.active_sport = fields.activeSport;
+    }
+    if (fields.skillLevel !== undefined) patch.skill_level = fields.skillLevel;
+    const { error } = await supabase
+      .from('profiles')
+      .update(patch)
+      .eq('id', userId);
+    if (error) throw new Error(`Profile update failed: ${error.message}`);
   }
 }
 

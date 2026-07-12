@@ -76,4 +76,64 @@ describe('Onboarding flow', () => {
     expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
     expect(useUserStore.getState().onboardingComplete).toBe(true);
   });
+
+  it('a failed profile save blocks completion and offers Retry', async () => {
+    (authService.completeOnboarding as jest.Mock).mockRejectedValueOnce(
+      new Error('Onboarding save failed: offline'),
+    );
+    const { getByTestId, getByText } = render(<Welcome />);
+    fireEvent.press(getByTestId('onboarding-start'));
+    fireEvent.press(getByTestId('onboarding-sport-next'));
+    fireEvent.press(getByTestId('onboarding-skill-next'));
+
+    await act(async () => {
+      fireEvent.press(getByTestId('onboarding-finish'));
+    });
+
+    // NOT marked complete, NOT navigated: the profile row still says false,
+    // so proceeding would bounce the user back through onboarding next launch.
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(useUserStore.getState().onboardingComplete).toBe(false);
+    expect(getByText(/couldn.t save your picks/i)).toBeTruthy();
+    expect(getByTestId('onboarding-retry')).toBeTruthy();
+    expect(getByTestId('onboarding-continue-anyway')).toBeTruthy();
+  });
+
+  it('Retry after a failure completes normally once the save succeeds', async () => {
+    (authService.completeOnboarding as jest.Mock).mockRejectedValueOnce(
+      new Error('Onboarding save failed: offline'),
+    );
+    const { getByTestId } = render(<Welcome />);
+    fireEvent.press(getByTestId('onboarding-start'));
+    fireEvent.press(getByTestId('onboarding-sport-next'));
+    fireEvent.press(getByTestId('onboarding-skill-next'));
+    await act(async () => {
+      fireEvent.press(getByTestId('onboarding-finish')); // fails
+    });
+
+    await act(async () => {
+      fireEvent.press(getByTestId('onboarding-retry')); // succeeds
+    });
+
+    expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
+    expect(useUserStore.getState().onboardingComplete).toBe(true);
+  });
+
+  it('"Continue anyway" proceeds on local state only', async () => {
+    (authService.completeOnboarding as jest.Mock).mockRejectedValueOnce(
+      new Error('Onboarding save failed: offline'),
+    );
+    const { getByTestId } = render(<Welcome />);
+    fireEvent.press(getByTestId('onboarding-start'));
+    fireEvent.press(getByTestId('onboarding-sport-next'));
+    fireEvent.press(getByTestId('onboarding-skill-next'));
+    await act(async () => {
+      fireEvent.press(getByTestId('onboarding-finish')); // fails
+    });
+
+    fireEvent.press(getByTestId('onboarding-continue-anyway'));
+
+    expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
+    expect(useUserStore.getState().onboardingComplete).toBe(true);
+  });
 });

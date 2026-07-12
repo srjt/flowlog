@@ -38,6 +38,11 @@ const COACHING_CUE_MAX_WORDS = 25;
 const QUALITY_GATE_RETRY_LIMIT = 2;
 const RECENT_MISTAKES_WINDOW = 5;
 const AUDIO_BUCKET = 'session-audio';
+// Abuse cap (UTC day), not a UX quota — one runaway client must not drain
+// the transcription/AI budget. Generous vs. real usage (~1-3 sessions/day).
+const DAILY_SESSION_LIMIT = 15;
+const UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 const STEPS: ProcessingStep[] = [
   { name: 'context', label: 'Getting set up', status: 'done' },
@@ -56,6 +61,9 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
+  // Breadcrumb for the catch block: which stage was in flight when it broke.
+  let stage = 'auth';
+  let userId: string | null = null;
   try {
     // ── Auth: derive the user from their JWT; never trust a client userId. ──
     const jwt = (req.headers.get('Authorization') ?? '').replace(
@@ -66,7 +74,9 @@ Deno.serve(async (req: Request) => {
     if (!user) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
+    userId = user.id;
 
+    stage = 'validate';
     const body = (await req.json()) as ProcessRequest;
     const { audioStoragePath, sportKey, skillLevel, sessionDate } = body;
     if (!audioStoragePath || !sportKey) {
@@ -79,11 +89,59 @@ Deno.serve(async (req: Request) => {
     if (!audioStoragePath.startsWith(`${user.id}/`)) {
       return jsonResponse({ error: 'Forbidden audio path' }, 403);
     }
+    // Shape-validate BEFORE this ever reaches a PostgREST query string.
+    const clientSessionId =
+      typeof body.clientSessionId === 'string' &&
+      UUID_RE.test(body.clientSessionId)
+        ? body.clientSessionId.toLowerCase()
+        : null;
 
     // ── Stage 0: sport context ──────────────────────────────────────────────
     const sport = getSportContext(sportKey);
 
+    // ── Idempotency replay: a retry of an already-processed take returns the
+    //    existing session instead of creating a second one. MUST run before
+    //    the rate limit so retries never 429. Fail open on lookup errors —
+    //    the partial unique index converts any race into the insert-conflict
+    //    path below. ──
+    stage = 'idempotency';
+    if (clientSessionId) {
+      try {
+        const existing = await dbSelect(
+          `sessions?select=*&user_id=eq.${user.id}` +
+            `&client_session_id=eq.${clientSessionId}&limit=1`,
+        );
+        if (existing?.[0]) {
+          return jsonResponse(outputFromRow(existing[0], sport), 200);
+        }
+      } catch (err) {
+        console.error('idempotency lookup failed (fail-open):', err);
+      }
+    }
+
+    // ── Per-user daily cap. Fail OPEN on query error — a monitoring blip
+    //    must not block real users. ──
+    stage = 'rate_limit';
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const todays = await dbSelect(
+        `sessions?select=id&user_id=eq.${user.id}` +
+          `&created_at=gte.${today}&limit=${DAILY_SESSION_LIMIT}`,
+      );
+      if ((todays?.length ?? 0) >= DAILY_SESSION_LIMIT) {
+        return jsonResponse(
+          {
+            error: `Daily limit reached: up to ${DAILY_SESSION_LIMIT} sessions per day. Try again tomorrow.`,
+          },
+          429,
+        );
+      }
+    } catch (err) {
+      console.error('rate-limit check failed (fail-open):', err);
+    }
+
     // ── Stage 1: transcription (download audio, then provider) ──────────────
+    stage = 'transcription';
     const audioBlob = await downloadAudio(AUDIO_BUCKET, audioStoragePath);
     if (!audioBlob) {
       return jsonResponse(
@@ -116,6 +174,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Stage 2a: extraction ────────────────────────────────────────────────
+    stage = 'extraction';
     const extraction = await extract(
       transcription.transcript,
       sport,
@@ -129,6 +188,7 @@ Deno.serve(async (req: Request) => {
     );
 
     // ── Stage 2b: coaching ──────────────────────────────────────────────────
+    stage = 'coaching';
     const initialCoaching = await generateCoaching(
       extraction,
       sport,
@@ -140,6 +200,7 @@ Deno.serve(async (req: Request) => {
     );
 
     // ── Stage 3: quality gate (stricter retries, safe fallback) ─────────────
+    stage = 'quality_gate';
     const gate = await enforce(
       initialCoaching,
       sport,
@@ -158,21 +219,40 @@ Deno.serve(async (req: Request) => {
     );
 
     // ── Stage 4: persistence ────────────────────────────────────────────────
-    const session = await dbInsert('sessions', {
-      user_id: user.id,
-      sport_key: sportKey,
-      session_date: sessionDate ?? new Date().toISOString(),
-      audio_storage_path: audioStoragePath,
-      raw_transcript: transcription.transcript,
-      positions_visited: extraction.positionsVisited,
-      key_mistake: extraction.keyMistake,
-      opponent_action: extraction.opponentAction,
-      sentiment: extraction.sentiment,
-      coaching_cue: gate.coaching.cue,
-      target_position: gate.coaching.targetPosition,
-      quality_gate_passed: gate.passed,
-      pipeline_version: PIPELINE_VERSION,
-    });
+    stage = 'persistence';
+    let session;
+    try {
+      session = await dbInsert('sessions', {
+        user_id: user.id,
+        sport_key: sportKey,
+        session_date: sessionDate ?? new Date().toISOString(),
+        audio_storage_path: audioStoragePath,
+        raw_transcript: transcription.transcript,
+        positions_visited: extraction.positionsVisited,
+        key_mistake: extraction.keyMistake,
+        opponent_action: extraction.opponentAction,
+        sentiment: extraction.sentiment,
+        coaching_cue: gate.coaching.cue,
+        target_position: gate.coaching.targetPosition,
+        quality_gate_passed: gate.passed,
+        pipeline_version: PIPELINE_VERSION,
+        client_session_id: clientSessionId,
+      });
+    } catch (err) {
+      // Two in-flight retries can race past the replay check; the partial
+      // unique index turns the loser into a conflict — return the winner.
+      const msg = String((err as Error).message ?? '');
+      if (clientSessionId && /409|23505|duplicate/i.test(msg)) {
+        const rows = await dbSelect(
+          `sessions?select=*&user_id=eq.${user.id}` +
+            `&client_session_id=eq.${clientSessionId}&limit=1`,
+        );
+        if (rows?.[0]) {
+          return jsonResponse(outputFromRow(rows[0], sport), 200);
+        }
+      }
+      throw err;
+    }
 
     // Recompute trends so the NEXT session's coaching is trend-aware
     // (best-effort — never fail the request over this).
@@ -189,12 +269,46 @@ Deno.serve(async (req: Request) => {
     };
     return jsonResponse(output, 200);
   } catch (err) {
+    // Make production failures visible: Dashboard → Edge Functions → Logs.
+    console.error(
+      `process-session failed [stage=${stage}] [user=${userId ?? 'unauth'}]:`,
+      (err as Error)?.message,
+      (err as Error)?.stack,
+    );
     return jsonResponse(
       { error: (err as Error).message ?? 'Pipeline failed' },
       500,
     );
   }
 });
+
+/**
+ * Rebuild the exact PipelineOutput wire shape from a persisted row, for the
+ * idempotent-replay path (retry of a take that already produced a session).
+ */
+// deno-lint-ignore no-explicit-any
+function outputFromRow(
+  row: any,
+  sport: { sessionUnit: string },
+): PipelineOutput {
+  return {
+    sessionId: row.id,
+    structuredSummary: buildSummary(
+      {
+        positionsVisited: row.positions_visited ?? [],
+        keyMistake: row.key_mistake ?? '',
+        opponentAction: row.opponent_action ?? '',
+        sentiment: row.sentiment ?? 'neutral',
+      },
+      sport.sessionUnit,
+    ),
+    coachingCue: row.coaching_cue ?? '',
+    targetPosition: row.target_position ?? '',
+    sentiment: row.sentiment ?? 'neutral',
+    qualityGatePassed: row.quality_gate_passed ?? false,
+    processingSteps: STEPS,
+  };
+}
 
 async function updateUserTrends(
   userId: string,

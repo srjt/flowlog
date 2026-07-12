@@ -49,6 +49,7 @@ export default function Welcome() {
     getSportContext('bjj').skillLevels[0] ?? '',
   );
   const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState(false);
 
   const sportKeys = registeredSportKeys();
 
@@ -70,15 +71,32 @@ export default function Welcome() {
 
   const finish = async () => {
     setFinishing(true);
+    setFinishError(false);
     setActiveSport(sport);
     setSkillLevel(skill);
-    try {
-      if (authUser && !isDemoMode && !isLocalPipeline) {
+    if (authUser && !isDemoMode && !isLocalPipeline) {
+      try {
         await authService.completeOnboarding(authUser.id, sport, skill);
+      } catch (err) {
+        // Do NOT mark complete or navigate: the profile row still says
+        // onboarding_complete=false, so the next cold launch would bounce the
+        // user back here with their picks lost. Show retry instead.
+        logger.error('persisting onboarding failed', err);
+        setFinishing(false);
+        setFinishError(true);
+        return;
       }
-    } catch (err) {
-      logger.warn('persisting onboarding failed', err);
     }
+    setOnboardingComplete(true);
+    router.replace('/(tabs)/record');
+  };
+
+  /**
+   * Escape hatch when the save keeps failing (e.g. captive wifi): proceed on
+   * local state only. The caption warns that picks may not stick — the next
+   * launch re-reads the profile row, which still says not-onboarded.
+   */
+  const continueAnyway = () => {
     setOnboardingComplete(true);
     router.replace('/(tabs)/record');
   };
@@ -216,21 +234,47 @@ export default function Welcome() {
                 device settings.
               </Text>
             </Card>
-            <View className="gap-3">
-              <Button
-                testID="onboarding-finish"
-                title="Enable microphone & start"
-                loading={finishing}
-                onPress={() => void primeMic()}
-              />
-              <Button
-                testID="onboarding-skip-mic"
-                title="Skip for now"
-                variant="ghost"
-                disabled={finishing}
-                onPress={() => void finish()}
-              />
-            </View>
+            {finishError ? (
+              <Card className="gap-3 border border-danger">
+                <Text variant="body">
+                  We couldn’t save your picks to your account. Check your
+                  connection and retry.
+                </Text>
+                <Button
+                  testID="onboarding-retry"
+                  title="Retry"
+                  loading={finishing}
+                  onPress={() => void finish()}
+                />
+                <Button
+                  testID="onboarding-continue-anyway"
+                  title="Continue anyway"
+                  variant="ghost"
+                  disabled={finishing}
+                  onPress={continueAnyway}
+                />
+                <Text variant="caption">
+                  If you continue, your sport and level may reset next time you
+                  open the app.
+                </Text>
+              </Card>
+            ) : (
+              <View className="gap-3">
+                <Button
+                  testID="onboarding-finish"
+                  title="Enable microphone & start"
+                  loading={finishing}
+                  onPress={() => void primeMic()}
+                />
+                <Button
+                  testID="onboarding-skip-mic"
+                  title="Skip for now"
+                  variant="ghost"
+                  disabled={finishing}
+                  onPress={() => void finish()}
+                />
+              </View>
+            )}
           </View>
         ) : null}
       </ScrollView>

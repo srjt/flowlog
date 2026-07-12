@@ -1,7 +1,7 @@
-import { Audio } from 'expo-av';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { AppState, Pressable, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -21,6 +21,7 @@ import { useSessionTrends } from '@/hooks/useSessionTrends';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUserStore } from '@/store/userStore';
 import { logger } from '@/utils/logger';
+import { generateUuid } from '@/utils/uuid';
 
 /**
  * Screen 1 — record, then review before committing.
@@ -43,8 +44,11 @@ export default function RecordScreen() {
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Mirrors `elapsed` for handlers that outlive a render (the AppState
+  // listener would otherwise read the value captured at subscribe time).
+  const elapsedRef = useRef(0);
 
-  const { setAudioUri, setStatus } = useSessionStore();
+  const { setStatus } = useSessionStore();
   const { activeSport, skillLevel } = useUserStore();
   const { trends, loading: trendsLoading } = useSessionTrends();
   const dominantWeakness = trends?.focusArea ?? null;
@@ -75,7 +79,14 @@ export default function RecordScreen() {
   }, [recording, reducedMotion]);
 
   const runInterval = () => {
-    timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+    timerRef.current = setInterval(
+      () =>
+        setElapsed((e) => {
+          elapsedRef.current = e + 1;
+          return e + 1;
+        }),
+      1000,
+    );
   };
   const stopTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -112,11 +123,85 @@ export default function RecordScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-stop at the max duration.
+  // Auto-stop at the max duration, telling the user why the take ended
+  // (the hint survives into the review card; only begin() clears it).
   useEffect(() => {
-    if (recording && elapsed >= maxRecordingSeconds) void finish();
+    if (recording && elapsed >= maxRecordingSeconds) {
+      setHint(
+        `Max length reached — recording stopped at ${maxRecordingSeconds}s.`,
+      );
+      void finish();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elapsed, recording]);
+
+  /**
+   * App went to BACKGROUND mid-recording (home button, answered call): iOS
+   * kills the audio session, so land the take gracefully instead of letting
+   * the timer lie. ≥ min ⇒ same terminal state as a manual stop (review card);
+   * < min ⇒ discard back to idle — a backgrounded session can't reliably
+   * resume, so offering "Keep recording" would be a lie.
+   */
+  const finishInterrupted = async () => {
+    stopTimer();
+    setRecording(false);
+    const taken = elapsedRef.current;
+
+    if (taken < minRecordingSeconds) {
+      if (!isDemoMode) await unloadRecorder();
+      setTooShort(false);
+      setStatus('idle');
+      setElapsed(0);
+      elapsedRef.current = 0;
+      setHint(
+        `Recording stopped when you left the app — it was under the ${minRecordingSeconds}s minimum, so it was discarded.`,
+      );
+      return;
+    }
+
+    if (isDemoMode) {
+      setReviewUri('demo://session');
+      setReviewDuration(taken);
+      setReview(true);
+      setHint('Recording stopped when you left the app — review it below.');
+      return;
+    }
+    try {
+      const rec = recordingRef.current;
+      recordingRef.current = null;
+      if (!rec) return;
+      await rec.stopAndUnloadAsync();
+      const uri = rec.getURI();
+      if (!uri) {
+        setHint('That recording didn’t capture any audio. Please try again.');
+        setStatus('idle');
+        return;
+      }
+      setReviewUri(uri);
+      setReviewDuration(taken);
+      setReview(true);
+      setHint(
+        'Recording stopped when you left the app — review the partial take below.',
+      );
+    } catch (err) {
+      logger.error('interrupted-stop failed', err);
+      setHint('Recording stopped when you left the app.');
+      setStatus('idle');
+    }
+  };
+
+  // While recording, watch for the app leaving the foreground. 'background'
+  // only — 'inactive' also fires for control-center pulls and incoming-call
+  // banners, where the take should keep going.
+  useEffect(() => {
+    if (!recording) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') void finishInterrupted();
+    });
+    // Optional chaining: RN's jest preset mocks addEventListener as void.
+    return () => sub?.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording]);
 
   const begin = async () => {
     setHint(null);
@@ -124,6 +209,7 @@ export default function RecordScreen() {
     setReview(false);
     setReviewUri(null);
     setElapsed(0);
+    elapsedRef.current = 0;
     if (isDemoMode) {
       setRecording(true);
       setStatus('recording');
@@ -139,6 +225,15 @@ export default function RecordScreen() {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        // Own the audio session while recording; incoming audio from other
+        // apps must not silently kill the take.
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+        shouldDuckAndroid: false,
+        // Deliberately false: keeping a session alive in the background needs
+        // native UIBackgroundModes (a build-time change). We stop-on-background
+        // instead — see finishInterrupted.
+        staysActiveInBackground: false,
       });
       const { recording: rec } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY,
@@ -220,6 +315,7 @@ export default function RecordScreen() {
     setReview(false);
     setReviewUri(null);
     setElapsed(0);
+    elapsedRef.current = 0;
     setHint(null);
     setStatus('idle');
     await unloadSound();
@@ -259,7 +355,13 @@ export default function RecordScreen() {
   const submitReview = () => {
     if (!reviewUri) return;
     void unloadSound();
-    setAudioUri(reviewUri);
+    const store = useSessionStore.getState();
+    store.setAudioUri(reviewUri);
+    // One idempotency key per accepted take: retries reuse it (so a timeout
+    // can't create two sessions), and every new Submit regenerates it (so a
+    // stale key can never ride a fresh recording).
+    store.setClientSessionId(generateUuid());
+    store.setUploadedAudioPath(null);
     router.push('/(flow)/processing');
   };
 

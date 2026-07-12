@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DigestSettings } from '@/components/DigestSettings';
 import { ReminderSettings } from '@/components/ReminderSettings';
 import { Button, Card, Text } from '@/components/ui';
-import { isDemoMode } from '@/config/featureFlags';
+import { isDemoMode, isLocalPipeline } from '@/config/featureFlags';
 import { authService } from '@/services/AuthService';
 import {
   COMING_SOON_SPORTS,
@@ -15,25 +16,53 @@ import {
 import { useSessionStore } from '@/store/sessionStore';
 import { useUserStore } from '@/store/userStore';
 import type { SportKey } from '@/types/sport';
+import { logger } from '@/utils/logger';
 
 /**
  * Screen 5 — Profile / Settings. Lets the user switch active sport, set their
- * skill level, see account info, and sign out. Sport/skill state lives in the
- * user store; switching sport is the horizontal-expansion mechanism made
- * visible to the user.
+ * skill level, see account info, and sign out. Sport/skill changes update the
+ * local store immediately and persist to the profile row in the background so
+ * they survive reinstalls and other devices.
  */
 export default function ProfileScreen() {
   const { authUser, activeSport, skillLevel, setActiveSport, setSkillLevel } =
     useUserStore();
+  const [saveHint, setSaveHint] = useState<string | null>(null);
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const sportKeys = registeredSportKeys();
   const activeContext = getSportContext(activeSport);
 
+  // Fire-and-forget server write; the local store is already updated so the
+  // UI never blocks. On failure, tell the user their pick may not stick.
+  const persistProfile = (fields: {
+    activeSport?: SportKey;
+    skillLevel?: string;
+  }) => {
+    if (!authUser || isDemoMode || isLocalPipeline) return;
+    setSaveHint(null);
+    authService.updateProfile(authUser.id, fields).catch((err) => {
+      logger.error('profile save failed', err);
+      setSaveHint(
+        'Couldn’t save that to your account — it may not stick after reinstall or on other devices.',
+      );
+    });
+  };
+
   const changeSport = (key: SportKey) => {
     if (key === activeSport) return;
+    const level = getSportContext(key).skillLevels[0] ?? '';
     setActiveSport(key);
-    const levels = getSportContext(key).skillLevels;
-    setSkillLevel(levels[0] ?? '');
+    setSkillLevel(level);
+    // One PATCH for both fields — two racing writes could persist a
+    // mismatched sport/skill pair.
+    persistProfile({ activeSport: key, skillLevel: level });
+  };
+
+  const changeSkill = (level: string) => {
+    setSkillLevel(level);
+    persistProfile({ skillLevel: level });
   };
 
   const signOut = () => {
@@ -41,6 +70,26 @@ export default function ProfileScreen() {
     useSessionStore.getState().reset();
     useUserStore.getState().reset();
     router.replace('/(auth)/login');
+  };
+
+  const onDeleteAccount = async () => {
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    try {
+      await authService.deleteAccount();
+      // The account is gone server-side; the local sign-out is best-effort.
+      await authService.signOut().catch(() => undefined);
+      useSessionStore.getState().reset();
+      useUserStore.getState().reset();
+      router.replace('/(auth)/login');
+    } catch (err) {
+      logger.error('account deletion failed', err);
+      setDeletingAccount(false);
+      setConfirmDeleteAccount(false);
+      setSaveHint(
+        'Couldn’t delete your account. Check your connection and try again.',
+      );
+    }
   };
 
   return (
@@ -111,7 +160,7 @@ export default function ProfileScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={level}
                   accessibilityState={{ selected }}
-                  onPress={() => setSkillLevel(level)}
+                  onPress={() => changeSkill(level)}
                   className={`rounded-xl border px-4 py-3 ${
                     selected
                       ? 'border-primary bg-primary/20'
@@ -123,6 +172,11 @@ export default function ProfileScreen() {
               );
             })}
           </View>
+          {saveHint ? (
+            <Text variant="caption" className="text-accent">
+              {saveHint}
+            </Text>
+          ) : null}
         </View>
 
         <Card className="gap-1">
@@ -137,6 +191,40 @@ export default function ProfileScreen() {
         <DigestSettings />
 
         <Button title="Sign out" variant="secondary" onPress={signOut} />
+
+        {!isDemoMode && !isLocalPipeline ? (
+          confirmDeleteAccount ? (
+            <Card className="gap-3 border border-danger">
+              <Text variant="body">
+                Delete your account? This permanently removes your account,
+                every session, and all audio recordings. This can’t be undone.
+              </Text>
+              <View className="flex-row gap-3">
+                <Button
+                  testID="account-delete-confirm"
+                  title="Delete forever"
+                  loading={deletingAccount}
+                  className="flex-1 bg-danger"
+                  onPress={() => void onDeleteAccount()}
+                />
+                <Button
+                  testID="account-delete-cancel"
+                  title="Cancel"
+                  variant="secondary"
+                  className="flex-1"
+                  onPress={() => setConfirmDeleteAccount(false)}
+                />
+              </View>
+            </Card>
+          ) : (
+            <Button
+              testID="account-delete"
+              title="Delete account"
+              variant="ghost"
+              onPress={() => setConfirmDeleteAccount(true)}
+            />
+          )
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

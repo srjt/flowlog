@@ -48,6 +48,7 @@ export class PipelineClient {
   async run(
     input: PipelineInput,
     onProgress?: PipelineProgress,
+    onAudioUploaded?: (path: string) => void,
   ): Promise<PipelineOutput> {
     // DEMO_MODE: fully offline. Animate the steps and return canned output —
     // no audio upload, no edge function, no API keys. Prototyping only.
@@ -68,17 +69,25 @@ export class PipelineClient {
     const progress = new StagedProgress(onProgress);
     progress.start();
     try {
-      // 1. Upload audio to Storage (server downloads it for transcription).
-      //    On web the recording is WebM, which the server-side Gemini transcriber
+      // 1. Upload audio to Storage (server downloads it for transcription) —
+      //    unless a retry already uploaded this exact take, in which case reuse
+      //    the existing object instead of orphaning it with a duplicate.
+      //    On web the recording is WebM, which the server-side transcriber
       //    can't read — transcode to WAV first so the format is supported.
-      const uploadUri = await prepareUploadUri(input.audioUri);
-      const audioStoragePath = await storageProvider.uploadAudio(
-        input.userId,
-        uploadUri,
-      );
+      let audioStoragePath = input.uploadedAudioPath ?? null;
+      if (!audioStoragePath) {
+        const uploadUri = await prepareUploadUri(input.audioUri);
+        audioStoragePath = await storageProvider.uploadAudio(
+          input.userId,
+          uploadUri,
+        );
+        onAudioUploaded?.(audioStoragePath);
+      }
 
       // 2. Invoke the edge function. supabase-js attaches the user's auth token,
       //    so the function derives the userId from the JWT (not trusted input).
+      //    clientSessionId makes the call idempotent server-side: retrying
+      //    after a timeout returns the already-created session, never a second.
       const { data, error } = await supabase.functions.invoke<PipelineOutput>(
         'process-session',
         {
@@ -87,6 +96,7 @@ export class PipelineClient {
             sportKey: input.sportKey,
             skillLevel: input.skillLevel,
             sessionDate: input.sessionDate.toISOString(),
+            clientSessionId: input.clientSessionId ?? null,
           },
         },
       );

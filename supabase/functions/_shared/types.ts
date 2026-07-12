@@ -35,6 +35,8 @@ export interface ProcessRequest {
   sportKey: string;
   skillLevel: string;
   sessionDate: string;
+  /** Client-generated idempotency key (uuid); one per accepted take. */
+  clientSessionId?: string | null;
 }
 
 export interface PipelineOutput {

@@ -148,6 +148,28 @@ to `session-audio`, and calls `process-session`, which transcribes + analyzes on
 Gemini and saves the session. Your Log now persists across refreshes and
 devices.
 
+## Checking production errors
+
+Two places, both zero-infrastructure:
+
+- **Server-side failures** (transcription, AI calls, persistence): Dashboard →
+  Edge Functions → `process-session` → Logs. Every failure logs a line tagged
+  `[stage=transcription|extraction|coaching|quality_gate|persistence]` and the
+  user id; provider failures additionally log the HTTP status + response body.
+- **Client-side errors**: the app's `logger.error` / `reportToMonitoring`
+  fire-and-forget rows into `public.client_events` (insert-only RLS; read it
+  from the dashboard). SQL Editor:
+
+  ```sql
+  select created_at, user_id, event, left(detail, 300) as detail
+  from public.client_events
+  order by created_at desc
+  limit 100;
+  ```
+
+  Reporting is capped at 20 events per app launch and skipped in dev/demo/
+  local modes. There is deliberately no client-side SELECT policy.
+
 ## How the pieces map
 
 | Concern        | Where it runs                                              |

@@ -8,7 +8,11 @@ export function toFriendlyMessage(error: unknown): string {
     error instanceof Error ? error.message : String(error ?? '')
   ).toLowerCase();
 
-  if (/network|failed to fetch|could ?n.?t reach|econn|timeout|timed out/.test(raw)) {
+  if (
+    /network|failed to fetch|could ?n.?t reach|econn|timeout|timed out/.test(
+      raw,
+    )
+  ) {
     return 'Couldn’t reach the server. Check your connection and try again.';
   }
   if (/too short|empty transcript|no audio|produced no audio/.test(raw)) {
@@ -19,6 +23,11 @@ export function toFriendlyMessage(error: unknown): string {
   }
   if (/download audio|upload|bucket|storage/.test(raw)) {
     return 'We couldn’t handle that recording. Please try again.';
+  }
+  // Must precede the generic 429/quota branch below, which also matches the
+  // rate limiter's HTTP status.
+  if (/daily limit/.test(raw)) {
+    return 'You’ve hit today’s session limit. Your next reflection will be ready tomorrow.';
   }
   if (
     /api key|quota|\b429\b|invalid[_ ]argument|malformed json|no text content|\bmodel\b/.test(

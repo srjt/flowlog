@@ -90,6 +90,16 @@ export interface PipelineInput {
   sportKey: SportKey;
   skillLevel: SkillLevel;
   sessionDate: Date;
+  /**
+   * Idempotency key generated once per accepted take. The server refuses to
+   * create a second session for the same (user, key), so retries are safe.
+   */
+  clientSessionId?: string | null;
+  /**
+   * Storage path from an earlier successful upload of this same take. When
+   * set, the upload step is skipped — retries reuse the audio already there.
+   */
+  uploadedAudioPath?: string | null;
 }
 
 export interface PipelineOutput {

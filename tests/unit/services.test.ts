@@ -5,10 +5,7 @@ import {
   TranscriptionService,
 } from '@/services/TranscriptionService';
 import { getSportContext } from '@/sports';
-import {
-  MockAIProvider,
-  MockTranscriptionProvider,
-} from '../mocks';
+import { MockAIProvider, MockTranscriptionProvider } from '../mocks';
 
 const bjj = getSportContext('bjj');
 
@@ -28,9 +25,9 @@ describe('TranscriptionService', () => {
       durationSeconds: 5,
     });
     const service = new TranscriptionService(provider);
-    await expect(service.transcribe('file://a.m4a', bjj)).rejects.toBeInstanceOf(
-      RecordingTooShortError,
-    );
+    await expect(
+      service.transcribe('file://a.m4a', bjj),
+    ).rejects.toBeInstanceOf(RecordingTooShortError);
   });
 
   it('rejects empty transcripts', async () => {
@@ -89,9 +86,9 @@ describe('CoachingService word-cap helpers', () => {
 
   it('truncates to the cap for fallback safety', () => {
     const long = Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ');
-    expect(CoachingService.countWords(CoachingService.truncateToWordCap(long, 25))).toBe(
-      25,
-    );
+    expect(
+      CoachingService.countWords(CoachingService.truncateToWordCap(long, 25)),
+    ).toBe(25);
   });
 
   it('forwards the strict flag to the provider', async () => {

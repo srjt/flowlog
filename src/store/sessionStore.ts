@@ -18,6 +18,18 @@ export type RecordingStatus =
 interface SessionState {
   status: RecordingStatus;
   audioUri: string | null;
+  /**
+   * Idempotency key for the in-flight take: generated once per accepted
+   * recording (submitReview), sent with every pipeline invoke so a
+   * timeout-then-retry can never create two sessions from one recording.
+   */
+  clientSessionId: string | null;
+  /**
+   * Storage path of the successfully-uploaded audio for the in-flight take.
+   * Lets "Try again" skip re-uploading (and re-orphaning) the audio when only
+   * the analyze step failed.
+   */
+  uploadedAudioPath: string | null;
   steps: ProcessingStep[];
   latestResult: PipelineOutput | null;
   history: Session[];
@@ -25,6 +37,8 @@ interface SessionState {
 
   setStatus: (status: RecordingStatus) => void;
   setAudioUri: (uri: string | null) => void;
+  setClientSessionId: (id: string | null) => void;
+  setUploadedAudioPath: (path: string | null) => void;
   setSteps: (steps: ProcessingStep[]) => void;
   setLatestResult: (result: PipelineOutput | null) => void;
   setHistory: (history: Session[]) => void;
@@ -41,6 +55,8 @@ interface SessionState {
 export const useSessionStore = create<SessionState>((set) => ({
   status: 'idle',
   audioUri: null,
+  clientSessionId: null,
+  uploadedAudioPath: null,
   steps: [],
   latestResult: null,
   history: [],
@@ -48,6 +64,8 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   setStatus: (status) => set({ status }),
   setAudioUri: (audioUri) => set({ audioUri }),
+  setClientSessionId: (clientSessionId) => set({ clientSessionId }),
+  setUploadedAudioPath: (uploadedAudioPath) => set({ uploadedAudioPath }),
   setSteps: (steps) => set({ steps }),
   setLatestResult: (latestResult) => set({ latestResult }),
   setHistory: (history) => set({ history }),
@@ -69,6 +87,8 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({
       status: 'idle',
       audioUri: null,
+      clientSessionId: null,
+      uploadedAudioPath: null,
       steps: [],
       latestResult: null,
       errorMessage: null,
