@@ -96,6 +96,21 @@ Deno.serve(async (req: Request) => {
         ? body.clientSessionId.toLowerCase()
         : null;
 
+    // Two-phase transcript-review flow (client splits the pipeline so the user
+    // can correct the transcript before analysis):
+    //   phase 1 — stopAfterTranscription: transcribe and return, insert nothing
+    //   phase 2 — editedTranscript: skip transcription, analyze the given text
+    // Absent both, this runs the classic one-shot pipeline (build-25 client).
+    const stopAfterTranscription = body.stopAfterTranscription === true;
+    let editedTranscript: string | null = null;
+    if (typeof body.editedTranscript === 'string') {
+      const trimmed = body.editedTranscript.trim();
+      if (trimmed.length === 0) {
+        return jsonResponse({ error: 'Transcript is empty.' }, 400);
+      }
+      editedTranscript = trimmed.slice(0, 5000);
+    }
+
     // ── Stage 0: sport context ──────────────────────────────────────────────
     const sport = getSportContext(sportKey);
 
@@ -140,37 +155,57 @@ Deno.serve(async (req: Request) => {
       console.error('rate-limit check failed (fail-open):', err);
     }
 
-    // ── Stage 1: transcription (download audio, then provider) ──────────────
-    stage = 'transcription';
-    const audioBlob = await downloadAudio(AUDIO_BUCKET, audioStoragePath);
-    if (!audioBlob) {
-      return jsonResponse(
-        { error: 'Could not download audio (bucket/policy missing?)' },
-        400,
-      );
-    }
-    if (audioBlob.size === 0) {
-      // Historically caused by the React Native blob-upload pitfall (0-byte
-      // uploads that look successful). Fail with a clear message instead of
-      // letting an LLM "transcribe" silence into fabricated text.
-      return jsonResponse(
-        { error: 'Uploaded audio was empty (0 bytes) — the recording upload from the device failed. Please try recording again.' },
-        422,
-      );
-    }
-    const transcription = await transcribe(audioBlob, sport.vocabulary);
-    if (
-      transcription.durationSeconds > 0 &&
-      transcription.durationSeconds < sport.minRecordingSeconds
-    ) {
-      return jsonResponse(
-        {
-          error: `Recording too short (${transcription.durationSeconds.toFixed(
-            0,
-          )}s, min ${sport.minRecordingSeconds}s).`,
-        },
-        422,
-      );
+    // ── Stage 1: transcription ──────────────────────────────────────────────
+    // Phase 2 supplies the user-edited transcript, so skip download+transcribe
+    // entirely (and its audio checks — the audio was already validated in
+    // phase 1). Otherwise transcribe the uploaded audio.
+    let transcription: { transcript: string; durationSeconds: number };
+    if (editedTranscript !== null) {
+      transcription = { transcript: editedTranscript, durationSeconds: 0 };
+    } else {
+      stage = 'transcription';
+      const audioBlob = await downloadAudio(AUDIO_BUCKET, audioStoragePath);
+      if (!audioBlob) {
+        return jsonResponse(
+          { error: 'Could not download audio (bucket/policy missing?)' },
+          400,
+        );
+      }
+      if (audioBlob.size === 0) {
+        // Historically caused by the React Native blob-upload pitfall (0-byte
+        // uploads that look successful). Fail with a clear message instead of
+        // letting an LLM "transcribe" silence into fabricated text.
+        return jsonResponse(
+          { error: 'Uploaded audio was empty (0 bytes) — the recording upload from the device failed. Please try recording again.' },
+          422,
+        );
+      }
+      transcription = await transcribe(audioBlob, sport.vocabulary);
+      if (
+        transcription.durationSeconds > 0 &&
+        transcription.durationSeconds < sport.minRecordingSeconds
+      ) {
+        return jsonResponse(
+          {
+            error: `Recording too short (${transcription.durationSeconds.toFixed(
+              0,
+            )}s, min ${sport.minRecordingSeconds}s).`,
+          },
+          422,
+        );
+      }
+
+      // Phase 1: hand the transcript back for the user to review/correct.
+      // No row inserted — the session is created on the phase-2 analyze call.
+      if (stopAfterTranscription) {
+        return jsonResponse(
+          {
+            transcript: transcription.transcript,
+            durationSeconds: transcription.durationSeconds,
+          },
+          200,
+        );
+      }
     }
 
     // ── Stage 2a: extraction ────────────────────────────────────────────────

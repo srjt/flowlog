@@ -37,6 +37,10 @@ export interface ProcessRequest {
   sessionDate: string;
   /** Client-generated idempotency key (uuid); one per accepted take. */
   clientSessionId?: string | null;
+  /** Phase 1 of transcript review: transcribe and return, insert nothing. */
+  stopAfterTranscription?: boolean;
+  /** Phase 2: analyze this user-corrected transcript, skipping transcription. */
+  editedTranscript?: string | null;
 }
 
 export interface PipelineOutput {

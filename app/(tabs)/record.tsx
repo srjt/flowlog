@@ -15,7 +15,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StreakStrip } from '@/components/StreakStrip';
 import { Button, Card, Text } from '@/components/ui';
-import { isDemoMode } from '@/config/featureFlags';
+import {
+  isDemoMode,
+  isLocalPipeline,
+  isTranscriptReview,
+} from '@/config/featureFlags';
 import { PIPELINE_CONFIG } from '@/constants/pipelineConfig';
 import { useSessionTrends } from '@/hooks/useSessionTrends';
 import { useSessionStore } from '@/store/sessionStore';
@@ -362,7 +366,13 @@ export default function RecordScreen() {
     // stale key can never ride a fresh recording).
     store.setClientSessionId(generateUuid());
     store.setUploadedAudioPath(null);
-    router.push('/(flow)/processing');
+    store.setEditedTranscript(null);
+    // Real pipeline: transcribe first so the user can correct the transcript
+    // before analysis. Demo/local have no server transcribe step, so they go
+    // straight to processing as before.
+    const reviewTranscript =
+      isTranscriptReview && !isDemoMode && !isLocalPipeline;
+    router.push(reviewTranscript ? '/(flow)/transcript' : '/(flow)/processing');
   };
 
   const toggle = () => (recording ? void finish() : void begin());

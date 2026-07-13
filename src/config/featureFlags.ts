@@ -31,6 +31,13 @@ export const isDemoMode: boolean = env.DEMO_MODE;
  */
 export const isLocalPipeline: boolean = env.LOCAL_PIPELINE;
 
+/**
+ * Transcript review: after recording, show the server transcript for the user
+ * to correct before analysis runs (real server pipeline only — demo/local have
+ * no server transcribe step). One place to OTA-flip off if it misbehaves.
+ */
+export const isTranscriptReview = true;
+
 export type FeatureFlag = keyof typeof featureFlags;
 
 /** Sessions required before progression-gated features unlock. */

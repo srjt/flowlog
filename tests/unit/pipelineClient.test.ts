@@ -101,4 +101,80 @@ describe('PipelineClient idempotent run', () => {
       new PipelineClient().run({ ...baseInput, clientSessionId: 'key-1' }),
     ).rejects.toThrow(/daily limit reached/i);
   });
+
+  it('passes the edited transcript through to analysis', async () => {
+    await new PipelineClient().run({
+      ...baseInput,
+      clientSessionId: 'key-1',
+      uploadedAudioPath: 'u1/take.m4a',
+      editedTranscript: 'corrected words',
+    });
+
+    expect(mockInvoke).toHaveBeenCalledWith('process-session', {
+      body: expect.objectContaining({
+        editedTranscript: 'corrected words',
+        clientSessionId: 'key-1',
+      }),
+    });
+  });
+});
+
+describe('PipelineClient.transcribeAudio (phase 1)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUploadAudio.mockResolvedValue('u1/123.m4a');
+    mockInvoke.mockResolvedValue({
+      data: { transcript: 'hello world' },
+      error: null,
+    });
+  });
+
+  it('uploads once, invokes transcribe-only, and returns the transcript', async () => {
+    const onAudioUploaded = jest.fn();
+    const { transcript } = await new PipelineClient().transcribeAudio(
+      { ...baseInput, uploadedAudioPath: null },
+      onAudioUploaded,
+    );
+
+    expect(mockUploadAudio).toHaveBeenCalledTimes(1);
+    expect(onAudioUploaded).toHaveBeenCalledWith('u1/123.m4a');
+    expect(mockInvoke).toHaveBeenCalledWith('process-session', {
+      body: expect.objectContaining({
+        audioStoragePath: 'u1/123.m4a',
+        stopAfterTranscription: true,
+      }),
+    });
+    expect(transcript).toBe('hello world');
+  });
+
+  it('reuses an already-uploaded path instead of re-uploading', async () => {
+    await new PipelineClient().transcribeAudio({
+      ...baseInput,
+      uploadedAudioPath: 'u1/earlier.m4a',
+    });
+
+    expect(mockUploadAudio).not.toHaveBeenCalled();
+    expect(mockInvoke).toHaveBeenCalledWith('process-session', {
+      body: expect.objectContaining({
+        audioStoragePath: 'u1/earlier.m4a',
+        stopAfterTranscription: true,
+      }),
+    });
+  });
+
+  it('surfaces the friendly too-short error from the server', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'non-2xx',
+        context: {
+          json: async () => ({ error: 'Recording too short (5s, min 20s).' }),
+        },
+      },
+    });
+
+    await expect(
+      new PipelineClient().transcribeAudio({ ...baseInput }),
+    ).rejects.toThrow(/too short/i);
+  });
 });

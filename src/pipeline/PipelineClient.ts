@@ -45,6 +45,46 @@ export type PipelineProgress = (steps: ProcessingStep[]) => void;
 export class PipelineClient {
   private localPipeline?: FlowlogPipeline;
 
+  /**
+   * Phase 1 of transcript review: upload the audio (or reuse an earlier
+   * upload) and ask the server for just the transcript — no analysis, no
+   * session row. The user reviews/corrects it, then `run` analyzes the result.
+   * Not used in demo/local modes (they have no server transcribe step).
+   */
+  async transcribeAudio(
+    input: PipelineInput,
+    onAudioUploaded?: (path: string) => void,
+  ): Promise<{ transcript: string }> {
+    let audioStoragePath = input.uploadedAudioPath ?? null;
+    if (!audioStoragePath) {
+      const uploadUri = await prepareUploadUri(input.audioUri);
+      audioStoragePath = await storageProvider.uploadAudio(
+        input.userId,
+        uploadUri,
+      );
+      onAudioUploaded?.(audioStoragePath);
+    }
+    const { data, error } = await supabase.functions.invoke<{
+      transcript: string;
+    }>('process-session', {
+      body: {
+        audioStoragePath,
+        sportKey: input.sportKey,
+        skillLevel: input.skillLevel,
+        stopAfterTranscription: true,
+      },
+    });
+    if (error) {
+      const detail = await readFunctionError(error);
+      logger.error('transcribe-only failed', detail);
+      throw new Error(detail);
+    }
+    if (!data || typeof data.transcript !== 'string') {
+      throw new Error('Transcription returned no text.');
+    }
+    return { transcript: data.transcript };
+  }
+
   async run(
     input: PipelineInput,
     onProgress?: PipelineProgress,
@@ -97,6 +137,7 @@ export class PipelineClient {
             skillLevel: input.skillLevel,
             sessionDate: input.sessionDate.toISOString(),
             clientSessionId: input.clientSessionId ?? null,
+            editedTranscript: input.editedTranscript ?? null,
           },
         },
       );

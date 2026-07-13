@@ -100,6 +100,11 @@ export interface PipelineInput {
    * set, the upload step is skipped — retries reuse the audio already there.
    */
   uploadedAudioPath?: string | null;
+  /**
+   * User-corrected transcript from the review screen. When set, the server
+   * analyzes this text directly and skips its own transcription stage.
+   */
+  editedTranscript?: string | null;
 }
 
 export interface PipelineOutput {
