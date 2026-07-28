@@ -40,7 +40,7 @@ Tagline: "Talk. Reflect. Improve."
   (loads `src/utils/errorReporter.ts` before expo-router so fatal JS errors
   are readable). The old `metro@0.80.9` overrides have been REMOVED (SDK 54
   needs metro 0.83). `expo-av` still works in 54 (removed in 55) — migrate to
-  `expo-audio` before SDK 55. Supersedes `docs/DECISIONS.md` #009, which
+  `expo-audio` before SDK 55. Supersedes ADR 0009 (`docs/adr/`), which
   applied only to SDK 51.
 
 ## Pipeline Runtime (IMPORTANT)
@@ -83,7 +83,7 @@ unit-tested REFERENCE implementation the edge function mirrors. Sport content
 - Understand provider swapping: `docs/PROVIDERS.md`
 - Understand how to add a sport: `docs/SPORTS.md`
 - Understand the data model: `docs/DATABASE.md`
-- See all architecture decisions: `docs/DECISIONS.md`
+- See all architecture decisions: `docs/adr/`
 - Architecture overview & layer rules: `docs/ARCHITECTURE.md`
 - Testing standards: `docs/TESTING.md`
 

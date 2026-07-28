@@ -20,7 +20,7 @@ No service, pipeline, or screen code changes.
 3. Add mock to `tests/mocks/`
 4. Add unit tests: happy path, network failure, malformed response, timeout
 5. Add to `index.ts` provider map
-6. Document in `docs/DECISIONS.md`
+6. Add an ADR in `docs/adr/` if the choice carries lock-in or a real trade-off
 
 ## Where providers run
 

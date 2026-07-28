@@ -33,7 +33,7 @@ In `app.json`, set a real marketing version for the first invite, e.g.
 > **web** export; a native New Architecture build on SDK 51 is untested here and
 > is the most likely thing to fail. If the first `eas build` errors in the native
 > compile, set `"newArchEnabled": false` and rebuild — that's the safe SDK 51
-> config (see DECISIONS #009).
+> config (see ADR 0009 in `docs/adr/`).
 
 ## 2. Create the app record + credentials
 

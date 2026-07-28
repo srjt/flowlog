@@ -88,7 +88,7 @@ tests/      unit / integration / mocks
 | [docs/SPORTS.md](./docs/SPORTS.md)           | How to add a new sport            |
 | [docs/DATABASE.md](./docs/DATABASE.md)       | Schema & migration rules          |
 | [docs/TESTING.md](./docs/TESTING.md)         | Testing standards                 |
-| [docs/DECISIONS.md](./docs/DECISIONS.md)     | Architecture decision log         |
+| [docs/adr/](./docs/adr/)                     | Architecture decision records     |
 
 ## License
 

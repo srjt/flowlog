@@ -14,7 +14,7 @@ index to go deep.
 5. [`SPORTS.md`](./SPORTS.md) — how to add a new sport (3 files + 1 registry line).
 6. [`DATABASE.md`](./DATABASE.md) — schema, RLS, migration rules.
 7. [`TESTING.md`](./TESTING.md) — what must be tested and the coverage targets.
-8. [`DECISIONS.md`](./DECISIONS.md) — why the architecture is the way it is.
+8. [`adr/`](./adr/) — architecture decision records: why the architecture is the way it is.
 
 ## The one-paragraph mental model
 

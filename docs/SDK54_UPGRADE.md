@@ -21,7 +21,7 @@ the supported fix.
 - `eas.json`: build `node` → `20.19.4` (SDK 54 minimum); iOS `image: latest`.
 - `GeminiTranscriptionProvider.ts`: import from `expo-file-system/legacy`
   (the classic `readAsStringAsync`/`EncodingType` API moved there in SDK 54).
-- `CLAUDE.md`: toolchain note updated; DECISIONS #009 superseded.
+- `CLAUDE.md`: toolchain note updated; ADR 0009 superseded (marked deprecated).
 
 ## Run these on your Mac (not in a sandbox — installs need real network)
 

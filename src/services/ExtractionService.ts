@@ -8,7 +8,7 @@ import { logger } from '@/utils/logger';
  * Stage 2a — structured extraction. Turns the raw transcript into strict
  * structured data using the sport's extraction prompt. Deliberately does NOT
  * generate coaching — that separation is a core architectural decision
- * (see docs/DECISIONS.md #002). Provider is injected for testability.
+ * (see docs/adr/0002-two-stage-ai-pipeline.md). Provider is injected for testability.
  */
 export class ExtractionService {
   constructor(private readonly provider: IAIProvider = aiProvider) {}
