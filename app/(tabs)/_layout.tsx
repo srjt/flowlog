@@ -9,7 +9,15 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 /** Tab icon that swaps to the outline variant when inactive and inherits the tab tint. */
 const tabIcon =
   (active: IoniconName, inactive: IoniconName) =>
-  ({ color, size, focused }: { color: string; size: number; focused: boolean }) => (
+  ({
+    color,
+    size,
+    focused,
+  }: {
+    color: string;
+    size: number;
+    focused: boolean;
+  }) => (
     <Ionicons name={focused ? active : inactive} size={size} color={color} />
   );
 

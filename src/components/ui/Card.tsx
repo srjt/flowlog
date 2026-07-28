@@ -7,10 +7,7 @@ export interface CardProps extends ViewProps {
 /** Surface container with consistent padding, radius, and background. */
 export function Card({ className = '', children, ...props }: CardProps) {
   return (
-    <View
-      className={`rounded-2xl bg-surface p-4 ${className}`}
-      {...props}
-    >
+    <View className={`rounded-2xl bg-surface p-4 ${className}`} {...props}>
       {children}
     </View>
   );

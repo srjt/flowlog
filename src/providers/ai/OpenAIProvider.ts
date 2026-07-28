@@ -36,9 +36,7 @@ export class OpenAIProvider implements IAIProvider {
     );
   }
 
-  async generateCoachingCue(
-    _input: CoachingInput,
-  ): Promise<CoachingOutput> {
+  async generateCoachingCue(_input: CoachingInput): Promise<CoachingOutput> {
     // TODO(openai): fill _input.sportContext.coachingPrompt, enforce the
     // 25-word cap in the prompt, call the API, parse into CoachingOutput.
     throw new Error(

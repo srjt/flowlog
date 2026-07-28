@@ -156,7 +156,6 @@ export interface Env {
   LOCAL_OPENAI_API_KEY: string;
   LOCAL_ANTHROPIC_API_KEY: string;
   LOCAL_GEMINI_API_KEY: string;
-
 }
 
 /**
@@ -271,10 +270,14 @@ function buildEnv(): Env {
   // / ClaudeProvider `isAvailable`). In production these calls belong in a
   // Supabase edge function where the secrets live. See docs/PROVIDERS.md.
   if (env.TRANSCRIPTION_PROVIDER === 'whisper' && env.OPENAI_API_KEY === '') {
-    warn('TRANSCRIPTION_PROVIDER=whisper has no OPENAI_API_KEY — transcription will fail until a key is provided server-side.');
+    warn(
+      'TRANSCRIPTION_PROVIDER=whisper has no OPENAI_API_KEY — transcription will fail until a key is provided server-side.',
+    );
   }
   if (env.AI_PROVIDER === 'claude' && env.ANTHROPIC_API_KEY === '') {
-    warn('AI_PROVIDER=claude has no ANTHROPIC_API_KEY — AI calls will fail until a key is provided server-side.');
+    warn(
+      'AI_PROVIDER=claude has no ANTHROPIC_API_KEY — AI calls will fail until a key is provided server-side.',
+    );
   }
   // This one IS fatal: it's a pure misconfiguration of always-present numeric vars.
   if (env.MIN_RECORDING_SECONDS >= env.MAX_RECORDING_SECONDS) {

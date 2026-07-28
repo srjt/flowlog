@@ -87,9 +87,7 @@ export class ClaudeProvider implements IAIProvider {
       cue: (parsed.cue ?? '').trim(),
       targetPosition: parsed.targetPosition ?? '',
       confidenceScore:
-        typeof parsed.confidenceScore === 'number'
-          ? parsed.confidenceScore
-          : 0,
+        typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0,
       isGeneric: parsed.isGeneric === true,
     };
   }
@@ -144,8 +142,7 @@ export class ClaudeProvider implements IAIProvider {
     values: Record<string, string>,
   ): string {
     return Object.entries(values).reduce(
-      (acc, [key, value]) =>
-        acc.replaceAll(`{{${key}}}`, value),
+      (acc, [key, value]) => acc.replaceAll(`{{${key}}}`, value),
       template,
     );
   }
@@ -164,7 +161,9 @@ export class ClaudeProvider implements IAIProvider {
     try {
       return JSON.parse(fenced.slice(start, end + 1)) as T;
     } catch {
-      throw new Error(`Claude returned unparseable JSON: ${text.slice(0, 200)}`);
+      throw new Error(
+        `Claude returned unparseable JSON: ${text.slice(0, 200)}`,
+      );
     }
   }
 }

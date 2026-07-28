@@ -59,9 +59,9 @@ async function sendClientEvent(level: string, args: unknown[]): Promise<void> {
     // Lazy require keeps logger a leaf module at init time (the zero-import
     // errorReporter entry loads before everything) and keeps the Supabase
     // client out of unit tests that only exercise logging.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { supabase } =
-      require('@/lib/supabase') as typeof import('@/lib/supabase');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('@/lib/supabase') as typeof import('@/lib/supabase');
+    const { supabase } = mod;
     const [first, ...rest] = args;
     const event =
       typeof first === 'string' ? first.slice(0, MAX_EVENT_CHARS) : 'error';

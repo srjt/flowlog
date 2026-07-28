@@ -32,6 +32,7 @@ declare module 'react-native' {
     className?: string;
     contentContainerClassName?: string;
   }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- generic param name must match RN's FlatListProps<ItemT> for declaration merging
   interface FlatListProps<ItemT> {
     className?: string;
     contentContainerClassName?: string;

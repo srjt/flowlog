@@ -24,7 +24,8 @@ export default function SignupScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const { setAuthUser, setProfile } = useUserStore();
 
-  const passwordTooShort = password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
+  const passwordTooShort =
+    password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
 
   const onSignup = async () => {
     setError(null);

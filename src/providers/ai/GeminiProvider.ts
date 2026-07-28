@@ -92,7 +92,10 @@ export class GeminiProvider implements IAIProvider {
   }
 
   // ── HTTP ──────────────────────────────────────────────────────────────────
-  private async complete(prompt: string, maxOutputTokens: number): Promise<string> {
+  private async complete(
+    prompt: string,
+    maxOutputTokens: number,
+  ): Promise<string> {
     if (!(await this.isAvailable())) {
       throw new Error(
         'GeminiProvider unavailable: GEMINI_API_KEY is not configured.',
@@ -156,7 +159,9 @@ export class GeminiProvider implements IAIProvider {
     try {
       return JSON.parse(fenced.slice(start, end + 1)) as T;
     } catch {
-      throw new Error(`Gemini returned unparseable JSON: ${text.slice(0, 200)}`);
+      throw new Error(
+        `Gemini returned unparseable JSON: ${text.slice(0, 200)}`,
+      );
     }
   }
 }

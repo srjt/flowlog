@@ -25,7 +25,9 @@ export class ExtractionService {
     });
 
     // Normalise: guarantee the sentiment is one the sport actually allows.
-    const sentiment = sportContext.sentimentLabels.includes(extraction.sentiment)
+    const sentiment = sportContext.sentimentLabels.includes(
+      extraction.sentiment,
+    )
       ? extraction.sentiment
       : 'neutral';
 

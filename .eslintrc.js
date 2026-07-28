@@ -6,7 +6,13 @@ module.exports = {
     sourceType: 'module',
     ecmaFeatures: { jsx: true },
   },
-  plugins: ['@typescript-eslint', 'prettier'],
+  plugins: [
+    '@typescript-eslint',
+    'prettier',
+    'react-native',
+    'react-hooks',
+    'import',
+  ],
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
@@ -33,6 +39,13 @@ module.exports = {
   rules: {
     'prettier/prettier': 'warn',
     '@typescript-eslint/no-explicit-any': 'warn',
+    // React hooks correctness. `exhaustive-deps` is a warning the code
+    // suppresses inline at deliberate sites.
+    'react-hooks/rules-of-hooks': 'error',
+    'react-hooks/exhaustive-deps': 'warn',
+    // Imports must precede other statements — test files that mock before
+    // importing suppress this inline.
+    'import/first': 'error',
     '@typescript-eslint/no-unused-vars': [
       'error',
       { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
@@ -75,6 +88,10 @@ module.exports = {
         'no-restricted-properties': 'off',
         'no-restricted-syntax': 'off',
         '@typescript-eslint/no-var-requires': 'off',
+        '@typescript-eslint/no-require-imports': 'off',
+        // Tests mock modules with jest.mock() before importing the unit under
+        // test, so imports legitimately follow statements.
+        'import/first': 'off',
       },
     },
   ],

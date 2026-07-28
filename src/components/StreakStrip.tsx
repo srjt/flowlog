@@ -25,7 +25,8 @@ export function StreakStrip({
     return (
       <Card className="items-center">
         <Text variant="caption" className="text-center">
-          Record your first reflection to start a streak — one cue every session.
+          Record your first reflection to start a streak — one cue every
+          session.
         </Text>
       </Card>
     );

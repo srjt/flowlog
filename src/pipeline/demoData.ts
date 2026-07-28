@@ -64,7 +64,8 @@ let demoCounter = 0;
 /** Build a canned PipelineOutput for the given sport (cycles through variants). */
 export function buildDemoOutput(sportKey: SportKey): PipelineOutput {
   const variants = DEMO_RESULTS[sportKey] ?? DEMO_RESULTS.bjj;
-  const pick = variants.length > 0 ? variants[demoCounter % variants.length] : null;
+  const pick =
+    variants.length > 0 ? variants[demoCounter % variants.length] : null;
   demoCounter += 1;
 
   const result: DemoResult = pick ?? {
@@ -120,7 +121,10 @@ export function demoSessionFromOutput(
 }
 
 /** A few realistic past sessions so the Log screen isn't empty in demo mode. */
-export function buildDemoHistory(userId: string, sportKey: SportKey): Session[] {
+export function buildDemoHistory(
+  userId: string,
+  sportKey: SportKey,
+): Session[] {
   const day = 24 * 60 * 60 * 1000;
   const now = Date.now();
   const seed: Array<Partial<Session> & { coaching_cue?: string }> = [

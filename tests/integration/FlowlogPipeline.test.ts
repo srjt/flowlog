@@ -121,9 +121,9 @@ describe('FlowlogPipeline — quality gate', () => {
 
     expect(result.qualityGatePassed).toBe(false);
     expect(result.coachingCue.length).toBeGreaterThan(0);
-    expect(
-      result.coachingCue.trim().split(/\s+/).length,
-    ).toBeLessThanOrEqual(25);
+    expect(result.coachingCue.trim().split(/\s+/).length).toBeLessThanOrEqual(
+      25,
+    );
     // Session still persisted, flagged as not passing the gate.
     expect(storage.saved).toHaveLength(1);
     expect(storage.saved[0]?.qualityGatePassed).toBe(false);

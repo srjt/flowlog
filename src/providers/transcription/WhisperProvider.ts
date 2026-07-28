@@ -76,10 +76,7 @@ export class WhisperProvider implements ITranscriptionProvider {
     const confidence = this.estimateConfidence(data);
     const detectedTerms = this.detectTerms(transcript, vocabulary);
 
-    logCost(
-      'whisper',
-      (durationSeconds / 60) * WHISPER_COST_PER_MINUTE,
-    );
+    logCost('whisper', (durationSeconds / 60) * WHISPER_COST_PER_MINUTE);
 
     return { transcript, confidence, detectedTerms, durationSeconds };
   }

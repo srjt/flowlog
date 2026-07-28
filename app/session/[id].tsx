@@ -129,7 +129,10 @@ export default function SessionDetailScreen() {
               {session.positionsVisited.length > 0 ? (
                 <View className="flex-row flex-wrap gap-2">
                   {session.positionsVisited.map((p) => (
-                    <View key={p} className="rounded-full bg-background px-3 py-1">
+                    <View
+                      key={p}
+                      className="rounded-full bg-background px-3 py-1"
+                    >
                       <Text variant="caption" className="text-white">
                         {p}
                       </Text>
@@ -169,7 +172,9 @@ export default function SessionDetailScreen() {
 
           {confirmDelete ? (
             <Card className="gap-3 border border-danger">
-              <Text variant="body">Delete this session? This can’t be undone.</Text>
+              <Text variant="body">
+                Delete this session? This can’t be undone.
+              </Text>
               <View className="flex-row gap-3">
                 <Button
                   testID="session-delete-confirm"

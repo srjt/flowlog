@@ -1,6 +1,6 @@
 import { Pressable, Switch, View } from 'react-native';
 
-import { Button, Card, Text } from '@/components/ui';
+import { Card, Text } from '@/components/ui';
 import {
   applyDigestPrefs,
   formatReminderTime,
@@ -10,11 +10,7 @@ import {
 import { loadSessions } from '@/services/sessionsSource';
 import { computeTrends } from '@/services/TrendsService';
 import { useUserStore } from '@/store/userStore';
-import {
-  DAY_LABELS,
-  DAY_NAMES,
-  type DigestPrefs,
-} from '@/types/notifications';
+import { DAY_LABELS, DAY_NAMES, type DigestPrefs } from '@/types/notifications';
 import { logger } from '@/utils/logger';
 
 /**

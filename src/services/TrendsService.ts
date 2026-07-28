@@ -74,7 +74,8 @@ function positionTallies(sessions: Session[]): Tally[] {
 function moodTallies(sessions: Session[]): Tally[] {
   const counts = new Map<string, number>();
   for (const s of sessions) {
-    if (s.sentiment) counts.set(s.sentiment, (counts.get(s.sentiment) ?? 0) + 1);
+    if (s.sentiment)
+      counts.set(s.sentiment, (counts.get(s.sentiment) ?? 0) + 1);
   }
   return tallyArray(counts);
 }

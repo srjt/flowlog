@@ -231,4 +231,5 @@ export const BJJ_VOCABULARY = {
   ],
 } as const;
 
-export const BJJ_VOCABULARY_FLAT: string[] = Object.values(BJJ_VOCABULARY).flat();
+export const BJJ_VOCABULARY_FLAT: string[] =
+  Object.values(BJJ_VOCABULARY).flat();
