@@ -55,13 +55,8 @@ supabase functions deploy process-session
 This function lives in two places — the unit-tested reference
 (`src/pipeline/FlowlogPipeline.ts`) and this Deno runtime — so **any change to
 the pipeline must be deployed here** or production silently runs the old code.
-The deploy needs an authenticated CLI: `supabase login` (or a
-`SUPABASE_ACCESS_TOKEN`) first.
-
-> **⚠️ Pending deploy (2026-07-28):** the re-analysis reprocess branch (ADR
-> 0011, commit `420ddab`) is committed but **not yet deployed**. Re-analysis
-> from the client will not work in production until the command above is run.
-> Remove this note once deployed.
+The deploy needs an authenticated CLI: `npx supabase login` (or a
+`SUPABASE_ACCESS_TOKEN`) first. Docker is not required.
 
 ### Run locally
 
