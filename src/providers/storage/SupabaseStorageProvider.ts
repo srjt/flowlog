@@ -4,7 +4,12 @@ import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
 import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
-import type { NewSession, Session, UserTrends } from '@/types/session';
+import type {
+  NewSession,
+  Session,
+  SessionAnalysisUpdate,
+  UserTrends,
+} from '@/types/session';
 import type { SportKey } from '@/types/sport';
 import { base64ToUint8Array } from '@/utils/audioTranscode';
 import { logger } from '@/utils/logger';
@@ -121,6 +126,38 @@ export class SupabaseStorageProvider implements IStorageProvider {
     if (error || !data) {
       logger.error('SupabaseStorageProvider.saveSession failed', error);
       throw new Error(`Save session failed: ${error?.message ?? 'no row'}`);
+    }
+    return mapSession(data);
+  }
+
+  async updateSessionAnalysis(
+    sessionId: string,
+    update: SessionAnalysisUpdate,
+  ): Promise<Session> {
+    // RLS ("Users own their sessions", FOR ALL) restricts this to the owner.
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({
+        raw_transcript: update.rawTranscript,
+        positions_visited: update.positionsVisited,
+        key_mistake: update.keyMistake,
+        opponent_action: update.opponentAction,
+        sentiment: update.sentiment,
+        coaching_cue: update.coachingCue,
+        target_position: update.targetPosition,
+        quality_gate_passed: update.qualityGatePassed,
+        pipeline_version: update.pipelineVersion,
+      })
+      .eq('id', sessionId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      logger.error(
+        'SupabaseStorageProvider.updateSessionAnalysis failed',
+        error,
+      );
+      throw new Error(`Update session failed: ${error?.message ?? 'no row'}`);
     }
     return mapSession(data);
   }

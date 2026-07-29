@@ -24,6 +24,7 @@ import type {
   PipelineOutput,
   ProcessingStep,
   ProcessingStepName,
+  ReanalyzeInput,
 } from '@/types/pipeline';
 import { logger } from '@/utils/logger';
 
@@ -46,43 +47,39 @@ export class PipelineClient {
   private localPipeline?: FlowlogPipeline;
 
   /**
-   * Phase 1 of transcript review: upload the audio (or reuse an earlier
-   * upload) and ask the server for just the transcript — no analysis, no
-   * session row. The user reviews/corrects it, then `run` analyzes the result.
-   * Not used in demo/local modes (they have no server transcribe step).
+   * Re-analyze a saved session from a user-corrected transcript. Regenerates
+   * the cue on the edited text and updates the SAME session in place (no new
+   * session, no transcription, no audio). Demo returns canned output; local
+   * runs the reference pipeline; production invokes the edge function's
+   * reprocess branch.
    */
-  async transcribeAudio(
-    input: PipelineInput,
-    onAudioUploaded?: (path: string) => void,
-  ): Promise<{ transcript: string }> {
-    let audioStoragePath = input.uploadedAudioPath ?? null;
-    if (!audioStoragePath) {
-      const uploadUri = await prepareUploadUri(input.audioUri);
-      audioStoragePath = await storageProvider.uploadAudio(
-        input.userId,
-        uploadUri,
-      );
-      onAudioUploaded?.(audioStoragePath);
+  async reanalyze(input: ReanalyzeInput): Promise<PipelineOutput> {
+    if (isDemoMode) {
+      return { ...buildDemoOutput(input.sportKey), sessionId: input.sessionId };
     }
-    const { data, error } = await supabase.functions.invoke<{
-      transcript: string;
-    }>('process-session', {
-      body: {
-        audioStoragePath,
-        sportKey: input.sportKey,
-        skillLevel: input.skillLevel,
-        stopAfterTranscription: true,
+    if (isLocalPipeline) {
+      return this.getLocalPipeline().reanalyze(input);
+    }
+    const { data, error } = await supabase.functions.invoke<PipelineOutput>(
+      'process-session',
+      {
+        body: {
+          reanalyzeSessionId: input.sessionId,
+          editedTranscript: input.editedTranscript,
+          sportKey: input.sportKey,
+          skillLevel: input.skillLevel,
+        },
       },
-    });
+    );
     if (error) {
       const detail = await readFunctionError(error);
-      logger.error('transcribe-only failed', detail);
+      logger.error('re-analyze failed', detail);
       throw new Error(detail);
     }
-    if (!data || typeof data.transcript !== 'string') {
-      throw new Error('Transcription returned no text.');
+    if (!data) {
+      throw new Error('Re-analyze returned no data.');
     }
-    return { transcript: data.transcript };
+    return data;
   }
 
   async run(
@@ -137,7 +134,6 @@ export class PipelineClient {
             skillLevel: input.skillLevel,
             sessionDate: input.sessionDate.toISOString(),
             clientSessionId: input.clientSessionId ?? null,
-            editedTranscript: input.editedTranscript ?? null,
           },
         },
       );

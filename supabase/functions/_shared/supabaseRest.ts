@@ -99,6 +99,29 @@ export async function dbUpsert(
   }
 }
 
+/** PostgREST PATCH returning the updated row, e.g. `dbUpdate('sessions?id=eq.'+id, {...})`. */
+export async function dbUpdate(
+  query: string,
+  patch: Record<string, unknown>,
+  // deno-lint-ignore no-explicit-any
+): Promise<any> {
+  const res = await fetch(`${baseUrl()}/rest/v1/${query}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: serviceKey(),
+      Authorization: `Bearer ${serviceKey()}`,
+      'content-type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    throw new Error(`DB update failed: ${res.status} ${await safeText(res)}`);
+  }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows[0] : rows;
+}
+
 /** PostgREST DELETE, e.g. `dbDelete(`sessions?user_id=eq.${id}`)`. */
 export async function dbDelete(query: string): Promise<void> {
   const res = await fetch(`${baseUrl()}/rest/v1/${query}`, {

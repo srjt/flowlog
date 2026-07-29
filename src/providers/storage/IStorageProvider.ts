@@ -1,4 +1,9 @@
-import type { NewSession, Session, UserTrends } from '@/types/session';
+import type {
+  NewSession,
+  Session,
+  SessionAnalysisUpdate,
+  UserTrends,
+} from '@/types/session';
 
 /**
  * Storage provider contract — abstracts persistence (audio blobs + relational
@@ -11,6 +16,16 @@ export interface IStorageProvider {
 
   /** Persist a processed session; returns the created row. */
   saveSession(session: NewSession): Promise<Session>;
+
+  /**
+   * Re-analysis: overwrite an existing session's analysis fields in place
+   * (corrected transcript → new cue). Returns the updated row. RLS-scoped to
+   * the owner.
+   */
+  updateSessionAnalysis(
+    sessionId: string,
+    update: SessionAnalysisUpdate,
+  ): Promise<Session>;
 
   /** Most recent sessions for a user, newest first. */
   listSessions(userId: string, limit?: number): Promise<Session[]>;

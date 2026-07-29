@@ -33,10 +33,9 @@ export function usePipeline() {
       setError(null);
       setStatus('processing');
       try {
-        // Read the take's idempotency state at call time (set by submitReview /
-        // the transcript screen) so "Try again" reuses the same key, the
-        // already-uploaded audio, and the user's corrected transcript.
-        const { clientSessionId, uploadedAudioPath, editedTranscript } =
+        // Read the take's idempotency state at call time (set by submitReview)
+        // so "Try again" reuses the same key and the already-uploaded audio.
+        const { clientSessionId, uploadedAudioPath } =
           useSessionStore.getState();
         const result = await pipelineClient.run(
           {
@@ -47,7 +46,6 @@ export function usePipeline() {
             sessionDate: new Date(),
             clientSessionId,
             uploadedAudioPath,
-            editedTranscript,
           },
           (steps) => setSteps(steps),
           (path) => useSessionStore.getState().setUploadedAudioPath(path),

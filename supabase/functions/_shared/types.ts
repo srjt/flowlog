@@ -37,9 +37,13 @@ export interface ProcessRequest {
   sessionDate: string;
   /** Client-generated idempotency key (uuid); one per accepted take. */
   clientSessionId?: string | null;
-  /** Phase 1 of transcript review: transcribe and return, insert nothing. */
-  stopAfterTranscription?: boolean;
-  /** Phase 2: analyze this user-corrected transcript, skipping transcription. */
+  /**
+   * Re-analysis: the id of an existing session to update in place. When set
+   * (with editedTranscript), the function skips audio/transcription and
+   * overwrites that row's analysis instead of inserting a new session.
+   */
+  reanalyzeSessionId?: string | null;
+  /** The user-corrected transcript to analyze (required for re-analysis). */
   editedTranscript?: string | null;
 }
 

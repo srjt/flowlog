@@ -1,10 +1,12 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { type ReactNode, useEffect, useState } from 'react';
-import { Pressable, ScrollView, Share, View } from 'react-native';
+import { Pressable, ScrollView, Share, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedbackControls } from '@/components/FeedbackControls';
 import { Button, Card, Text } from '@/components/ui';
+import { isDemoMode } from '@/config/featureFlags';
+import { useReanalyze } from '@/hooks/useReanalyze';
 import {
   deleteSession,
   loadSessions,
@@ -29,6 +31,9 @@ export default function SessionDetailScreen() {
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const { state: reanalyzeState, reanalyze } = useReanalyze();
 
   useEffect(() => {
     if (session || !id) return;
@@ -71,6 +76,43 @@ export default function SessionDetailScreen() {
       setDeleting(false);
       setConfirmDelete(false);
     }
+  };
+
+  const startEdit = () => {
+    if (!session) return;
+    setDraft(session.rawTranscript ?? '');
+    setEditing(true);
+  };
+
+  const onReanalyze = async () => {
+    if (!session) return;
+    const text = draft.trim();
+    if (!text) return;
+    const result = await reanalyze({
+      sessionId: session.id,
+      sportKey: session.sportKey,
+      editedTranscript: text,
+    });
+    if (!result) return; // the hook surfaced a friendly error
+    // The whole breakdown (positions, key mistake…) changed server-side, so
+    // reload the fresh row rather than patching just the cue.
+    try {
+      const fresh = (
+        await loadSessions(authUser?.id ?? 'demo-user', session.sportKey)
+      ).find((s) => s.id === session.id);
+      const next: Session = fresh ?? {
+        ...session,
+        rawTranscript: text,
+        coachingCue: result.coachingCue,
+        targetPosition: result.targetPosition,
+        sentiment: result.sentiment,
+      };
+      setSession(next);
+      useSessionStore.getState().replaceSession(next);
+    } catch (err) {
+      logger.warn('reanalyze refresh failed', err);
+    }
+    setEditing(false);
   };
 
   return (
@@ -154,14 +196,71 @@ export default function SessionDetailScreen() {
             </Field>
           </Card>
 
-          {session.rawTranscript ? (
-            <Card className="gap-2">
+          <Card className="gap-3">
+            <View className="flex-row items-center justify-between">
               <Text variant="heading">Transcript</Text>
+              {!isDemoMode && !editing ? (
+                <Pressable
+                  testID="transcript-edit"
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit transcript"
+                  hitSlop={8}
+                  onPress={startEdit}
+                >
+                  <Text variant="caption" className="text-primary">
+                    Edit
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            {editing ? (
+              <View className="gap-3">
+                <Text variant="caption">
+                  Fix any mis-heard words, then re-analyze to update your cue.
+                </Text>
+                <TextInput
+                  testID="transcript-edit-input"
+                  className="min-h-40 rounded-xl bg-background px-4 py-3 text-base text-white"
+                  multiline
+                  textAlignVertical="top"
+                  placeholder="Your reflection…"
+                  placeholderTextColor="#8A8A99"
+                  accessibilityLabel="Edit transcript"
+                  value={draft}
+                  onChangeText={setDraft}
+                  editable={reanalyzeState.status !== 'running'}
+                />
+                {reanalyzeState.status === 'error' ? (
+                  <Text variant="caption" className="text-danger">
+                    {reanalyzeState.message}
+                  </Text>
+                ) : null}
+                <View className="flex-row gap-3">
+                  <Button
+                    testID="transcript-reanalyze"
+                    title="Re-analyze"
+                    className="flex-1"
+                    loading={reanalyzeState.status === 'running'}
+                    disabled={draft.trim().length === 0}
+                    onPress={() => void onReanalyze()}
+                  />
+                  <Button
+                    testID="transcript-edit-cancel"
+                    title="Cancel"
+                    variant="secondary"
+                    className="flex-1"
+                    disabled={reanalyzeState.status === 'running'}
+                    onPress={() => setEditing(false)}
+                  />
+                </View>
+              </View>
+            ) : (
               <Text variant="body" className="leading-6">
-                {session.rawTranscript}
+                {session.rawTranscript ?? '—'}
               </Text>
-            </Card>
-          ) : null}
+            )}
+          </Card>
 
           <FeedbackControls
             thumb={session.thumbsUp ?? null}

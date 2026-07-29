@@ -52,7 +52,10 @@ The DB uses `snake_case` columns; the app speaks `camelCase` domain types
 
 - `process-session` (BUILT) — runs the full pipeline server-side and inserts the
   `sessions` row using the caller's JWT (RLS-scoped). Writes audio reads from the
-  `session-audio` Storage bucket. See `supabase/functions/README.md`.
+  `session-audio` Storage bucket. Also serves **re-analysis**: given a
+  `reanalyzeSessionId` + `editedTranscript`, it re-runs the AI stages on the
+  edited text and UPDATEs that row in place (no new session; see ADR 0011).
+  See `supabase/functions/README.md`.
 
 ## Planned (not yet built)
 

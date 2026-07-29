@@ -100,11 +100,19 @@ export interface PipelineInput {
    * set, the upload step is skipped — retries reuse the audio already there.
    */
   uploadedAudioPath?: string | null;
-  /**
-   * User-corrected transcript from the review screen. When set, the server
-   * analyzes this text directly and skips its own transcription stage.
-   */
-  editedTranscript?: string | null;
+}
+
+/**
+ * Input to re-analysis: the user corrected a saved Session's transcript and
+ * wants its cue regenerated in place. No audio — analysis runs on the edited
+ * text directly, then the existing Session row is updated (never a new row).
+ */
+export interface ReanalyzeInput {
+  sessionId: string;
+  userId: string;
+  sportKey: SportKey;
+  skillLevel: SkillLevel;
+  editedTranscript: string;
 }
 
 export interface PipelineOutput {

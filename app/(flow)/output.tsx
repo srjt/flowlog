@@ -1,11 +1,12 @@
 import { Redirect, router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView } from 'react-native';
+import { Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedbackControls } from '@/components/FeedbackControls';
 import { FirstResultCelebration } from '@/components/FirstResultCelebration';
 import { Button, Card, Text } from '@/components/ui';
+import { isDemoMode } from '@/config/featureFlags';
 import { loadSessions, saveSessionFeedback } from '@/services/sessionsSource';
 import { computeTrends } from '@/services/TrendsService';
 import { useSessionStore } from '@/store/sessionStore';
@@ -91,6 +92,20 @@ export default function OutputScreen() {
             Target: {latestResult.targetPosition}
           </Text>
         </Card>
+
+        {!isDemoMode ? (
+          <Pressable
+            testID="output-review-transcript"
+            accessibilityRole="button"
+            accessibilityLabel="Review transcript"
+            hitSlop={8}
+            onPress={() => router.push(`/session/${latestResult.sessionId}`)}
+          >
+            <Text variant="caption" className="text-primary">
+              Cue seem off? Review transcript →
+            </Text>
+          </Pressable>
+        ) : null}
 
         <Card className="gap-2">
           <Text variant="heading">Session summary</Text>

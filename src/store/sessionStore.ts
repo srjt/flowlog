@@ -30,11 +30,6 @@ interface SessionState {
    * the analyze step failed.
    */
   uploadedAudioPath: string | null;
-  /**
-   * The user-reviewed/corrected transcript for the in-flight take (set on the
-   * transcript screen). Passed to analysis so coaching uses what they meant.
-   */
-  editedTranscript: string | null;
   steps: ProcessingStep[];
   latestResult: PipelineOutput | null;
   history: Session[];
@@ -44,11 +39,12 @@ interface SessionState {
   setAudioUri: (uri: string | null) => void;
   setClientSessionId: (id: string | null) => void;
   setUploadedAudioPath: (path: string | null) => void;
-  setEditedTranscript: (transcript: string | null) => void;
   setSteps: (steps: ProcessingStep[]) => void;
   setLatestResult: (result: PipelineOutput | null) => void;
   setHistory: (history: Session[]) => void;
   removeSession: (sessionId: string) => void;
+  /** Replace a cached session in place (e.g. after re-analysis) if present. */
+  replaceSession: (session: Session) => void;
   setFeedback: (
     sessionId: string,
     thumbsUp: boolean,
@@ -63,7 +59,6 @@ export const useSessionStore = create<SessionState>((set) => ({
   audioUri: null,
   clientSessionId: null,
   uploadedAudioPath: null,
-  editedTranscript: null,
   steps: [],
   latestResult: null,
   history: [],
@@ -73,13 +68,16 @@ export const useSessionStore = create<SessionState>((set) => ({
   setAudioUri: (audioUri) => set({ audioUri }),
   setClientSessionId: (clientSessionId) => set({ clientSessionId }),
   setUploadedAudioPath: (uploadedAudioPath) => set({ uploadedAudioPath }),
-  setEditedTranscript: (editedTranscript) => set({ editedTranscript }),
   setSteps: (steps) => set({ steps }),
   setLatestResult: (latestResult) => set({ latestResult }),
   setHistory: (history) => set({ history }),
   removeSession: (sessionId) =>
     set((state) => ({
       history: state.history.filter((s) => s.id !== sessionId),
+    })),
+  replaceSession: (session) =>
+    set((state) => ({
+      history: state.history.map((s) => (s.id === session.id ? session : s)),
     })),
   setFeedback: (sessionId, thumbsUp, reason) =>
     set((state) => ({
@@ -97,7 +95,6 @@ export const useSessionStore = create<SessionState>((set) => ({
       audioUri: null,
       clientSessionId: null,
       uploadedAudioPath: null,
-      editedTranscript: null,
       steps: [],
       latestResult: null,
       errorMessage: null,

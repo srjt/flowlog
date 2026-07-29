@@ -22,6 +22,7 @@ import { enforce } from '../_shared/quality-gate.ts';
 import {
   dbInsert,
   dbSelect,
+  dbUpdate,
   dbUpsert,
   downloadAudio,
   getUserFromJwt,
@@ -78,12 +79,95 @@ Deno.serve(async (req: Request) => {
 
     stage = 'validate';
     const body = (await req.json()) as ProcessRequest;
-    const { audioStoragePath, sportKey, skillLevel, sessionDate } = body;
-    if (!audioStoragePath || !sportKey) {
-      return jsonResponse(
-        { error: 'audioStoragePath and sportKey are required' },
-        400,
+    const { sportKey, skillLevel, sessionDate } = body;
+    if (!sportKey) {
+      return jsonResponse({ error: 'sportKey is required' }, 400);
+    }
+
+    // ── Re-analysis: regenerate an existing session's cue from a user-corrected
+    //    transcript and UPDATE that row in place. No audio, no transcription,
+    //    no new session — so it skips idempotency and the daily cap. ──
+    const reanalyzeSessionId =
+      typeof body.reanalyzeSessionId === 'string' &&
+      UUID_RE.test(body.reanalyzeSessionId)
+        ? body.reanalyzeSessionId.toLowerCase()
+        : null;
+    if (reanalyzeSessionId) {
+      stage = 'reanalyze';
+      const edited =
+        typeof body.editedTranscript === 'string'
+          ? body.editedTranscript.trim()
+          : '';
+      if (!edited) {
+        return jsonResponse({ error: 'Transcript is empty.' }, 400);
+      }
+      const editedTranscript = edited.slice(0, 5000);
+
+      // Ownership: the row must exist AND belong to the caller.
+      const owned = await dbSelect(
+        `sessions?select=*&id=eq.${reanalyzeSessionId}` +
+          `&user_id=eq.${user.id}&limit=1`,
       );
+      const existing = owned?.[0];
+      if (!existing) {
+        return jsonResponse({ error: 'Session not found' }, 404);
+      }
+      const sport = getSportContext(existing.sport_key);
+
+      const extraction = await extract(editedTranscript, sport, skillLevel);
+      const { recentMistakes, dominantWeakness } = await loadHistory(
+        user.id,
+        existing.sport_key,
+      );
+      const initialCoaching = await generateCoaching(
+        extraction,
+        sport,
+        recentMistakes,
+        skillLevel,
+        dominantWeakness,
+        COACHING_CUE_MAX_WORDS,
+        false,
+      );
+      const gate = await enforce(
+        initialCoaching,
+        sport,
+        COACHING_CUE_MAX_WORDS,
+        QUALITY_GATE_RETRY_LIMIT,
+        (strict) =>
+          generateCoaching(
+            extraction,
+            sport,
+            recentMistakes,
+            skillLevel,
+            dominantWeakness,
+            COACHING_CUE_MAX_WORDS,
+            strict,
+          ),
+      );
+
+      stage = 'reanalyze_persist';
+      const updated = await dbUpdate(
+        `sessions?id=eq.${reanalyzeSessionId}&user_id=eq.${user.id}`,
+        {
+          raw_transcript: editedTranscript,
+          positions_visited: extraction.positionsVisited,
+          key_mistake: extraction.keyMistake,
+          opponent_action: extraction.opponentAction,
+          sentiment: extraction.sentiment,
+          coaching_cue: gate.coaching.cue,
+          target_position: gate.coaching.targetPosition,
+          quality_gate_passed: gate.passed,
+          pipeline_version: PIPELINE_VERSION,
+        },
+      );
+      await updateUserTrends(user.id, existing.sport_key);
+      return jsonResponse(outputFromRow(updated ?? existing, sport), 200);
+    }
+
+    // ── One-shot record flow: transcribe audio → analyze → insert. ──
+    const { audioStoragePath } = body;
+    if (!audioStoragePath) {
+      return jsonResponse({ error: 'audioStoragePath is required' }, 400);
     }
     // The path is `{userId}/...`; ensure the caller owns it.
     if (!audioStoragePath.startsWith(`${user.id}/`)) {
@@ -95,21 +179,6 @@ Deno.serve(async (req: Request) => {
       UUID_RE.test(body.clientSessionId)
         ? body.clientSessionId.toLowerCase()
         : null;
-
-    // Two-phase transcript-review flow (client splits the pipeline so the user
-    // can correct the transcript before analysis):
-    //   phase 1 — stopAfterTranscription: transcribe and return, insert nothing
-    //   phase 2 — editedTranscript: skip transcription, analyze the given text
-    // Absent both, this runs the classic one-shot pipeline (build-25 client).
-    const stopAfterTranscription = body.stopAfterTranscription === true;
-    let editedTranscript: string | null = null;
-    if (typeof body.editedTranscript === 'string') {
-      const trimmed = body.editedTranscript.trim();
-      if (trimmed.length === 0) {
-        return jsonResponse({ error: 'Transcript is empty.' }, 400);
-      }
-      editedTranscript = trimmed.slice(0, 5000);
-    }
 
     // ── Stage 0: sport context ──────────────────────────────────────────────
     const sport = getSportContext(sportKey);
@@ -155,57 +224,37 @@ Deno.serve(async (req: Request) => {
       console.error('rate-limit check failed (fail-open):', err);
     }
 
-    // ── Stage 1: transcription ──────────────────────────────────────────────
-    // Phase 2 supplies the user-edited transcript, so skip download+transcribe
-    // entirely (and its audio checks — the audio was already validated in
-    // phase 1). Otherwise transcribe the uploaded audio.
-    let transcription: { transcript: string; durationSeconds: number };
-    if (editedTranscript !== null) {
-      transcription = { transcript: editedTranscript, durationSeconds: 0 };
-    } else {
-      stage = 'transcription';
-      const audioBlob = await downloadAudio(AUDIO_BUCKET, audioStoragePath);
-      if (!audioBlob) {
-        return jsonResponse(
-          { error: 'Could not download audio (bucket/policy missing?)' },
-          400,
-        );
-      }
-      if (audioBlob.size === 0) {
-        // Historically caused by the React Native blob-upload pitfall (0-byte
-        // uploads that look successful). Fail with a clear message instead of
-        // letting an LLM "transcribe" silence into fabricated text.
-        return jsonResponse(
-          { error: 'Uploaded audio was empty (0 bytes) — the recording upload from the device failed. Please try recording again.' },
-          422,
-        );
-      }
-      transcription = await transcribe(audioBlob, sport.vocabulary);
-      if (
-        transcription.durationSeconds > 0 &&
-        transcription.durationSeconds < sport.minRecordingSeconds
-      ) {
-        return jsonResponse(
-          {
-            error: `Recording too short (${transcription.durationSeconds.toFixed(
-              0,
-            )}s, min ${sport.minRecordingSeconds}s).`,
-          },
-          422,
-        );
-      }
-
-      // Phase 1: hand the transcript back for the user to review/correct.
-      // No row inserted — the session is created on the phase-2 analyze call.
-      if (stopAfterTranscription) {
-        return jsonResponse(
-          {
-            transcript: transcription.transcript,
-            durationSeconds: transcription.durationSeconds,
-          },
-          200,
-        );
-      }
+    // ── Stage 1: transcription (vocabulary-primed) ──────────────────────────
+    stage = 'transcription';
+    const audioBlob = await downloadAudio(AUDIO_BUCKET, audioStoragePath);
+    if (!audioBlob) {
+      return jsonResponse(
+        { error: 'Could not download audio (bucket/policy missing?)' },
+        400,
+      );
+    }
+    if (audioBlob.size === 0) {
+      // Historically caused by the React Native blob-upload pitfall (0-byte
+      // uploads that look successful). Fail with a clear message instead of
+      // letting an LLM "transcribe" silence into fabricated text.
+      return jsonResponse(
+        { error: 'Uploaded audio was empty (0 bytes) — the recording upload from the device failed. Please try recording again.' },
+        422,
+      );
+    }
+    const transcription = await transcribe(audioBlob, sport.vocabulary);
+    if (
+      transcription.durationSeconds > 0 &&
+      transcription.durationSeconds < sport.minRecordingSeconds
+    ) {
+      return jsonResponse(
+        {
+          error: `Recording too short (${transcription.durationSeconds.toFixed(
+            0,
+          )}s, min ${sport.minRecordingSeconds}s).`,
+        },
+        422,
+      );
     }
 
     // ── Stage 2a: extraction ────────────────────────────────────────────────

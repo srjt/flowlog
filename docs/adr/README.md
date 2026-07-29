@@ -16,3 +16,4 @@ See `docs/agents/domain.md` for how the engineering skills consume these.
 | [0008](./0008-dependency-injection.md) | Dependency injection for services and the pipeline | accepted |
 | [0009](./0009-pin-metro-nativewind-reanimated.md) | Pin Metro / NativeWind / Reanimated (SDK 51) | deprecated |
 | [0010](./0010-pipeline-in-supabase-edge-function.md) | Pipeline runs in a Supabase edge function | accepted |
+| [0011](./0011-correct-transcripts-after-the-cue.md) | Correct transcripts after the cue, not before | accepted |

@@ -81,6 +81,18 @@ All downstream stages use this context — never hardcoded sport logic.
 - Session row written via `storageProvider.saveSession`, tagged with
   `pipeline_version` so it can be reprocessed later
 
+## Re-analysis (correcting a saved session)
+
+The cue is shown immediately after recording — there is no pre-cue review step.
+If a word was mis-heard, the user edits the saved session's transcript (on
+Session detail) and re-analyzes. Re-analysis re-runs Stages 2a → 3 (extraction →
+coaching → quality gate) on the edited text — **no transcription, no audio** —
+and **updates the same session row in place** (bumping `pipeline_version`), never
+inserting a new one. Reference entry point: `FlowlogPipeline.reanalyze(input)`;
+production: the `process-session` reprocess branch (`reanalyzeSessionId` +
+`editedTranscript`), which verifies ownership and skips the insert-time
+idempotency and daily-cap checks. See ADR 0011.
+
 ## Adding a Pipeline Stage
 
 1. Define input/output types in `src/types/pipeline.ts`

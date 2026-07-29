@@ -102,79 +102,62 @@ describe('PipelineClient idempotent run', () => {
     ).rejects.toThrow(/daily limit reached/i);
   });
 
-  it('passes the edited transcript through to analysis', async () => {
+  it('does not upload audio again on a retry with an existing path', async () => {
     await new PipelineClient().run({
       ...baseInput,
       clientSessionId: 'key-1',
       uploadedAudioPath: 'u1/take.m4a',
-      editedTranscript: 'corrected words',
     });
 
-    expect(mockInvoke).toHaveBeenCalledWith('process-session', {
-      body: expect.objectContaining({
-        editedTranscript: 'corrected words',
-        clientSessionId: 'key-1',
-      }),
-    });
+    expect(mockUploadAudio).not.toHaveBeenCalled();
   });
 });
 
-describe('PipelineClient.transcribeAudio (phase 1)', () => {
+describe('PipelineClient.reanalyze', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUploadAudio.mockResolvedValue('u1/123.m4a');
-    mockInvoke.mockResolvedValue({
-      data: { transcript: 'hello world' },
-      error: null,
-    });
+    mockInvoke.mockResolvedValue({ data: OUTPUT, error: null });
   });
 
-  it('uploads once, invokes transcribe-only, and returns the transcript', async () => {
-    const onAudioUploaded = jest.fn();
-    const { transcript } = await new PipelineClient().transcribeAudio(
-      { ...baseInput, uploadedAudioPath: null },
-      onAudioUploaded,
-    );
-
-    expect(mockUploadAudio).toHaveBeenCalledTimes(1);
-    expect(onAudioUploaded).toHaveBeenCalledWith('u1/123.m4a');
-    expect(mockInvoke).toHaveBeenCalledWith('process-session', {
-      body: expect.objectContaining({
-        audioStoragePath: 'u1/123.m4a',
-        stopAfterTranscription: true,
-      }),
-    });
-    expect(transcript).toBe('hello world');
-  });
-
-  it('reuses an already-uploaded path instead of re-uploading', async () => {
-    await new PipelineClient().transcribeAudio({
-      ...baseInput,
-      uploadedAudioPath: 'u1/earlier.m4a',
+  it('invokes the reprocess branch with the session id + edited text, no upload', async () => {
+    const out = await new PipelineClient().reanalyze({
+      sessionId: 's1',
+      userId: 'u1',
+      sportKey: 'bjj',
+      skillLevel: 'Blue Belt',
+      editedTranscript: 'corrected words',
     });
 
     expect(mockUploadAudio).not.toHaveBeenCalled();
     expect(mockInvoke).toHaveBeenCalledWith('process-session', {
       body: expect.objectContaining({
-        audioStoragePath: 'u1/earlier.m4a',
-        stopAfterTranscription: true,
+        reanalyzeSessionId: 's1',
+        editedTranscript: 'corrected words',
+        sportKey: 'bjj',
       }),
     });
+    expect(out.coachingCue).toBe('cue');
   });
 
-  it('surfaces the friendly too-short error from the server', async () => {
+  it('surfaces the server error body as the thrown message', async () => {
     mockInvoke.mockResolvedValue({
       data: null,
       error: {
         message: 'non-2xx',
         context: {
-          json: async () => ({ error: 'Recording too short (5s, min 20s).' }),
+          json: async () => ({ error: 'Session not found' }),
         },
       },
     });
 
     await expect(
-      new PipelineClient().transcribeAudio({ ...baseInput }),
-    ).rejects.toThrow(/too short/i);
+      new PipelineClient().reanalyze({
+        sessionId: 's1',
+        userId: 'u1',
+        sportKey: 'bjj',
+        skillLevel: 'Blue Belt',
+        editedTranscript: 'corrected words',
+      }),
+    ).rejects.toThrow(/not found/i);
   });
 });

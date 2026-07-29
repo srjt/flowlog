@@ -14,10 +14,11 @@ import type {
   PipelineOutput,
   ProcessingStep,
   ProcessingStepName,
+  ReanalyzeInput,
 } from '@/types/pipeline';
 import { logger, reportToMonitoring } from '@/utils/logger';
 
-export type { PipelineInput, PipelineOutput };
+export type { PipelineInput, PipelineOutput, ReanalyzeInput };
 
 /**
  * Optional progress callback so the processing screen can render live step
@@ -180,6 +181,64 @@ export class FlowlogPipeline {
     }
   }
 
+  /**
+   * Re-analyze a saved session from a user-corrected transcript: re-run
+   * extraction → coaching → quality gate on the edited text and overwrite the
+   * existing session's analysis fields IN PLACE (same row, no new session, no
+   * transcription, no audio). Mirrors the edge function's reprocess branch.
+   */
+  async reanalyze(input: ReanalyzeInput): Promise<PipelineOutput> {
+    const transcript = input.editedTranscript.trim();
+    if (!transcript) throw new Error('Transcript is empty.');
+
+    const sportContext: ISportContext = getSportContext(input.sportKey);
+    const extraction = await this.extraction.extract(
+      transcript,
+      sportContext,
+      input.skillLevel,
+    );
+
+    const { recentMistakes, dominantWeakness } = await this.loadHistory(
+      input.userId,
+      input.sportKey,
+    );
+    const coachingInput: CoachingInput = {
+      extraction,
+      sportContext,
+      recentMistakes,
+      skillLevel: input.skillLevel,
+      dominantWeakness,
+    };
+    const initialCoaching = await this.coaching.generate(coachingInput);
+    const gate = await this.qualityGate.enforce(
+      initialCoaching,
+      sportContext,
+      (strict) => this.coaching.generate(coachingInput, strict),
+    );
+
+    const session = await this.storage.updateSessionAnalysis(input.sessionId, {
+      rawTranscript: transcript,
+      positionsVisited: extraction.positionsVisited,
+      keyMistake: extraction.keyMistake,
+      opponentAction: extraction.opponentAction,
+      sentiment: extraction.sentiment,
+      coachingCue: gate.coaching.cue,
+      targetPosition: gate.coaching.targetPosition,
+      qualityGatePassed: gate.passed,
+      pipelineVersion: PIPELINE_VERSION,
+    });
+
+    return {
+      sessionId: session.id,
+      structuredSummary: this.buildSummary(extraction, sportContext),
+      coachingCue: gate.coaching.cue,
+      targetPosition: gate.coaching.targetPosition,
+      sentiment: extraction.sentiment,
+      qualityGatePassed: gate.passed,
+      processingSteps: this.reanalyzeSteps(),
+    };
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   private initSteps(): ProcessingStep[] {
     const order: ProcessingStepName[] = [
@@ -194,6 +253,21 @@ export class FlowlogPipeline {
       name,
       label: STEP_LABELS[name],
       status: 'pending',
+    }));
+  }
+
+  /** Steps for a re-analysis (no context/transcription — those are unchanged). */
+  private reanalyzeSteps(): ProcessingStep[] {
+    const order: ProcessingStepName[] = [
+      'extraction',
+      'coaching',
+      'quality_gate',
+      'persistence',
+    ];
+    return order.map((name) => ({
+      name,
+      label: STEP_LABELS[name],
+      status: 'done',
     }));
   }
 

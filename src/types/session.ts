@@ -42,6 +42,23 @@ export interface NewSession {
   pipelineVersion: string;
 }
 
+/**
+ * Fields overwritten when a Session is re-analyzed in place (corrected
+ * transcript → regenerated cue). The identity fields (user, sport, date,
+ * audio) are untouched — this is the same reflection, freshly analyzed.
+ */
+export interface SessionAnalysisUpdate {
+  rawTranscript: string;
+  positionsVisited: string[];
+  keyMistake: string;
+  opponentAction: string;
+  sentiment: string;
+  coachingCue: string;
+  targetPosition: string;
+  qualityGatePassed: boolean;
+  pipelineVersion: string;
+}
+
 /** Mirrors the `public.user_trends` table. */
 export interface UserTrends {
   userId: string;

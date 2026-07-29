@@ -1,6 +1,11 @@
 import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
 import { computeTrends } from '@/services/TrendsService';
-import type { NewSession, Session, UserTrends } from '@/types/session';
+import type {
+  NewSession,
+  Session,
+  SessionAnalysisUpdate,
+  UserTrends,
+} from '@/types/session';
 import type { SportKey } from '@/types/sport';
 
 /**
@@ -42,6 +47,26 @@ export class LocalTestStorageProvider implements IStorageProvider {
       createdAt: new Date().toISOString(),
     };
     sessions.unshift(row);
+    return row;
+  }
+
+  async updateSessionAnalysis(
+    sessionId: string,
+    update: SessionAnalysisUpdate,
+  ): Promise<Session> {
+    const row = sessions.find((s) => s.id === sessionId);
+    if (!row) throw new Error(`Session not found: ${sessionId}`);
+    Object.assign(row, {
+      rawTranscript: update.rawTranscript,
+      positionsVisited: update.positionsVisited,
+      keyMistake: update.keyMistake,
+      opponentAction: update.opponentAction,
+      sentiment: update.sentiment,
+      coachingCue: update.coachingCue,
+      targetPosition: update.targetPosition,
+      qualityGatePassed: update.qualityGatePassed,
+      pipelineVersion: update.pipelineVersion,
+    });
     return row;
   }
 

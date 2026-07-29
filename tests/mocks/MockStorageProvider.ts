@@ -1,5 +1,10 @@
 import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
-import type { NewSession, Session, UserTrends } from '@/types/session';
+import type {
+  NewSession,
+  Session,
+  SessionAnalysisUpdate,
+  UserTrends,
+} from '@/types/session';
 
 /**
  * Full-interface storage mock. Records writes and serves configurable history.
@@ -16,6 +21,7 @@ export class MockStorageProvider implements IStorageProvider {
     reason?: string | null;
   }[] = [];
   deleted: string[] = [];
+  updated: { sessionId: string; update: SessionAnalysisUpdate }[] = [];
   failUpload = false;
 
   async isAvailable(): Promise<boolean> {
@@ -46,6 +52,31 @@ export class MockStorageProvider implements IStorageProvider {
       qualityGatePassed: session.qualityGatePassed,
       thumbsUp: null,
       pipelineVersion: session.pipelineVersion,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  async updateSessionAnalysis(
+    sessionId: string,
+    update: SessionAnalysisUpdate,
+  ): Promise<Session> {
+    this.updated.push({ sessionId, update });
+    return {
+      id: sessionId,
+      userId: 'user-1',
+      sportKey: 'bjj',
+      sessionDate: new Date().toISOString(),
+      audioStoragePath: null,
+      rawTranscript: update.rawTranscript,
+      positionsVisited: update.positionsVisited,
+      keyMistake: update.keyMistake,
+      opponentAction: update.opponentAction,
+      sentiment: update.sentiment,
+      coachingCue: update.coachingCue,
+      targetPosition: update.targetPosition,
+      qualityGatePassed: update.qualityGatePassed,
+      thumbsUp: null,
+      pipelineVersion: update.pipelineVersion,
       createdAt: new Date().toISOString(),
     };
   }

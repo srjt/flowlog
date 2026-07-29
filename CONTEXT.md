@@ -79,6 +79,14 @@ phrasing, model confidence. On failure it retries with a stricter prompt, then
 falls back to a safe capped Cue rather than showing an error.
 _Avoid_: validation, filter, guardrail
 
+**Re-analyze**:
+Correcting a saved Session's transcript and regenerating its Cue **in place** —
+same Session, new Cue and summary. The opt-in remedy for a mis-heard word, run
+*after* the Cue is shown, never as a gate before it. One reflection stays one
+Session, so trends and streaks are unaffected.
+_Avoid_: reprocess (server-internal wording), redo, re-run, transcript review
+(there is no pre-Cue review step)
+
 ### What a Session records
 
 **Positions visited**:

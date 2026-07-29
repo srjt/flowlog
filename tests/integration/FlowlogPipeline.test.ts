@@ -164,3 +164,46 @@ describe('FlowlogPipeline — resilience', () => {
     expect(ai.coachingCalls).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('FlowlogPipeline — reanalyze', () => {
+  it('regenerates the cue from edited text and updates the session in place', async () => {
+    const ai = new MockAIProvider(undefined, [goodCue()]);
+    const storage = new MockStorageProvider();
+    const { pipeline, transcriptionMock } = buildPipeline(ai, storage);
+
+    const result = await pipeline.reanalyze({
+      sessionId: 'existing-1',
+      userId: 'user-1',
+      sportKey: 'bjj',
+      skillLevel: 'Blue Belt',
+      editedTranscript: 'I kept getting stuck in turtle and gave up my back.',
+    });
+
+    // No transcription (edited text is analyzed directly) and no NEW session:
+    // the existing row is updated in place.
+    expect(transcriptionMock.calls).toHaveLength(0);
+    expect(storage.saved).toHaveLength(0);
+    expect(storage.updated).toHaveLength(1);
+    expect(storage.updated[0]?.sessionId).toBe('existing-1');
+    expect(storage.updated[0]?.update.rawTranscript).toContain('turtle');
+    expect(result.sessionId).toBe('existing-1');
+    expect(result.coachingCue).toBe(goodCue().cue);
+  });
+
+  it('rejects an empty edited transcript', async () => {
+    const ai = new MockAIProvider(undefined, [goodCue()]);
+    const storage = new MockStorageProvider();
+    const { pipeline } = buildPipeline(ai, storage);
+
+    await expect(
+      pipeline.reanalyze({
+        sessionId: 'existing-1',
+        userId: 'user-1',
+        sportKey: 'bjj',
+        skillLevel: 'Blue Belt',
+        editedTranscript: '   ',
+      }),
+    ).rejects.toThrow(/empty/i);
+    expect(storage.updated).toHaveLength(0);
+  });
+});
