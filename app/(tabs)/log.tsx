@@ -3,11 +3,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, SectionList, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CueImage } from '@/components/CueImage';
 import { Card, Text } from '@/components/ui';
 import { loadSessions } from '@/services/sessionsSource';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUserStore } from '@/store/userStore';
 import type { Session } from '@/types/session';
+import { cueImageUrlForKey } from '@/utils/cueImageUrl';
 import { groupSessionsByWeek } from '@/utils/groupSessionsByWeek';
 import { logger } from '@/utils/logger';
 
@@ -107,16 +109,23 @@ export default function LogScreen() {
                 accessibilityRole="button"
                 onPress={() => router.push(`/session/${item.id}`)}
               >
-                <Card className="gap-1">
-                  <Text variant="caption" className="text-white">
-                    {new Date(item.sessionDate).toLocaleDateString()} ·{' '}
-                    {item.sportKey.toUpperCase()}
-                    {item.thumbsUp == null ? ' · needs review' : ''}
-                  </Text>
-                  <Text variant="body">{item.coachingCue ?? '—'}</Text>
-                  {item.keyMistake ? (
-                    <Text variant="caption">Mistake: {item.keyMistake}</Text>
-                  ) : null}
+                <Card className="flex-row gap-3">
+                  <CueImage
+                    url={cueImageUrlForKey(item.cueImageKey)}
+                    cue={item.coachingCue ?? ''}
+                    variant="thumb"
+                  />
+                  <View className="flex-1 gap-1">
+                    <Text variant="caption" className="text-white">
+                      {new Date(item.sessionDate).toLocaleDateString()} ·{' '}
+                      {item.sportKey.toUpperCase()}
+                      {item.thumbsUp == null ? ' · needs review' : ''}
+                    </Text>
+                    <Text variant="body">{item.coachingCue ?? '—'}</Text>
+                    {item.keyMistake ? (
+                      <Text variant="caption">Mistake: {item.keyMistake}</Text>
+                    ) : null}
+                  </View>
                 </Card>
               </Pressable>
             )}

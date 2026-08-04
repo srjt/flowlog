@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { Pressable, ScrollView, Share, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CueImage } from '@/components/CueImage';
 import { FeedbackControls } from '@/components/FeedbackControls';
 import { Button, Card, Text } from '@/components/ui';
 import { isDemoMode } from '@/config/featureFlags';
@@ -15,6 +16,7 @@ import {
 import { useSessionStore } from '@/store/sessionStore';
 import { useUserStore } from '@/store/userStore';
 import type { Session } from '@/types/session';
+import { cueImageUrlForKey } from '@/utils/cueImageUrl';
 import { logger } from '@/utils/logger';
 
 /**
@@ -153,16 +155,22 @@ export default function SessionDetailScreen() {
             {session.sportKey.toUpperCase()}
           </Text>
 
-          <Card className="border border-accent">
-            <Text variant="caption">COACHING CUE</Text>
-            <Text variant="cue" className="mt-1">
-              {session.coachingCue ?? '—'}
-            </Text>
-            {session.targetPosition ? (
-              <Text variant="caption" className="mt-3">
-                Target: {session.targetPosition}
+          <Card className="gap-4 border border-accent">
+            <CueImage
+              url={cueImageUrlForKey(session.cueImageKey)}
+              cue={session.coachingCue ?? ''}
+            />
+            <View>
+              <Text variant="caption">COACHING CUE</Text>
+              <Text variant="cue" className="mt-1">
+                {session.coachingCue ?? '—'}
               </Text>
-            ) : null}
+              {session.targetPosition ? (
+                <Text variant="caption" className="mt-3">
+                  Target: {session.targetPosition}
+                </Text>
+              ) : null}
+            </View>
           </Card>
 
           <Card className="gap-3">

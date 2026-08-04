@@ -1,8 +1,9 @@
 import { Redirect, router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CueImage } from '@/components/CueImage';
 import { FeedbackControls } from '@/components/FeedbackControls';
 import { FirstResultCelebration } from '@/components/FirstResultCelebration';
 import { Button, Card, Text } from '@/components/ui';
@@ -86,11 +87,17 @@ export default function OutputScreen() {
         />
 
         <Text variant="caption">YOUR ONE CUE</Text>
-        <Card className="border border-accent">
-          <Text variant="cue">{latestResult.coachingCue}</Text>
-          <Text variant="caption" className="mt-3">
-            Target: {latestResult.targetPosition}
-          </Text>
+        <Card className="gap-4 border border-accent">
+          <CueImage
+            url={latestResult.cueImageUrl}
+            cue={latestResult.coachingCue}
+          />
+          <View>
+            <Text variant="cue">{latestResult.coachingCue}</Text>
+            <Text variant="caption" className="mt-3">
+              Target: {latestResult.targetPosition}
+            </Text>
+          </View>
         </Card>
 
         {!isDemoMode ? (

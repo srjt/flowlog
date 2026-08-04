@@ -122,6 +122,8 @@ unit-tested REFERENCE implementation the edge function mirrors. Sport content
 
 - Transcription: `WhisperProvider` (OpenAI)
 - AI: `ClaudeProvider` (Anthropic `claude-sonnet-4-6`)
+- Image (cue visuals): `GeminiImageProvider` (Imagen 4 Fast), selected by
+  `IMAGE_PROVIDER`, reuses `GEMINI_API_KEY`. Best-effort; see ADR 0012.
 - Storage: `SupabaseStorageProvider`
 - Payments: `RevenueCatProvider` (stubbed)
 
