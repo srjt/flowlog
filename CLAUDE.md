@@ -22,7 +22,8 @@ Tagline: "Talk. Reflect. Improve."
   on the iOS 26 runtime (expo-updates `ErrorRecovery` abort, then an RN
   ExceptionsManager rethrow). After bumping deps, run `npx expo install --fix`
   on a real machine, then `npm test` / `tsc --noEmit` / `expo export` to
-  re-verify before the EAS rebuild. See `docs/TESTFLIGHT.md`.
+  re-verify. Before ANY cloud build, read **Builds** below — prefer `--local`
+  and validate under npm 10 first. See `docs/TESTFLIGHT.md`.
 - **New Architecture is ON** (`app.json` `newArchEnabled: true`) — Reanimated 4
   requires it. **OTA updates are ON** (`updates.enabled: true`, channel
   `testflight` in `eas.json`): JS-only fixes ship with
@@ -42,6 +43,36 @@ Tagline: "Talk. Reflect. Improve."
   needs metro 0.83). `expo-av` still works in 54 (removed in 55) — migrate to
   `expo-audio` before SDK 55. Supersedes ADR 0009 (`docs/adr/`), which
   applied only to SDK 51.
+
+## Builds — prefer LOCAL, spend EAS cloud builds carefully
+
+The EAS account is on the **free tier**: cloud builds are a scarce, metered
+resource. Treat every cloud build as costly.
+
+- **Default to local builds.** `npx eas-cli build --platform ios --profile
+  <profile> --local` runs entirely on this Mac and does **NOT** consume the EAS
+  build allotment. Use it for iteration and anything experimental. It needs
+  Xcode 26 + CocoaPods (already required for the iOS 26 SDK) and is slow with
+  `buildReactNativeFromSource: true`, but it's free and unlimited.
+- **Cloud builds are metered by the number STARTED, not by success** — a build
+  that dies in "Install dependencies" still burns one from the monthly quota.
+  So NEVER fire a cloud build just to "see if it works," and NEVER retry one
+  blind after a failure. Diagnose locally first; each blind retry wastes quota.
+- **Only a human runs cloud builds.** They need interactive Apple auth / 2FA.
+  An agent PREPS and VALIDATES; it does not trigger `eas build` (no `--local`).
+- **Before ANY cloud build, validate with EAS PARITY:**
+  1. Clean, committed tree (`eas.json` sets `requireCommit: true`).
+  2. `npm test` / `npm run typecheck` / `npm run lint` / `npx expo export` green.
+  3. **Validate the install phase under EAS's npm, not yours.** The EAS image
+     (node `20.19.4`) ships **npm 10.8.2**; local dev is often on npm 11, which
+     dedupes nested deps (e.g. `tailwindcss/node_modules/yaml@2.9.0`) OUT of the
+     lockfile that npm 10 still requires — so local `npm ci` passes but EAS
+     fails "Install dependencies" with `Missing: … from lock file`. Always run
+     `npx npm@10.8.2 ci` and confirm exit 0 before spending a cloud build.
+- **Lockfile hygiene:** any change touching `package.json` (deps OR the `version`
+  bump that accompanies a build) MUST regenerate `package-lock.json` with **npm
+  10.8.2** (`npx npm@10.8.2 install --package-lock-only`), never npm 11, and be
+  committed together. A version bump without a matching lockfile fails EAS.
 
 ## Pipeline Runtime (IMPORTANT)
 
