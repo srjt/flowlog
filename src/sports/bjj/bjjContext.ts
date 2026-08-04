@@ -3,6 +3,7 @@ import { BJJ_VOCABULARY_FLAT } from '@/sports/bjj/bjjVocabulary';
 import {
   BJJ_COACHING_PROMPT,
   BJJ_EXTRACTION_PROMPT,
+  BJJ_IMAGE_STYLE_HINT,
   BJJ_QUALITY_GATE_PHRASES,
   BJJ_SENTIMENT_LABELS,
   BJJ_SKILL_LEVELS,
@@ -24,6 +25,7 @@ export const bjjContext: ISportContext = {
   sentimentLabels: BJJ_SENTIMENT_LABELS,
   skillLevels: BJJ_SKILL_LEVELS,
   qualityGatePhrases: BJJ_QUALITY_GATE_PHRASES,
+  imageStyleHint: BJJ_IMAGE_STYLE_HINT,
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };

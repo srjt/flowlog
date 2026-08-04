@@ -3,6 +3,7 @@ import { GOLF_VOCABULARY_FLAT } from '@/sports/golf/golfVocabulary';
 import {
   GOLF_COACHING_PROMPT,
   GOLF_EXTRACTION_PROMPT,
+  GOLF_IMAGE_STYLE_HINT,
 } from '@/sports/golf/golfPrompts';
 
 /**
@@ -33,6 +34,7 @@ export const golfContext: ISportContext = {
     'keep your head down',
     'just have fun',
   ],
+  imageStyleHint: GOLF_IMAGE_STYLE_HINT,
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };

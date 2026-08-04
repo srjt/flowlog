@@ -36,6 +36,13 @@ export interface ISportContext {
   /** Generic phrases the quality gate rejects for this sport. */
   qualityGatePhrases: string[];
 
+  /**
+   * Sport-specific subject/style hint for cue-image generation (ADR 0012):
+   * what a generated image should depict for this sport. The generic house
+   * style is added by `buildCueImagePrompt`.
+   */
+  imageStyleHint: string;
+
   /** Recording bounds for this sport (seconds). */
   minRecordingSeconds: number;
   maxRecordingSeconds: number;

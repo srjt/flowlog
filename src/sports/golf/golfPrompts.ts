@@ -47,3 +47,6 @@ Dominant weakness: {{DOMINANT_WEAKNESS}}`;
 export const GOLF_COACHING_STRICT_RETRY = `
 
 TODO(golf): retry suffix — instruct the model to rewrite shorter (<25 words) and more specific.`;
+
+// TODO(golf): author a real style hint for cue-image generation (ADR 0012).
+export const GOLF_IMAGE_STYLE_HINT = `A single golfer mid-swing on a course, drawn as a simple instructional diagram. Emphasize the body mechanic in the cue — grip, posture, swing plane, or weight transfer.`;

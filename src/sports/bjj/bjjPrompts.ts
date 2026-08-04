@@ -113,3 +113,12 @@ Rules for the cue (CRITICAL):
 export const BJJ_COACHING_STRICT_RETRY = `
 
 RETRY — your previous cue was rejected. It was too long, too generic, or too low-confidence. Rewrite the cue to be UNDER 25 words, hyper-specific to one mechanical detail (a single grip, frame, angle, or weight shift), and directly tied to the key mistake. Do not output generic advice.`;
+
+/**
+ * Sport-specific style hint for cue-image generation (ADR 0012). Describes
+ * WHAT to depict and in what register; the generic house style (flat diagram,
+ * no text, etc.) is added by `buildCueImagePrompt`. Kept here so all BJJ
+ * content stays in `src/sports/bjj/` (CLAUDE.md rule 3) and is single-sourced
+ * to the edge function.
+ */
+export const BJJ_IMAGE_STYLE_HINT = `Two stylized grapplers in a Brazilian Jiu-Jitsu gi on a mat, drawn as a simple instructional grappling diagram. Emphasize the single body mechanic in the cue — the grip, frame, hip angle, or weight shift — with the two figures clearly distinguishable.`;

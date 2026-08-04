@@ -16,6 +16,7 @@ export type TranscriptionProviderKey =
   | 'deepgram'
   | 'gemini';
 export type AIProviderKey = 'claude' | 'openai' | 'gemini';
+export type ImageProviderKey = 'gemini';
 
 class EnvError extends Error {
   constructor(message: string) {
@@ -121,6 +122,10 @@ export interface Env {
   GEMINI_API_KEY: string;
   GEMINI_MODEL: string;
 
+  // Image generation (cue images, ADR 0012). Reuses GEMINI_API_KEY.
+  IMAGE_PROVIDER: ImageProviderKey;
+  IMAGE_MODEL: string;
+
   // Payments
   REVENUECAT_API_KEY_IOS: string;
   REVENUECAT_API_KEY_ANDROID: string;
@@ -203,6 +208,17 @@ function buildEnv(): Env {
       'EXPO_PUBLIC_GEMINI_MODEL',
       'gemini-2.5-flash',
       process.env.EXPO_PUBLIC_GEMINI_MODEL,
+    ),
+
+    IMAGE_PROVIDER: asEnum<ImageProviderKey>(
+      'IMAGE_PROVIDER',
+      ['gemini'],
+      'gemini',
+    ),
+    IMAGE_MODEL: optional(
+      'EXPO_PUBLIC_IMAGE_MODEL',
+      'imagen-4.0-fast-generate-001',
+      process.env.EXPO_PUBLIC_IMAGE_MODEL,
     ),
 
     REVENUECAT_API_KEY_IOS: optional('REVENUECAT_API_KEY_IOS'),
