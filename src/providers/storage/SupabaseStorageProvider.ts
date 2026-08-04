@@ -264,6 +264,7 @@ function mapSession(row: any): Session {
     sentiment: row.sentiment ?? null,
     coachingCue: row.coaching_cue ?? null,
     targetPosition: row.target_position ?? null,
+    cueImageKey: row.cue_image_key ?? null,
     qualityGatePassed: row.quality_gate_passed ?? false,
     thumbsUp: row.thumbs_up ?? null,
     feedbackReason: row.feedback_reason ?? null,

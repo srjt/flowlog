@@ -17,6 +17,8 @@ export interface Session {
   sentiment: string | null;
   coachingCue: string | null;
   targetPosition: string | null;
+  /** Reuse key into the shared `cue_images` catalog, or null (ADR 0012). */
+  cueImageKey?: string | null;
   qualityGatePassed: boolean;
   thumbsUp: boolean | null;
   /** Reason chosen on a 👎 (single-select), or null/undefined. */

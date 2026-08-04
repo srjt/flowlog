@@ -46,6 +46,16 @@ create policy "own audio read" on storage.objects for select to authenticated
          and (storage.foldername(name))[1] = auth.uid()::text);
 ```
 
+## 4b. Cue-image catalog bucket (ADR 0012)
+
+Migration `006_cue_image_catalog.sql` creates the shared **`cue-images`** bucket
+(via `insert into storage.buckets`, public read) and the `cue_images` catalog
+table. If the bucket INSERT was skipped on a hardened project (a "must be owner"
+error on `db push`), create it manually: Dashboard → Storage → New bucket →
+name **`cue-images`**, **Public**. No per-user policies — the catalog is shared
+(read by all authenticated users, written only by the edge function's service
+role), so one generated image is reused across users.
+
 ## 5. Set the edge-function secrets (Whisper transcription + Gemini analysis)
 
 Dashboard → Edge Functions → Secrets (or the CLI below). Set:

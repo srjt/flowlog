@@ -9,6 +9,7 @@
 | profiles    | Extends auth.users, stores sport and skill level | Enabled |
 | sessions    | Core session entity with full pipeline output    | Enabled |
 | user_trends | Computed trends, updated after each session      | Enabled |
+| cue_images  | Shared cue→image catalog, reused across users    | Enabled |
 
 ## Multi-Sport Design
 
@@ -26,7 +27,10 @@ Migrations: `001_initial_schema.sql` (base schema), `002_auto_create_profile.sql
 (profile auto-create trigger + backfill), `003_feedback_reason.sql`
 (`sessions.feedback_reason`), `004_onboarding_complete.sql`
 (`profiles.onboarding_complete` — gates first-run onboarding; existing users
-backfilled to `true`).
+backfilled to `true`), `005_launch_hardening.sql` (`sessions.client_session_id`
+idempotency key + `client_events`), `006_cue_image_catalog.sql` (shared
+`cue_images` catalog + `cue-images` storage bucket + `sessions.cue_image_key`
+pointer; see ADR 0012).
 
 ## Key Design Decisions
 
@@ -35,6 +39,10 @@ backfilled to `true`).
 - `thumbs_up` field: binary user feedback, feeds quality monitoring pipeline
 - Audio stored in Supabase Storage (bucket `session-audio`), path referenced in
   the sessions table
+- `cue_images` is deliberately NOT user-scoped: RLS allows read by any
+  authenticated user and writes only via the service role, so one generated
+  image is reused across users. `sessions.cue_image_key` points into it
+  (nullable, no FK — the image stage is best-effort). See ADR 0012.
 
 ## Indexes
 
