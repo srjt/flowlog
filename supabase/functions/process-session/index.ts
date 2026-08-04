@@ -18,6 +18,7 @@
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts';
 import { getSportContext } from '../_shared/sports.ts';
 import { extract, generateCoaching, transcribe } from '../_shared/ai.ts';
+import { cueImageUrlFromKey, ensureCueImage } from '../_shared/images.ts';
 import { enforce } from '../_shared/quality-gate.ts';
 import {
   dbInsert,
@@ -145,6 +146,18 @@ Deno.serve(async (req: Request) => {
           ),
       );
 
+      // Regenerate the cue image for the corrected cue (best-effort).
+      let reCueImageKey: string | null = null;
+      try {
+        reCueImageKey = await ensureCueImage(
+          gate.coaching.cue,
+          gate.coaching.targetPosition,
+          sport,
+        );
+      } catch (err) {
+        console.error('cue image failed (non-fatal):', (err as Error)?.message);
+      }
+
       stage = 'reanalyze_persist';
       const updated = await dbUpdate(
         `sessions?id=eq.${reanalyzeSessionId}&user_id=eq.${user.id}`,
@@ -158,6 +171,7 @@ Deno.serve(async (req: Request) => {
           target_position: gate.coaching.targetPosition,
           quality_gate_passed: gate.passed,
           pipeline_version: PIPELINE_VERSION,
+          cue_image_key: reCueImageKey,
         },
       );
       await updateUserTrends(user.id, existing.sport_key);
@@ -302,6 +316,21 @@ Deno.serve(async (req: Request) => {
         ),
     );
 
+    // ── Stage 3b: cue image (best-effort, cache-first) ──────────────────────
+    // Generate/reuse a visual for the cue. A failure here must NEVER fail the
+    // session — same posture as audio upload — so it's fully guarded.
+    stage = 'cue_image';
+    let cueImageKey: string | null = null;
+    try {
+      cueImageKey = await ensureCueImage(
+        gate.coaching.cue,
+        gate.coaching.targetPosition,
+        sport,
+      );
+    } catch (err) {
+      console.error('cue image failed (non-fatal):', (err as Error)?.message);
+    }
+
     // ── Stage 4: persistence ────────────────────────────────────────────────
     stage = 'persistence';
     let session;
@@ -321,6 +350,7 @@ Deno.serve(async (req: Request) => {
         quality_gate_passed: gate.passed,
         pipeline_version: PIPELINE_VERSION,
         client_session_id: clientSessionId,
+        cue_image_key: cueImageKey,
       });
     } catch (err) {
       // Two in-flight retries can race past the replay check; the partial
@@ -349,6 +379,7 @@ Deno.serve(async (req: Request) => {
       targetPosition: gate.coaching.targetPosition,
       sentiment: extraction.sentiment,
       qualityGatePassed: gate.passed,
+      cueImageUrl: cueImageUrlFromKey(cueImageKey),
       processingSteps: STEPS,
     };
     return jsonResponse(output, 200);
@@ -390,6 +421,7 @@ function outputFromRow(
     targetPosition: row.target_position ?? '',
     sentiment: row.sentiment ?? 'neutral',
     qualityGatePassed: row.quality_gate_passed ?? false,
+    cueImageUrl: cueImageUrlFromKey(row.cue_image_key ?? null),
     processingSteps: STEPS,
   };
 }

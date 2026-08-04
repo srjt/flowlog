@@ -122,5 +122,7 @@ export interface PipelineOutput {
   targetPosition: string;
   sentiment: string;
   qualityGatePassed: boolean;
+  /** Public URL of the generated cue image, or null when absent (ADR 0012). */
+  cueImageUrl?: string | null;
   processingSteps: ProcessingStep[];
 }

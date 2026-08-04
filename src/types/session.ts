@@ -42,6 +42,8 @@ export interface NewSession {
   targetPosition: string;
   qualityGatePassed: boolean;
   pipelineVersion: string;
+  /** Reuse key into the shared cue-image catalog, or null (ADR 0012). */
+  cueImageKey?: string | null;
 }
 
 /**
@@ -59,6 +61,8 @@ export interface SessionAnalysisUpdate {
   targetPosition: string;
   qualityGatePassed: boolean;
   pipelineVersion: string;
+  /** Regenerated cue-image reuse key, or null (ADR 0012). */
+  cueImageKey?: string | null;
 }
 
 /** Mirrors the `public.user_trends` table. */

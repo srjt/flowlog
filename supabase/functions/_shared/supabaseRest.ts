@@ -44,6 +44,32 @@ export async function downloadAudio(
   return await res.blob();
 }
 
+/** Upload bytes to Storage (service role), upserting. Used for cue images. */
+export async function uploadObject(
+  bucket: string,
+  path: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  const res = await fetch(
+    `${baseUrl()}/storage/v1/object/${bucket}/${encoded}`,
+    {
+      method: 'POST',
+      headers: {
+        apikey: serviceKey(),
+        Authorization: `Bearer ${serviceKey()}`,
+        'content-type': contentType,
+        'x-upsert': 'true',
+      },
+      body: bytes,
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Storage upload failed: ${res.status} ${await safeText(res)}`);
+  }
+}
+
 /** PostgREST GET. `query` is e.g. `sessions?select=key_mistake&user_id=eq.x`. */
 // deno-lint-ignore no-explicit-any
 export async function dbSelect(query: string): Promise<any[]> {

@@ -15,6 +15,7 @@ import { BJJ_VOCABULARY_FLAT } from '../../../src/sports/bjj/bjjVocabulary.ts';
 import {
   BJJ_COACHING_PROMPT,
   BJJ_EXTRACTION_PROMPT,
+  BJJ_IMAGE_STYLE_HINT,
   BJJ_QUALITY_GATE_PHRASES,
   BJJ_SENTIMENT_LABELS,
 } from '../../../src/sports/bjj/bjjPrompts.ts';
@@ -22,6 +23,7 @@ import { GOLF_VOCABULARY_FLAT } from '../../../src/sports/golf/golfVocabulary.ts
 import {
   GOLF_COACHING_PROMPT,
   GOLF_EXTRACTION_PROMPT,
+  GOLF_IMAGE_STYLE_HINT,
 } from '../../../src/sports/golf/golfPrompts.ts';
 
 export interface ServerSportContext {
@@ -33,6 +35,7 @@ export interface ServerSportContext {
   coachingPrompt: string;
   sentimentLabels: string[];
   qualityGatePhrases: string[];
+  imageStyleHint: string;
   minRecordingSeconds: number;
   maxRecordingSeconds: number;
 }
@@ -46,6 +49,7 @@ const bjj: ServerSportContext = {
   coachingPrompt: BJJ_COACHING_PROMPT,
   sentimentLabels: BJJ_SENTIMENT_LABELS,
   qualityGatePhrases: BJJ_QUALITY_GATE_PHRASES,
+  imageStyleHint: BJJ_IMAGE_STYLE_HINT,
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };
@@ -64,6 +68,7 @@ const golf: ServerSportContext = {
     'keep your head down',
     'just have fun',
   ],
+  imageStyleHint: GOLF_IMAGE_STYLE_HINT,
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };

@@ -40,6 +40,7 @@ export class LocalTestStorageProvider implements IStorageProvider {
       sentiment: session.sentiment,
       coachingCue: session.coachingCue,
       targetPosition: session.targetPosition,
+      cueImageKey: session.cueImageKey ?? null,
       qualityGatePassed: session.qualityGatePassed,
       thumbsUp: null,
       feedbackReason: null,
@@ -66,6 +67,7 @@ export class LocalTestStorageProvider implements IStorageProvider {
       targetPosition: update.targetPosition,
       qualityGatePassed: update.qualityGatePassed,
       pipelineVersion: update.pipelineVersion,
+      cueImageKey: update.cueImageKey ?? null,
     });
     return row;
   }

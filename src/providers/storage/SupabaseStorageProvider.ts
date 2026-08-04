@@ -119,6 +119,7 @@ export class SupabaseStorageProvider implements IStorageProvider {
         target_position: session.targetPosition,
         quality_gate_passed: session.qualityGatePassed,
         pipeline_version: session.pipelineVersion,
+        cue_image_key: session.cueImageKey ?? null,
       })
       .select()
       .single();
@@ -147,6 +148,7 @@ export class SupabaseStorageProvider implements IStorageProvider {
         target_position: update.targetPosition,
         quality_gate_passed: update.qualityGatePassed,
         pipeline_version: update.pipelineVersion,
+        cue_image_key: update.cueImageKey ?? null,
       })
       .eq('id', sessionId)
       .select()

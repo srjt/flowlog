@@ -3,6 +3,7 @@ import { STEP_LABELS } from '@/constants/pipelineSteps';
 import { storageProvider } from '@/providers/storage';
 import type { IStorageProvider } from '@/providers/storage';
 import { CoachingService } from '@/services/CoachingService';
+import { CueImageService } from '@/services/CueImageService';
 import { ExtractionService } from '@/services/ExtractionService';
 import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
@@ -16,6 +17,7 @@ import type {
   ProcessingStepName,
   ReanalyzeInput,
 } from '@/types/pipeline';
+import { cueImageUrlForKey } from '@/utils/cueImageUrl';
 import { logger, reportToMonitoring } from '@/utils/logger';
 
 export type { PipelineInput, PipelineOutput, ReanalyzeInput };
@@ -31,6 +33,7 @@ interface PipelineDeps {
   extraction?: ExtractionService;
   coaching?: CoachingService;
   qualityGate?: QualityGateService;
+  cueImage?: CueImageService;
   storage?: IStorageProvider;
 }
 
@@ -45,6 +48,7 @@ export class FlowlogPipeline {
   private readonly extraction: ExtractionService;
   private readonly coaching: CoachingService;
   private readonly qualityGate: QualityGateService;
+  private readonly cueImage: CueImageService;
   private readonly storage: IStorageProvider;
 
   constructor(deps: PipelineDeps = {}) {
@@ -52,6 +56,7 @@ export class FlowlogPipeline {
     this.extraction = deps.extraction ?? new ExtractionService();
     this.coaching = deps.coaching ?? new CoachingService();
     this.qualityGate = deps.qualityGate ?? new QualityGateService();
+    this.cueImage = deps.cueImage ?? new CueImageService();
     this.storage = deps.storage ?? storageProvider;
   }
 
@@ -137,6 +142,12 @@ export class FlowlogPipeline {
           : 'fallback used',
       );
 
+      // ── Stage 3b: cue image (best-effort, cache-first) ──────────────────
+      const cueImageKey = await this.safeCueImageKey(
+        gate.coaching,
+        sportContext,
+      );
+
       // ── Stage 4: persistence ────────────────────────────────────────────
       begin('persistence');
       const audioStoragePath = await this.safeUploadAudio(
@@ -157,6 +168,7 @@ export class FlowlogPipeline {
         targetPosition: gate.coaching.targetPosition,
         qualityGatePassed: gate.passed,
         pipelineVersion: PIPELINE_VERSION,
+        cueImageKey,
       });
       done('persistence');
 
@@ -167,6 +179,7 @@ export class FlowlogPipeline {
         targetPosition: gate.coaching.targetPosition,
         sentiment: extraction.sentiment,
         qualityGatePassed: gate.passed,
+        cueImageUrl: cueImageUrlForKey(cueImageKey),
         processingSteps: steps,
       };
     } catch (err) {
@@ -216,6 +229,7 @@ export class FlowlogPipeline {
       (strict) => this.coaching.generate(coachingInput, strict),
     );
 
+    const cueImageKey = await this.safeCueImageKey(gate.coaching, sportContext);
     const session = await this.storage.updateSessionAnalysis(input.sessionId, {
       rawTranscript: transcript,
       positionsVisited: extraction.positionsVisited,
@@ -226,6 +240,7 @@ export class FlowlogPipeline {
       targetPosition: gate.coaching.targetPosition,
       qualityGatePassed: gate.passed,
       pipelineVersion: PIPELINE_VERSION,
+      cueImageKey,
     });
 
     return {
@@ -235,6 +250,7 @@ export class FlowlogPipeline {
       targetPosition: gate.coaching.targetPosition,
       sentiment: extraction.sentiment,
       qualityGatePassed: gate.passed,
+      cueImageUrl: cueImageUrlForKey(cueImageKey),
       processingSteps: this.reanalyzeSteps(),
     };
   }
@@ -291,6 +307,28 @@ export class FlowlogPipeline {
       // History is enrichment, not a hard dependency — degrade gracefully.
       logger.warn('history load failed; proceeding without it', err);
       return { recentMistakes: [], dominantWeakness: null };
+    }
+  }
+
+  /**
+   * Generate/reuse the cue image without ever failing the session — mirrors
+   * the edge function's best-effort image stage. Returns the reuse key, or
+   * null when disabled or on any error.
+   */
+  private async safeCueImageKey(
+    coaching: { cue: string; targetPosition: string },
+    sportContext: ISportContext,
+  ): Promise<string | null> {
+    try {
+      const result = await this.cueImage.ensureCueImage({
+        cue: coaching.cue,
+        targetPosition: coaching.targetPosition,
+        sportContext,
+      });
+      return result?.reuseKey ?? null;
+    } catch (err) {
+      logger.warn('cue image failed; saving session without it', err);
+      return null;
     }
   }
 
