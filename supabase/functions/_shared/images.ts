@@ -9,13 +9,12 @@ import { buildCueImagePrompt } from '../../../src/utils/cueImagePrompt.ts';
 import { dbSelect, dbUpsert, uploadObject } from './supabaseRest.ts';
 import type { ServerSportContext } from './sports.ts';
 
-const IMAGEN_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const CUE_IMAGE_BUCKET = 'cue-images';
 const IMAGE_PROVIDER_ID = 'gemini';
 
 const apiKey = () => Deno.env.get('GEMINI_API_KEY') ?? '';
-const model = () =>
-  Deno.env.get('IMAGE_MODEL') ?? 'imagen-4.0-fast-generate-001';
+const model = () => Deno.env.get('IMAGE_MODEL') ?? 'gemini-2.5-flash-image';
 
 /** Object path (and public-URL suffix) for a reuse key — matches the client. */
 export function cueImageStoragePath(reuseKey: string): string {
@@ -79,10 +78,20 @@ export async function ensureCueImage(
   return reuseKey;
 }
 
+// Endpoint chosen by model family (see the src reference): `imagen-*` uses
+// `:predict`; Gemini `*-image` models use `:generateContent` (inline image).
 async function generate(
   prompt: string,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const url = `${IMAGEN_BASE}/${model()}:predict?key=${encodeURIComponent(
+  return model().startsWith('imagen')
+    ? await generateImagen(prompt)
+    : await generateGemini(prompt);
+}
+
+async function generateImagen(
+  prompt: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const url = `${GEMINI_BASE}/${model()}:predict?key=${encodeURIComponent(
     apiKey(),
   )}`;
   const res = await fetch(url, {
@@ -106,6 +115,41 @@ async function generate(
   return {
     bytes: base64ToBytes(prediction.bytesBase64Encoded),
     contentType: prediction.mimeType ?? 'image/png',
+  };
+}
+
+async function generateGemini(
+  prompt: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const url = `${GEMINI_BASE}/${model()}:generateContent?key=${encodeURIComponent(
+    apiKey(),
+  )}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ['IMAGE'] },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Gemini image failed: ${res.status} ${await res.text()}`);
+  }
+  const data = (await res.json()) as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }>;
+      };
+    }>;
+  };
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  const inline = parts.find((p) => p.inlineData?.data)?.inlineData;
+  if (!inline?.data) {
+    throw new Error('Gemini returned no inline image data.');
+  }
+  return {
+    bytes: base64ToBytes(inline.data),
+    contentType: inline.mimeType ?? 'image/png',
   };
 }
 

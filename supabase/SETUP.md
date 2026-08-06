@@ -66,12 +66,15 @@ supabase secrets set TRANSCRIPTION_PROVIDER=whisper # transcription on Whisper A
 supabase secrets set OPENAI_API_KEY=sk-...          # key for Whisper (needs credit!)
 supabase secrets set AI_PROVIDER=gemini             # analysis on Gemini
 # optional: supabase secrets set GEMINI_MODEL=gemini-2.5-flash   # text stages
-# optional: supabase secrets set IMAGE_MODEL=imagen-4.0-fast-generate-001  # cue images
+# optional: supabase secrets set IMAGE_MODEL=gemini-2.5-flash-image  # cue images (default)
 ```
 
-Cue images (ADR 0012) reuse `GEMINI_API_KEY` — no extra key. They are
-best-effort: if the key or Imagen access is missing, sessions still succeed
-without an image. Requires migration `006` + the `cue-images` bucket (step 4b).
+Cue images (ADR 0012) reuse `GEMINI_API_KEY` — no extra key. The default model
+is `gemini-2.5-flash-image` (called via `:generateContent`); set `IMAGE_MODEL`
+to an `imagen-4.0-*` id to use Imagen `:predict` instead (only if your project
+has access — Imagen is gated to existing users). Best-effort: if the model is
+unavailable, sessions still succeed without an image. Requires migration `006`
++ the `cue-images` bucket (step 4b).
 
 Production runs transcription on **Whisper** (switched 2026-07-10): Gemini's
 LLM-based "transcription" hallucinated plausible sport terms into unclear gym

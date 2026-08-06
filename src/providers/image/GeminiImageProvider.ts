@@ -7,15 +7,20 @@ import type {
 import { logCost } from '@/utils/cost';
 import { logger } from '@/utils/logger';
 
-const IMAGEN_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-// Imagen 4 Fast — cheapest first-party option, ~$0.02/image (ADR 0012).
-const IMAGE_COST_PER_CALL = 0.02;
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+// Rough per-image cost for logging; Gemini flash-image ~$0.04, Imagen ~$0.02.
+const IMAGE_COST_PER_CALL = 0.04;
 
 /**
- * Google Imagen image provider via the Gemini API (ADR 0012). Reuses
+ * Google image generation via the Gemini API (ADR 0012). Reuses
  * `GEMINI_API_KEY` — the production pipeline already runs on Gemini, so no new
- * vendor or secret. Calls the `:predict` endpoint (Imagen's shape) and returns
- * the decoded bytes. Holds no sport logic; the prompt arrives finished.
+ * vendor or secret. The endpoint is chosen by model FAMILY, because the two
+ * families speak different shapes:
+ *   - `imagen-*`  → `:predict` (returns `predictions[].bytesBase64Encoded`)
+ *   - everything else (`gemini-*-image`) → `:generateContent` (returns an
+ *     inline-image part). Imagen `:predict` is gated to existing users, so the
+ *     default (`IMAGE_MODEL`) is a Gemini flash-image model.
+ * Holds no sport logic; the prompt arrives finished.
  */
 export class GeminiImageProvider implements IImageProvider {
   readonly id = 'gemini';
@@ -41,48 +46,83 @@ export class GeminiImageProvider implements IImageProvider {
       );
     }
 
-    const url = `${IMAGEN_BASE}/${this.model}:predict?key=${encodeURIComponent(
+    const isImagen = this.model.startsWith('imagen');
+    const result = isImagen
+      ? await this.generateImagen(input.prompt)
+      : await this.generateGemini(input.prompt);
+    logCost('gemini:image', IMAGE_COST_PER_CALL);
+    return result;
+  }
+
+  // Imagen family — `:predict`.
+  private async generateImagen(prompt: string): Promise<ImageGenOutput> {
+    const url = `${GEMINI_BASE}/${this.model}:predict?key=${encodeURIComponent(
       this.apiKey,
     )}`;
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          instances: [{ prompt: input.prompt }],
-          parameters: { sampleCount: 1, aspectRatio: '1:1' },
-        }),
-      });
-    } catch (err) {
-      logger.error('GeminiImageProvider network error', err);
-      throw new Error('Imagen request failed: network error.');
-    }
-
-    if (!response.ok) {
-      const body = await safeText(response);
-      throw new Error(`Imagen request failed: ${response.status} ${body}`);
-    }
-
-    const data = (await response.json()) as ImagenResponse;
+    const response = await this.post(url, {
+      instances: [{ prompt }],
+      parameters: { sampleCount: 1, aspectRatio: '1:1' },
+    });
+    const data = (await response.json()) as {
+      predictions?: Array<{ bytesBase64Encoded?: string; mimeType?: string }>;
+    };
     const prediction = data.predictions?.[0];
     if (!prediction?.bytesBase64Encoded) {
       throw new Error('Imagen returned no image data.');
     }
-    logCost('gemini:image', IMAGE_COST_PER_CALL);
-
     return {
       bytes: base64ToBytes(prediction.bytesBase64Encoded),
       contentType: prediction.mimeType ?? 'image/png',
     };
   }
+
+  // Gemini multimodal image family — `:generateContent`, inline-image part.
+  private async generateGemini(prompt: string): Promise<ImageGenOutput> {
+    const url = `${GEMINI_BASE}/${this.model}:generateContent?key=${encodeURIComponent(
+      this.apiKey,
+    )}`;
+    const response = await this.post(url, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ['IMAGE'] },
+    });
+    const data = (await response.json()) as GeminiImageResponse;
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    const inline = parts.find((p) => p.inlineData?.data)?.inlineData;
+    if (!inline?.data) {
+      throw new Error('Gemini returned no inline image data.');
+    }
+    return {
+      bytes: base64ToBytes(inline.data),
+      contentType: inline.mimeType ?? 'image/png',
+    };
+  }
+
+  private async post(url: string, body: unknown): Promise<Response> {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      logger.error('GeminiImageProvider network error', err);
+      throw new Error('Image request failed: network error.');
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Image request failed: ${response.status} ${await safeText(response)}`,
+      );
+    }
+    return response;
+  }
 }
 
-interface ImagenResponse {
-  predictions?: Array<{
-    bytesBase64Encoded?: string;
-    mimeType?: string;
+interface GeminiImageResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }>;
+    };
   }>;
 }
 

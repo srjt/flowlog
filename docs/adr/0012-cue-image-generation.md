@@ -77,6 +77,20 @@ The key is content-addressed and **not** user-scoped — that's the whole point:
 the `cue_images` catalog and its storage bucket are shared (all-authenticated
 read, server-only write), unlike every existing user-owned table.
 
+### Addendum (2026-08-04) — default model is Gemini flash-image, not Imagen
+
+During implementation we found the Imagen `:predict` models
+(`imagen-4.0-fast/standard-generate-*`) are **gated to existing users** —
+newer API projects get `404 "no longer available to new users"`. Imagen and
+the Gemini multimodal image models also use **different API shapes**
+(`:predict` with `predictions[].bytesBase64Encoded` vs `:generateContent`
+returning an inline-image part). So the single `GeminiImageProvider` now
+**dispatches by model family**: `imagen-*` → `:predict`, everything else →
+`:generateContent`. The shipped default `IMAGE_MODEL` is
+**`gemini-2.5-flash-image`** (Gemini flash-image, ~$0.04/image); Imagen remains
+a zero-code swap (`IMAGE_MODEL=imagen-4.0-*`) for accounts that still have
+access. The provider choice, house style, and reuse key are unchanged.
+
 ## Consequences
 
 - Adds an image-generation cost per **cache miss** (~$0.02, or ~$0.01 batched),

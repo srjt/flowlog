@@ -217,7 +217,7 @@ function buildEnv(): Env {
     ),
     IMAGE_MODEL: optional(
       'EXPO_PUBLIC_IMAGE_MODEL',
-      'imagen-4.0-fast-generate-001',
+      'gemini-2.5-flash-image',
       process.env.EXPO_PUBLIC_IMAGE_MODEL,
     ),
 
