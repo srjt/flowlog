@@ -29,3 +29,6 @@ yarn-error.*
 *.pem
 .vscode/
 .idea/
+
+# Local cue-image smoke-test output (scripts/testCueImage.ts)
+cue-image-test.png
