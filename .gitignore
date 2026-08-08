@@ -32,3 +32,8 @@ yarn-error.*
 
 # Local cue-image smoke-test output (scripts/testCueImage.ts)
 cue-image-test.png
+
+# Local env files — NEVER commit (real secrets live here; see .env.example)
+.env
+.env.local
+.env*.local
