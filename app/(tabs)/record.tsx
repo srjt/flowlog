@@ -1,4 +1,5 @@
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, View } from 'react-native';
@@ -54,6 +55,10 @@ export default function RecordScreen() {
   const dominantWeakness = trends?.focusArea ?? null;
   const { minRecordingSeconds, maxRecordingSeconds } = PIPELINE_CONFIG;
   const idle = !recording && !tooShort && !review;
+  // A capture is "active" while recording AND during the too-short paused
+  // prompt (where "Keep recording" resumes the same take) — both are moments an
+  // auto-lock would harm. Idle, review, and discarded/error states are not.
+  const captureActive = recording || tooShort;
 
   // Live "is it listening?" pulse. Falls back to a static ring under reduced motion.
   const reducedMotion = useReducedMotion();
@@ -122,6 +127,24 @@ export default function RecordScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep the display awake while a capture is active so the OS idle timer never
+  // auto-locks mid-reflection (the user is talking, not touching the screen).
+  // Released when recording ends (review/discard/too-short-decline) and on
+  // unmount so it never leaks to other screens. Independent of the pulse
+  // animation, so reduced-motion users are protected too. Best-effort: a
+  // refused lock is logged, never thrown into the recording flow.
+  useEffect(() => {
+    if (!captureActive) return;
+    void activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch((err) =>
+      logger.warn('keep-awake activation failed', err),
+    );
+    return () => {
+      void deactivateKeepAwake(KEEP_AWAKE_TAG).catch((err) =>
+        logger.warn('keep-awake deactivation failed', err),
+      );
+    };
+  }, [captureActive]);
 
   // Auto-stop at the max duration, telling the user why the take ended
   // (the hint survives into the review card; only begin() clears it).
@@ -530,6 +553,9 @@ export default function RecordScreen() {
     </SafeAreaView>
   );
 }
+
+// Stable tag so activate/deactivate pair and stay idempotent across renders.
+const KEEP_AWAKE_TAG = 'flowlog-record';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);

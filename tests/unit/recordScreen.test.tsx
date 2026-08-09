@@ -10,6 +10,10 @@ jest.mock('@/config/featureFlags', () => ({
   isLocalPipeline: false,
 }));
 jest.mock('expo-av', () => ({ Audio: {} }));
+jest.mock('expo-keep-awake', () => ({
+  activateKeepAwakeAsync: jest.fn(async () => undefined),
+  deactivateKeepAwake: jest.fn(async () => undefined),
+}));
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), replace: jest.fn() },
 }));
@@ -20,6 +24,9 @@ jest.mock('react-native-safe-area-context', () => {
   const RN = require('react-native');
   return { SafeAreaView: RN.View };
 });
+
+// eslint-disable-next-line import/first
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 // eslint-disable-next-line import/first
 import RecordScreen from '../../app/(tabs)/record';
@@ -115,6 +122,42 @@ describe('RecordScreen', () => {
     );
     expect(clientSessionId).not.toBe('stale-key');
     expect(uploadedAudioPath).toBeNull();
+  });
+
+  describe('keep-awake while recording', () => {
+    it('activates keep-awake when a recording starts', () => {
+      const { getByTestId } = render(<RecordScreen />);
+      expect(activateKeepAwakeAsync).not.toHaveBeenCalled();
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // start
+      expect(activateKeepAwakeAsync).toHaveBeenCalled();
+    });
+
+    it('deactivates keep-awake when a valid take stops into review', () => {
+      const { getByTestId } = render(<RecordScreen />);
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // start
+      act(() => jest.advanceTimersByTime(20000)); // valid
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // → review
+      expect(deactivateKeepAwake).toHaveBeenCalled();
+    });
+
+    it('stays awake through the too-short keep/discard prompt, releasing on discard', () => {
+      const { getByTestId } = render(<RecordScreen />);
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // start
+      act(() => jest.advanceTimersByTime(3000)); // < 20s min
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // stop → too short
+      // Still held while the user decides (Keep recording resumes the take).
+      expect(deactivateKeepAwake).not.toHaveBeenCalled();
+
+      act(() => fireEvent.press(getByTestId('record-discard'))); // discard
+      expect(deactivateKeepAwake).toHaveBeenCalled();
+    });
+
+    it('deactivates keep-awake on unmount', () => {
+      const { getByTestId, unmount } = render(<RecordScreen />);
+      act(() => fireEvent.press(getByTestId('record-toggle'))); // start
+      unmount();
+      expect(deactivateKeepAwake).toHaveBeenCalled();
+    });
   });
 
   describe('backgrounding mid-recording', () => {
