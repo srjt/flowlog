@@ -64,6 +64,11 @@ export default function SessionDetailScreen() {
     }
   };
 
+  // Both entry points (Log tab, post-recording Result) push onto this route,
+  // so back() returns correctly. Named (not an inline closure) so the header
+  // back control is exercisable at the test seam.
+  const onBack = () => router.back();
+
   const onDelete = async () => {
     if (!session || deleting) return;
     setDeleting(true);
@@ -124,6 +129,25 @@ export default function SessionDetailScreen() {
           headerStyle: { backgroundColor: '#0B0B0F' },
           headerTintColor: '#FFFFFF',
           headerShadowVisible: false,
+          // iOS otherwise inherits the previous route's name ("(tabs)") as the
+          // back title; force a human label. The explicit headerLeft also fixes
+          // the dead-tap and gives a ≥44px, screen-reader-labelled target on
+          // both platforms.
+          headerBackTitle: 'Back',
+          headerLeft: () => (
+            <Pressable
+              testID="session-back"
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              hitSlop={12}
+              onPress={onBack}
+              className="px-2 py-1"
+            >
+              <Text variant="body" className="text-primary">
+                ‹ Back
+              </Text>
+            </Pressable>
+          ),
           headerRight: () =>
             session ? (
               <Pressable
