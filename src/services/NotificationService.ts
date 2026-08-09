@@ -17,8 +17,11 @@ const DIGEST_KEY = 'flowlog.digestPrefs.v1';
 
 /** Deep-link target tapped reminders open. Consumed in the root layout. */
 export const REMINDER_ROUTE = '/(tabs)/record';
-/** Deep-link target the weekly digest opens. */
-export const DIGEST_ROUTE = '/(tabs)/trends';
+/**
+ * Deep-link target the weekly digest opens: the dedicated latest-digest page
+ * (resolves to the most recent captured week), NOT the generic Trends tab.
+ */
+export const DIGEST_ROUTE = '/digest';
 
 // Stable notification identifiers so reminders and the digest can be cancelled
 // independently (a blanket cancel would clobber the other feature's schedule).
@@ -167,14 +170,18 @@ export function buildDigestBody(trends: SportTrends): string {
 
 /**
  * Persist digest prefs and (re)schedule the single weekly digest notification.
- * The body is baked from `trends` at schedule time (local notifications can't
- * recompute when they fire), so callers reschedule whenever trends change — e.g.
- * on the Trends screen. Returns the effective prefs (enabled forced false if
+ * The body is baked at schedule time (local notifications can't recompute when
+ * they fire), so callers reschedule whenever the data changes — e.g. on the
+ * Trends screen. Pass `body` to bake an explicit summary (used to align the
+ * notification with the latest stored WeeklyDigest, so the text the user reads
+ * in the banner matches the page it opens); when omitted it falls back to the
+ * live `trends` summary. Returns the effective prefs (enabled forced false if
  * unsupported, permission missing, or there are no sessions yet to summarize).
  */
 export async function applyDigestPrefs(
   prefs: DigestPrefs,
   trends: SportTrends | null,
+  body?: string | null,
 ): Promise<DigestPrefs> {
   if (!isSupported()) {
     await persistDigestPrefs(prefs);
@@ -186,11 +193,13 @@ export async function applyDigestPrefs(
   let effective = prefs;
   const hasData = (trends?.sessionCount ?? 0) > 0;
   if (prefs.enabled && hasData && (await hasNotificationPermission())) {
+    const notifBody =
+      body && body.length > 0 ? body : buildDigestBody(trends as SportTrends);
     await Notifications.scheduleNotificationAsync({
       identifier: DIGEST_ID,
       content: {
         title: 'Your week in review',
-        body: buildDigestBody(trends as SportTrends),
+        body: notifBody,
         data: { url: DIGEST_ROUTE },
       },
       trigger: {

@@ -1,24 +1,23 @@
 import { Pressable, Switch, View } from 'react-native';
 
 import { Card, Text } from '@/components/ui';
+import { applyDigestPrefsWithHistory } from '@/services/DigestService';
 import {
-  applyDigestPrefs,
   formatReminderTime,
   hasNotificationPermission,
   requestNotificationPermission,
 } from '@/services/NotificationService';
 import { loadSessions } from '@/services/sessionsSource';
-import { computeTrends } from '@/services/TrendsService';
 import { useUserStore } from '@/store/userStore';
 import { DAY_LABELS, DAY_NAMES, type DigestPrefs } from '@/types/notifications';
 import { logger } from '@/utils/logger';
 
 /**
  * Weekly digest preferences for Profile: a single re-engagement notification
- * summarizing the active sport's focus area + recurring leak (from
- * TrendsService). The summary is baked in at schedule time, so this recomputes
- * trends from the latest sessions whenever prefs change; the Trends screen also
- * reschedules on focus to keep the text fresh.
+ * summarizing the active sport's focus area + recurring leak. Committing a
+ * change materializes any newly-elapsed digests and reschedules the
+ * notification with the latest stored digest's body (so the banner matches the
+ * /digest page it opens); the Trends screen does the same on focus.
  */
 export function DigestSettings() {
   const prefs = useUserStore((s) => s.digestPrefs);
@@ -30,10 +29,13 @@ export function DigestSettings() {
       authUser?.id ?? 'demo-user',
       activeSport,
     );
-    const trends = computeTrends(
-      sessions.filter((s) => s.sportKey === activeSport),
+    const scoped = sessions.filter((s) => s.sportKey === activeSport);
+    // Materialize history + reschedule with the latest digest's body, so the
+    // notification banner matches the /digest page it opens.
+    const { prefs: effective } = await applyDigestPrefsWithHistory(
+      next,
+      scoped,
     );
-    const effective = await applyDigestPrefs(next, trends);
     setDigestPrefs(effective);
   };
 
@@ -67,7 +69,7 @@ export function DigestSettings() {
       </View>
       <Text variant="caption">
         A once-a-week recap of your focus area and recurring leak. Tapping it
-        opens Trends.
+        opens that week’s digest, saved to your digest history.
       </Text>
 
       {prefs.enabled ? (

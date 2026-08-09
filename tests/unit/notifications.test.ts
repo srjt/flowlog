@@ -180,7 +180,7 @@ describe('NotificationService — weekly digest', () => {
     );
   });
 
-  it('schedules one weekly digest opening Trends, with the summary baked in', async () => {
+  it('schedules one weekly digest opening the digest page, with the summary baked in', async () => {
     await applyDigestPrefs(
       { enabled: true, day: 0, hour: 18, minute: 0 },
       trends(),
@@ -196,8 +196,29 @@ describe('NotificationService — weekly digest', () => {
       minute: 0,
       repeats: true,
     });
-    expect(call.content.data).toEqual({ url: '/(tabs)/trends' });
+    expect(call.content.data).toEqual({ url: '/digest' });
     expect(call.content.body).toContain('Most-worked: Guard');
+  });
+
+  it('bakes an explicit body when provided (aligns with the latest digest)', async () => {
+    await applyDigestPrefs(
+      { enabled: true, day: 0, hour: 18, minute: 0 },
+      trends(),
+      'Week of Jun 8: Most-worked: Mount. Recurring leak: slow escape.',
+    );
+    const call = sched.mock.calls[0][0];
+    expect(call.content.body).toBe(
+      'Week of Jun 8: Most-worked: Mount. Recurring leak: slow escape.',
+    );
+  });
+
+  it('falls back to the live-trends body when no explicit body is given', async () => {
+    await applyDigestPrefs(
+      { enabled: true, day: 0, hour: 18, minute: 0 },
+      trends(),
+      null,
+    );
+    expect(sched.mock.calls[0][0].content.body).toContain('Most-worked: Guard');
   });
 
   it('schedules nothing when there are no sessions to summarize', async () => {
