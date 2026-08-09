@@ -27,6 +27,7 @@ module.exports = {
   ignorePatterns: [
     'node_modules/',
     '.expo/',
+    'expo-env.d.ts', // Expo-generated; not ours to format.
     'dist/',
     'coverage/',
     'babel.config.js',
@@ -35,6 +36,9 @@ module.exports = {
     'jest.config.js',
     // Deno edge functions — linted/typechecked by Deno, not the client ESLint.
     'supabase/functions/',
+    // Standalone Node CLI tools (run via `node` type-stripping; use Buffer etc.)
+    // — not part of the RN app build, so out of the client tsconfig/ESLint scope.
+    'scripts/',
   ],
   rules: {
     'prettier/prettier': 'warn',

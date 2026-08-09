@@ -3,6 +3,15 @@ import { Image, View } from 'react-native';
 
 import { Skeleton } from '@/components/ui';
 
+/**
+ * INTERIM KILL-SWITCH (2026-08-08). The generative cue-image path (ADR 0012) is
+ * being retired: the spike proved generated images can't convey the mechanics
+ * and were below the never-misleading floor. Until the annotation force-diagram
+ * renderer ships, we show the cue TEXT ONLY — no image. Flip back on only if
+ * the whole approach is revived. See wayfinder map issue #10.
+ */
+const CUE_IMAGES_ENABLED = false;
+
 export interface CueImageProps {
   /** Public cue-image URL, or null/undefined when there is none. */
   url: string | null | undefined;
@@ -22,6 +31,7 @@ export interface CueImageProps {
 export function CueImage({ url, cue, variant = 'full' }: CueImageProps) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
 
+  if (!CUE_IMAGES_ENABLED) return null;
   if (!url || state === 'error') return null;
 
   const box = variant === 'thumb' ? 'h-14 w-14' : 'aspect-square w-full';

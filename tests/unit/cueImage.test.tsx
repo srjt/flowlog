@@ -8,17 +8,15 @@ describe('CueImage', () => {
     expect(queryByRole('image')).toBeNull();
   });
 
-  it('renders the image with the cue as its accessibility label', () => {
-    const { getByRole } = render(
+  it('renders nothing even with a URL while the kill-switch is off (pivot, map #10)', () => {
+    // CUE_IMAGES_ENABLED is false: the generative image path is retired until
+    // the annotation force-diagram renderer ships, so we show cue text only.
+    const { queryByRole } = render(
       <CueImage
         url="https://example.test/cue-images/abc.png"
         cue="Frame early and shrimp."
       />,
     );
-    const image = getByRole('image');
-    expect(image.props.accessibilityLabel).toContain('Frame early and shrimp.');
-    expect(image.props.source).toEqual({
-      uri: 'https://example.test/cue-images/abc.png',
-    });
+    expect(queryByRole('image')).toBeNull();
   });
 });
