@@ -464,7 +464,11 @@ export default function RecordScreen() {
           <>
             {idle ? (
               <View className="w-full">
-                <StreakStrip trends={trends} loading={trendsLoading} />
+                <StreakStrip
+                  trends={trends}
+                  loading={trendsLoading}
+                  onPress={() => router.push('/(tabs)/log')}
+                />
               </View>
             ) : null}
 
