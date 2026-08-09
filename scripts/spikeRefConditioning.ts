@@ -80,13 +80,20 @@ async function gen(parts: unknown[]): Promise<Buffer> {
       }),
     },
   );
-  if (!res.ok) fail(`Request failed: ${res.status} ${await res.text()}`);
-  const data = await res.json();
-  const out = (data.candidates?.[0]?.content?.parts ?? []).find(
+  if (!res.ok)
+    throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const cand = (await res.json()).candidates?.[0];
+  const out = (cand?.content?.parts ?? []).find(
     (p: { inlineData?: { data?: string } }) => p.inlineData?.data,
   )?.inlineData;
-  if (!out?.data)
-    fail(`No inline image. Raw: ${JSON.stringify(data).slice(0, 400)}`);
+  if (!out?.data) {
+    const reason = cand?.finishReason ?? 'unknown';
+    throw new Error(
+      reason === 'PROHIBITED_CONTENT' || reason === 'SAFETY'
+        ? `BLOCKED by safety filter (${reason})`
+        : `no image returned (finishReason=${reason})`,
+    );
+  }
   return Buffer.from(out.data, 'base64');
 }
 
@@ -95,18 +102,27 @@ const outUrl = (name: string) => new URL(`../spike/out/${name}`, import.meta.url
 
 // Generate + write, unless the output already exists (idempotent re-runs).
 // `partsFn` is lazy so we don't even read a reference file when skipping.
+type Outcome = 'generated' | 'skipped' | 'failed';
+
 async function produce(
   name: string,
   label: string,
   partsFn: () => unknown[],
-): Promise<void> {
+): Promise<Outcome> {
   const url = outUrl(name);
   if (!FORCE && existsSync(url)) {
     console.log(`   ⏭️  ${label.padEnd(10)} exists → spike/out/${name}`);
-    return;
+    return 'skipped';
   }
-  writeFileSync(url, await gen(partsFn()));
-  console.log(`   ✅ ${label.padEnd(10)} → spike/out/${name}`);
+  try {
+    writeFileSync(url, await gen(partsFn()));
+    console.log(`   ✅ ${label.padEnd(10)} → spike/out/${name}`);
+    return 'generated';
+  } catch (e) {
+    // One blocked/failed variant must not abort the batch.
+    console.log(`   ⚠️  ${label.padEnd(10)} FAILED — ${(e as Error).message}`);
+    return 'failed';
+  }
 }
 
 function conditionedParts(ref: Ref, name: string, cue: string): unknown[] {
@@ -145,30 +161,39 @@ async function main() {
   mkdirSync(new URL('../spike/out/', import.meta.url), { recursive: true });
   console.log(`\nmodel: ${MODEL}\n`);
 
+  const tally: Record<Outcome, number> = { generated: 0, skipped: 0, failed: 0 };
+
   for (const pos of manifest.positions) {
     const s = slug(pos.name);
     console.log(`── ${pos.name} ──`);
     console.log(`   cue: "${pos.cue}"`);
 
     // Text-only baseline (current production behaviour).
-    await produce(`${s}__text-only.png`, 'text-only', () => [
-      {
-        text: buildCueImagePrompt({
-          cue: pos.cue,
-          targetPosition: pos.name,
-          styleHint: BJJ_IMAGE_STYLE_HINT,
-        }),
-      },
-    ]);
+    tally[
+      await produce(`${s}__text-only.png`, 'text-only', () => [
+        {
+          text: buildCueImagePrompt({
+            cue: pos.cue,
+            targetPosition: pos.name,
+            styleHint: BJJ_IMAGE_STYLE_HINT,
+          }),
+        },
+      ])
+    ]++;
 
     // Conditioned on each reference.
     for (const ref of pos.refs) {
-      await produce(`${s}__${ref.type}.png`, ref.type, () =>
-        conditionedParts(ref, pos.name, pos.cue),
-      );
+      tally[
+        await produce(`${s}__${ref.type}.png`, ref.type, () =>
+          conditionedParts(ref, pos.name, pos.cue),
+        )
+      ]++;
     }
     console.log();
   }
+  console.log(
+    `Summary — generated ${tally.generated}, skipped ${tally.skipped}, failed ${tally.failed}.`,
+  );
   console.log('Open them:  open spike/out/*.png\n');
 }
 
