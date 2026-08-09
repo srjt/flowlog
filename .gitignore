@@ -12,8 +12,12 @@ ios/
 android/
 
 # Environment — secrets must never be committed
+.env
 .env.local
 .env*.local
+
+# Local scratch / experiments (not part of the app)
+spike/
 
 # Testing
 coverage/
