@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cue force-diagram mockup (de la riva) — #18 visual reference</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background: #f0eee9; color: #1c1d21;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #101114; color: #e9eaec; } }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  .intro { max-width: 900px; margin: 0 auto 18px; font-size: 13px; line-height: 1.5; opacity: .8; }
+  .intro code { font-family: ui-monospace, Menlo, monospace; }
+  .stage { max-width: 1000px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<p class="intro">
+  <strong>#18 visual reference — annotation force diagram (v2, animated).</strong>
+  This is the hand-built target the deterministic renderer must reproduce from a
+  <em>spec</em> (see the panel on the right for the structured spec). Base = swappable
+  keypoint skin (two-tone here); overlay = drawn from the spec, not generated.
+  Static-complete, animation additive (reduced-motion → static). See wayfinder
+  map issue #10 and the #17 domain-model resolution. Prior version (v1, static)
+  looked identical minus the motion.
+</p>
+<div class="stage">
+
+<h2 class="sr-only">An animated de la riva force diagram: two clean two-tone figures form the base position; an animated overlay shows the heel driving up into the opponent's hamstring, a pulsing pressure zone, the opponent's forward push being blocked, and a base support point — all drawn from a structured mechanical spec.</h2>
+
+<style>
+  .dlr2 {
+    --you: #565b63; --opp: #9aa0a8; --mat: #d8d2c6; --text: #1c1d21; --muted: #6a7078;
+    --push: #dd6427; --pressure: #dd6427; --counter: #9aa0a6; --base: #2f77d6;
+    --surface: #faf9f7; --border: rgba(0,0,0,.10); --panel: #f4f2ee;
+    color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; align-items: start;
+  }
+  @media (prefers-color-scheme: dark) {
+    .dlr2 { --you: #c6ccd4; --opp: #7f858d; --mat: #35373c; --text: #e9eaec; --muted: #9aa0a8;
+      --push: #ff8a4c; --pressure: #ff8a4c; --counter: #737980; --base: #64a2f5;
+      --surface: #17181b; --border: rgba(255,255,255,.12); --panel: #1d1f23; }
+  }
+  @media (max-width: 640px) { .dlr2 { grid-template-columns: 1fr; } }
+  .dlr2 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .dlr2 .card svg { display: block; width: 100%; height: auto; }
+  .dlr2 .side { display: flex; flex-direction: column; gap: 12px; }
+  .dlr2 .block { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .dlr2 .cue { font-size: 14px; line-height: 1.45; } .dlr2 .cue b { color: var(--push); }
+  .dlr2 .h { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  .dlr2 .legend { display: grid; gap: 9px; font-size: 12.5px; } .dlr2 .legend .row { display: flex; align-items: center; gap: 10px; }
+  .dlr2 pre { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.5; white-space: pre; overflow-x: auto; }
+  .dlr2 pre .k { color: var(--base); } .dlr2 pre .s { color: var(--push); }
+  .dlr2 .note { grid-column: 1/-1; font-size: 12.5px; color: var(--muted); line-height: 1.5; padding: 2px; } .dlr2 .note b { color: var(--text); }
+
+  .dlr2 .force { animation: dlrDrive 1.6s ease-in-out infinite; }
+  .dlr2 .flow  { animation: dlrFlow 1.1s linear infinite; }
+  .dlr2 .pcore { transform-box: fill-box; transform-origin: center; animation: dlrPulse 1.6s ease-in-out infinite; }
+  .dlr2 .phalo { transform-box: fill-box; transform-origin: center; animation: dlrHalo 1.6s ease-in-out infinite; }
+  .dlr2 .counter { animation: dlrShove 2.2s ease-in-out infinite; }
+  @keyframes dlrDrive { 0%,100% { transform: translate(0,0); } 50% { transform: translate(6px,-7px); } }
+  @keyframes dlrFlow { to { stroke-dashoffset: -40; } }
+  @keyframes dlrPulse { 0%,100% { transform: scale(1); opacity:.34; } 50% { transform: scale(1.28); opacity:.52; } }
+  @keyframes dlrHalo { 0%,100% { transform: scale(1); opacity:.15; } 50% { transform: scale(1.15); opacity:.24; } }
+  @keyframes dlrShove { 0%,100% { transform: translate(0,0); } 45% { transform: translate(-6px,0); } 60% { transform: translate(-1px,0); } }
+  @media (prefers-reduced-motion: reduce) { .dlr2 .force,.dlr2 .flow,.dlr2 .pcore,.dlr2 .phalo,.dlr2 .counter { animation: none !important; } }
+</style>
+
+<div class="dlr2">
+  <div class="card">
+    <svg viewBox="0 0 820 520" role="img" xmlns="http://www.w3.org/2000/svg">
+      <title>Animated de la riva force diagram</title>
+      <desc>Two-tone base figures with an animated overlay of force, pressure, countered opponent-force, and base support.</desc>
+      <defs>
+        <marker id="p2Push" markerWidth="11" markerHeight="11" refX="7" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 L3,5 Z" fill="var(--push)"/></marker>
+        <marker id="p2Counter" markerWidth="10" markerHeight="10" refX="6" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 L2.5,5 Z" fill="var(--counter)"/></marker>
+      </defs>
+
+      <line x1="40" y1="472" x2="780" y2="472" stroke="var(--mat)" stroke-width="6" stroke-linecap="round"/>
+
+      <!-- opponent (lighter tone) -->
+      <g fill="none" stroke="var(--opp)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="640" y1="120" x2="640" y2="255"/>
+        <polyline points="640,255 560,345 512,458"/>
+        <polyline points="640,255 692,352 716,458"/>
+        <polyline points="640,158 614,205 598,246"/>
+      </g>
+      <circle cx="640" cy="95" r="24" fill="var(--opp)"/>
+
+      <!-- you (darker tone) -->
+      <g fill="none" stroke="var(--you)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="128" y1="352" x2="300" y2="362"/>
+        <polyline points="300,362 430,322 588,308"/>
+        <polyline points="300,362 372,414 606,262"/>
+        <polyline points="150,352 300,420 500,448"/>
+      </g>
+      <circle cx="108" cy="352" r="21" fill="var(--you)"/>
+
+      <!-- ===== OVERLAY ===== -->
+      <circle class="phalo" cx="592" cy="306" r="34" fill="var(--pressure)"/>
+      <circle class="pcore" cx="592" cy="306" r="13" fill="var(--pressure)"/>
+
+      <g class="counter">
+        <line x1="524" y1="366" x2="452" y2="366" stroke="var(--counter)" stroke-width="4" stroke-dasharray="7 6" marker-end="url(#p2Counter)"/>
+      </g>
+      <g stroke="var(--counter)" stroke-width="3" stroke-linecap="round">
+        <line x1="482" y1="356" x2="490" y2="376"/><line x1="490" y1="356" x2="498" y2="376"/>
+      </g>
+      <text x="470" y="398" text-anchor="middle" font-size="12.5" fill="var(--muted)" font-family="ui-sans-serif, system-ui, sans-serif">prevents their forward push</text>
+
+      <g class="force">
+        <line x1="556" y1="338" x2="598" y2="288" stroke="var(--push)" stroke-width="7" stroke-linecap="round" marker-end="url(#p2Push)"/>
+        <line class="flow" x1="556" y1="338" x2="592" y2="295" stroke="var(--surface)" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="3 13" opacity=".85"/>
+      </g>
+      <text x="470" y="250" font-size="13.5" fill="var(--push)" font-weight="600" font-family="ui-sans-serif, system-ui, sans-serif">heel drives into hamstring</text>
+      <line x1="512" y1="258" x2="560" y2="300" stroke="var(--push)" stroke-width="1.5" opacity=".5"/>
+
+      <circle cx="300" cy="420" r="13" fill="none" stroke="var(--base)" stroke-width="3"/>
+      <circle cx="300" cy="420" r="3.5" fill="var(--base)"/>
+      <text x="238" y="452" font-size="12.5" fill="var(--base)" font-weight="600" font-family="ui-sans-serif, system-ui, sans-serif">keep your base</text>
+
+      <text x="640" y="500" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="ui-sans-serif, system-ui, sans-serif">opponent</text>
+      <text x="108" y="500" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="ui-sans-serif, system-ui, sans-serif">you</text>
+    </svg>
+  </div>
+
+  <div class="side">
+    <div class="block cue">
+      <p class="h">The cue</p>
+      From de la riva, keep your sweeping leg's <b>heel digging into the opponent's hamstring</b> to prevent their push.
+    </div>
+    <div class="block">
+      <p class="h">Annotation grammar</p>
+      <div class="legend">
+        <div class="row"><svg width="30" height="14"><line x1="1" y1="7" x2="22" y2="7" stroke="var(--push)" stroke-width="4" stroke-linecap="round" marker-end="url(#p2Push)"/></svg><span>Force direction <b style="color:var(--push);font-weight:600">(animated)</b></span></div>
+        <div class="row"><svg width="30" height="14"><circle cx="12" cy="7" r="6.5" fill="var(--pressure)" opacity=".28"/><circle cx="12" cy="7" r="2.5" fill="var(--pressure)"/></svg><span>Pressure / active contact</span></div>
+        <div class="row"><svg width="30" height="14"><line x1="1" y1="7" x2="22" y2="7" stroke="var(--counter)" stroke-width="3" stroke-dasharray="5 4"/><line x1="9" y1="2" x2="13" y2="12" stroke="var(--counter)" stroke-width="2"/></svg><span>Opponent's force (blocked)</span></div>
+        <div class="row"><svg width="30" height="14"><circle cx="12" cy="7" r="6" fill="none" stroke="var(--base)" stroke-width="2.5"/><circle cx="12" cy="7" r="2" fill="var(--base)"/></svg><span>Base / support point</span></div>
+      </div>
+    </div>
+    <div class="block">
+      <p class="h">Structured spec (LLM → renderer)</p>
+      <pre>{
+  <span class="k">"base"</span>: <span class="s">"de-la-riva"</span>,
+  <span class="k">"annotations"</span>: [
+    { <span class="k">"type"</span>:<span class="s">"force"</span>,   <span class="k">"anchor"</span>:<span class="s">"hook_heel"</span>,
+      <span class="k">"toward"</span>:<span class="s">"opp_hamstring"</span>, <span class="k">"intensity"</span>:<span class="s">"high"</span> },
+    { <span class="k">"type"</span>:<span class="s">"pressure"</span>, <span class="k">"anchor"</span>:<span class="s">"heel_on_hamstring"</span> },
+    { <span class="k">"type"</span>:<span class="s">"counter"</span>,  <span class="k">"anchor"</span>:<span class="s">"heel_on_hamstring"</span>,
+      <span class="k">"opposes"</span>:<span class="s">"opp_forward_push"</span> },
+    { <span class="k">"type"</span>:<span class="s">"base"</span>,     <span class="k">"anchor"</span>:<span class="s">"posting_forearm"</span> }
+  ]
+}</pre>
+    </div>
+  </div>
+
+  <p class="note"><b>Renderer contract:</b> everything grey is the <b>base skin</b> (a keypoint skeleton — swappable). Everything coloured is drawn <b>deterministically from the spec</b> above: each annotation's <code>anchor</code>/<code>toward</code> are semantic roles the renderer resolves to coordinates via the position's role map. Arrowheads convey direction statically; animation is an additive layer for the hero view only.</p>
+</div>
+
+</div>
+</body>
+</html>
