@@ -9,9 +9,12 @@
 //   GEMINI_API_KEY=... node scripts/spikeRefConditioning.ts
 //   GEMINI_API_KEY=... node scripts/spikeRefConditioning.ts --model gemini-3-pro-image
 //
+// Idempotent: skips any spike/out/*.png that already exists (so re-runs only
+// generate new positions). Pass --force to regenerate everything.
+//
 // Runs on Node 24 (type-stripping). Auto-loads .env like scripts/testCueImage.ts.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { buildCueImagePrompt } from '../src/utils/cueImagePrompt.ts';
 import { BJJ_IMAGE_STYLE_HINT } from '../src/sports/bjj/bjjPrompts.ts';
@@ -87,6 +90,25 @@ async function gen(parts: unknown[]): Promise<Buffer> {
   return Buffer.from(out.data, 'base64');
 }
 
+const FORCE = args.includes('--force');
+const outUrl = (name: string) => new URL(`../spike/out/${name}`, import.meta.url);
+
+// Generate + write, unless the output already exists (idempotent re-runs).
+// `partsFn` is lazy so we don't even read a reference file when skipping.
+async function produce(
+  name: string,
+  label: string,
+  partsFn: () => unknown[],
+): Promise<void> {
+  const url = outUrl(name);
+  if (!FORCE && existsSync(url)) {
+    console.log(`   ⏭️  ${label.padEnd(10)} exists → spike/out/${name}`);
+    return;
+  }
+  writeFileSync(url, await gen(partsFn()));
+  console.log(`   ✅ ${label.padEnd(10)} → spike/out/${name}`);
+}
+
 function conditionedParts(ref: Ref, name: string, cue: string): unknown[] {
   const ext = ref.path.split('.').pop()?.toLowerCase() ?? 'png';
   const b64 = readFileSync(new URL(`../${ref.path}`, import.meta.url)).toString(
@@ -129,7 +151,7 @@ async function main() {
     console.log(`   cue: "${pos.cue}"`);
 
     // Text-only baseline (current production behaviour).
-    const baseline = await gen([
+    await produce(`${s}__text-only.png`, 'text-only', () => [
       {
         text: buildCueImagePrompt({
           cue: pos.cue,
@@ -138,17 +160,12 @@ async function main() {
         }),
       },
     ]);
-    writeFileSync(new URL(`../spike/out/${s}__text-only.png`, import.meta.url), baseline);
-    console.log(`   ✅ text-only        → spike/out/${s}__text-only.png`);
 
     // Conditioned on each reference.
     for (const ref of pos.refs) {
-      const img = await gen(conditionedParts(ref, pos.name, pos.cue));
-      writeFileSync(
-        new URL(`../spike/out/${s}__${ref.type}.png`, import.meta.url),
-        img,
+      await produce(`${s}__${ref.type}.png`, ref.type, () =>
+        conditionedParts(ref, pos.name, pos.cue),
       );
-      console.log(`   ✅ ${ref.type.padEnd(8)}       → spike/out/${s}__${ref.type}.png`);
     }
     console.log();
   }
