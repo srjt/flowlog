@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>#18 — keypoint base authoring tool</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg:#f0eee9; --fg:#1c1d21; --muted:#6a7078; --panel:#faf9f7; --border:rgba(0,0,0,.14);
+    --you:#2f6fd0; --opp:#d0742f; --role:#2f9e6d; --accent:#7b61c9; --danger:#d64545;
+    --canvas:#e7e3da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#101114; --fg:#e9eaec; --muted:#9aa0a8; --panel:#17181b; --border:rgba(255,255,255,.14);
+      --you:#64a2f5; --opp:#ff9a5c; --role:#46c088; --accent:#a58bf0; --danger:#ef6b6b; --canvas:#1d1f23; }
+  }
+  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--fg); }
+  .top { padding:10px 16px; border-bottom:1px solid var(--border); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .top h1 { font-size:15px; margin:0; }
+  .top .hint { font-size:12px; color:var(--muted); }
+  .layout { display:grid; grid-template-columns: 1fr 380px; gap:0; height: calc(100vh - 44px); }
+  @media (max-width:900px){ .layout{ grid-template-columns:1fr; height:auto; } }
+  .stage { position:relative; background:var(--canvas); overflow:hidden; display:flex; align-items:center; justify-content:center; }
+  .stage svg { width:100%; height:100%; display:block; touch-action:none; }
+  #backdrop { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none; }
+  .side { border-left:1px solid var(--border); overflow-y:auto; padding:12px 14px; background:var(--panel); }
+  @media (max-width:900px){ .side{ border-left:none; border-top:1px solid var(--border);} }
+  .side h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:16px 0 7px; }
+  .side h2:first-child { margin-top:2px; }
+  label.f { display:block; font-size:11px; color:var(--muted); margin:6px 0 2px; }
+  input, select, textarea, button { font:inherit; font-size:13px; color:var(--fg); background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:6px 8px; }
+  input, select, textarea { width:100%; }
+  textarea { font-family: ui-monospace, Menlo, monospace; font-size:11px; line-height:1.45; }
+  button { cursor:pointer; background:var(--fg); color:var(--bg); border:none; font-weight:600; }
+  button.ghost { background:transparent; color:var(--fg); border:1px solid var(--border); font-weight:500; }
+  button.sm { padding:3px 8px; font-size:12px; border-radius:6px; }
+  button.x { padding:1px 7px; color:var(--danger); background:transparent; border:1px solid var(--border); }
+  .row { display:flex; gap:6px; align-items:center; }
+  .row > * { flex:1; }
+  .row.tight > * { flex:none; }
+  .pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:3px 8px; border:1px solid var(--border); border-radius:20px; margin:0 4px 4px 0; }
+  .list { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
+  .item { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:7px; background:var(--bg); }
+  .item code { font-family: ui-monospace, Menlo, monospace; font-size:11px; }
+  .tabs { display:flex; gap:6px; margin-bottom:6px; }
+  .tabs button { flex:1; background:transparent; color:var(--muted); border:1px solid var(--border); }
+  .tabs button.on { color:var(--bg); font-weight:700; }
+  .tabs button.you.on { background:var(--you); border-color:var(--you); }
+  .tabs button.opp.on { background:var(--opp); border-color:var(--opp); }
+  .mode { font-size:12px; padding:6px 8px; border-radius:7px; border:1px dashed var(--border); color:var(--muted); margin:6px 0; min-height:32px; }
+  .mode.active { border-color:var(--accent); color:var(--accent); border-style:solid; }
+  .split { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .split3 { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:end; }
+  .tiny { font-size:11px; color:var(--muted); line-height:1.4; }
+  .joint-dot { cursor:grab; }
+  .joint-dot:active { cursor:grabbing; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Keypoint base authoring</h1>
+  <span class="hint">Drop a reference image → click to place named joints over it → wire bones, feet, roles → export JSON. The reference is a tracing backdrop; it is never exported.</span>
+</div>
+<div class="layout">
+  <div class="stage" id="stage">
+    <img id="backdrop" alt="" />
+    <svg id="svg" viewBox="0 0 820 520" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+  <div class="side">
+    <h2>Reference backdrop</h2>
+    <div class="row"><input type="file" id="file" accept="image/*" /></div>
+    <label class="f">Backdrop opacity <span id="opv">0.6</span></label>
+    <input type="range" id="op" min="0" max="1" step="0.05" value="0.6" />
+
+    <h2>Position</h2>
+    <div class="split">
+      <div><label class="f">id</label><input id="pid" placeholder="de-la-riva" /></div>
+      <div><label class="f">view</label><input id="pview" placeholder="side" value="side" /></div>
+    </div>
+    <label class="f">label</label><input id="plabel" placeholder="De La Riva guard" />
+
+    <h2>Active person</h2>
+    <div class="tabs">
+      <button class="you on" data-p="you">you</button>
+      <button class="opp" data-p="opp">opp</button>
+    </div>
+
+    <h2>Place joint</h2>
+    <div class="split3">
+      <div><label class="f">joint name</label><input id="jname" placeholder="hook_foot" /></div>
+      <div><label class="f" title="mark as head circle"><input type="checkbox" id="jhead" style="width:auto"> head</label></div>
+      <button class="sm" id="placeJoint">Place ▶</button>
+    </div>
+    <div class="mode" id="mode">Idle. Click a joint to move it; type a name and hit Place to add one.</div>
+    <div class="list" id="joints"></div>
+
+    <h2>Bones</h2>
+    <div class="split3">
+      <select id="boneA"></select><select id="boneB"></select><button class="sm" id="addBone">Add</button>
+    </div>
+    <div class="list" id="bones"></div>
+
+    <h2>Feet / toe direction</h2>
+    <div class="row"><select id="footJoint"></select><button class="sm" id="placeToe">Place toe ▶</button></div>
+    <div class="list" id="feet"></div>
+
+    <h2>Roles (semantic map)</h2>
+    <label class="f">role name</label><input id="rname" placeholder="hook_heel" />
+    <label class="f">strategy</label>
+    <select id="rstrat">
+      <option value="joint">joint (person.joint)</option>
+      <option value="midpoint">midpoint (two joints)</option>
+      <option value="point">point (click on canvas)</option>
+    </select>
+    <div id="rjoint1wrap"><label class="f">joint A</label><select id="rjoint1"></select></div>
+    <div id="rjoint2wrap" style="display:none"><label class="f">joint B</label><select id="rjoint2"></select></div>
+    <button class="sm" id="addRole" style="margin-top:8px">Add role</button>
+    <div class="list" id="roles"></div>
+
+    <h2>Cues (optional)</h2>
+    <div class="split3">
+      <div><input id="cid" placeholder="cue-id" /></div>
+      <div><input id="ctext" placeholder="cue text" /></div>
+      <button class="sm" id="addCue">Add</button>
+    </div>
+    <div class="list" id="cues"></div>
+
+    <h2>Export</h2>
+    <div class="row tight" style="margin-bottom:6px">
+      <button id="gen">Generate JSON</button>
+      <button class="ghost sm" id="copy">Copy</button>
+      <button class="ghost sm" id="download">Download</button>
+    </div>
+    <textarea id="out" rows="12" spellcheck="false" placeholder="Generated base JSON appears here…"></textarea>
+    <p class="tiny">Coordinates are normalized [0,1] on the fixed 820×520 landscape canvas. Output matches <code>scripts/issue18/seed/*.json</code>; drop it in and run the harness.</p>
+  </div>
+</div>
+
+<script>
+const W = 820, H = 520;
+const svg = document.getElementById('svg');
+const NS = 'http://www.w3.org/2000/svg';
+const state = {
+  activePerson: 'you',
+  people: { you: { joints:{}, bones:[], head:'', feet:{} }, opp: { joints:{}, bones:[], head:'', feet:{} } },
+  roles: {},
+  cues: [],
+  mode: { type:'idle' },
+  drag: null,
+};
+const COLOR = { you:'var(--you)', opp:'var(--opp)' };
+const $ = (id) => document.getElementById(id);
+
+// ---- coordinate mapping ----
+function evtToNorm(e) {
+  const r = svg.getBoundingClientRect();
+  // svg preserves aspect via viewBox + width/height 100%; compute the drawn box
+  const scale = Math.min(r.width / W, r.height / H);
+  const dw = W * scale, dh = H * scale;
+  const ox = (r.width - dw) / 2, oy = (r.height - dh) / 2;
+  const x = (e.clientX - r.left - ox) / dw;
+  const y = (e.clientY - r.top - oy) / dh;
+  return [clamp(x), clamp(y)];
+}
+const clamp = (v) => Math.max(0, Math.min(1, Math.round(v*1000)/1000));
+const px = (v) => [v[0]*W, v[1]*H];
+
+// ---- backdrop ----
+$('file').addEventListener('change', (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  $('backdrop').src = URL.createObjectURL(f);
+});
+$('op').addEventListener('input', (e) => { $('backdrop').style.opacity = e.target.value; $('opv').textContent = e.target.value; });
+$('backdrop').style.opacity = 0.6;
+
+// ---- person tabs ----
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  state.activePerson = b.dataset.p;
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x.dataset.p === state.activePerson));
+  refresh();
+}));
+
+// ---- mode ----
+function setMode(m, text) { state.mode = m; const el = $('mode'); el.textContent = text; el.classList.toggle('active', m.type !== 'idle'); }
+function idle() { setMode({type:'idle'}, 'Idle. Click a joint to move it; type a name and hit Place to add one.'); }
+
+$('placeJoint').addEventListener('click', () => {
+  const name = $('jname').value.trim();
+  if (!name) return alert('Enter a joint name first.');
+  setMode({ type:'placeJoint', name, head: $('jhead').checked }, `Click on the canvas to place "${name}" for ${state.activePerson}.`);
+});
+$('placeToe').addEventListener('click', () => {
+  const j = $('footJoint').value;
+  if (!j) return alert('Pick a joint to attach a toe to.');
+  setMode({ type:'placeToe', joint:j }, `Click to place the toe point for ${state.activePerson}.${j}.`);
+});
+
+// ---- canvas interaction ----
+svg.addEventListener('pointerdown', (e) => {
+  const p = evtToNorm(e);
+  if (state.mode.type === 'placeJoint') {
+    const P = state.people[state.activePerson];
+    P.joints[state.mode.name] = p;
+    if (state.mode.head) P.head = state.mode.name;
+    $('jname').value = ''; $('jhead').checked = false;
+    idle(); refresh(); return;
+  }
+  if (state.mode.type === 'placeToe') {
+    state.people[state.activePerson].feet[state.mode.joint] = { toe: p };
+    idle(); refresh(); return;
+  }
+  if (state.mode.type === 'placePoint') {
+    state.roles[state.mode.name] = { point: p };
+    idle(); refresh(); return;
+  }
+  // idle: hit-test joints for drag
+  const hit = hitJoint(p);
+  if (hit) { state.drag = hit; svg.setPointerCapture(e.pointerId); }
+});
+svg.addEventListener('pointermove', (e) => {
+  if (!state.drag) return;
+  const p = evtToNorm(e);
+  state.people[state.drag.person].joints[state.drag.name] = p;
+  refresh();
+});
+svg.addEventListener('pointerup', (e) => { state.drag = null; });
+
+function hitJoint(p) {
+  let best = null, bd = 0.025; // ~ within 2.5% of canvas
+  for (const person of ['opp','you']) {
+    for (const [name, v] of Object.entries(state.people[person].joints)) {
+      const d = Math.hypot(v[0]-p[0], v[1]-p[1]);
+      if (d < bd) { bd = d; best = { person, name }; }
+    }
+  }
+  return best;
+}
+
+// ---- bones / feet / roles editors ----
+$('addBone').addEventListener('click', () => {
+  const a = $('boneA').value, b = $('boneB').value;
+  if (!a || !b || a === b) return;
+  const P = state.people[state.activePerson];
+  if (!P.bones.some(x => (x[0]===a&&x[1]===b)||(x[0]===b&&x[1]===a))) P.bones.push([a,b]);
+  refresh();
+});
+$('rstrat').addEventListener('change', () => {
+  const s = $('rstrat').value;
+  $('rjoint1wrap').style.display = s === 'point' ? 'none' : 'block';
+  $('rjoint2wrap').style.display = s === 'midpoint' ? 'block' : 'none';
+});
+$('addRole').addEventListener('click', () => {
+  const name = $('rname').value.trim(); if (!name) return alert('Enter a role name.');
+  const s = $('rstrat').value;
+  if (s === 'joint') state.roles[name] = { joint: $('rjoint1').value };
+  else if (s === 'midpoint') state.roles[name] = { midpoint: [$('rjoint1').value, $('rjoint2').value] };
+  else { setMode({ type:'placePoint', name }, `Click to place the contact point for role "${name}".`); $('rname').value=''; return; }
+  $('rname').value=''; refresh();
+});
+$('addCue').addEventListener('click', () => {
+  const id = $('cid').value.trim(), text = $('ctext').value.trim();
+  if (!id || !text) return; state.cues.push({ id, text }); $('cid').value=''; $('ctext').value=''; refresh();
+});
+
+// ---- render ----
+function allJointRefs() {
+  const refs = [];
+  for (const person of ['you','opp'])
+    for (const name of Object.keys(state.people[person].joints)) refs.push(`${person}.${name}`);
+  return refs;
+}
+function fillSelect(el, opts, keep) {
+  el.innerHTML = opts.map(o => `<option value="${o}">${o}</option>`).join('');
+  if (keep && opts.includes(keep)) el.value = keep;
+}
+function refresh() {
+  // svg
+  let s = `<line x1="40" y1="${H-48}" x2="${W-40}" y2="${H-48}" stroke="var(--muted)" stroke-width="4" stroke-linecap="round" opacity=".4"/>`;
+  for (const person of ['opp','you']) {
+    const P = state.people[person], col = COLOR[person];
+    for (const [a,b] of P.bones) {
+      if (!P.joints[a]||!P.joints[b]) continue;
+      const pa = px(P.joints[a]), pb = px(P.joints[b]);
+      s += `<line x1="${pa[0]}" y1="${pa[1]}" x2="${pb[0]}" y2="${pb[1]}" stroke="${col}" stroke-width="6" stroke-linecap="round" opacity=".55"/>`;
+    }
+    for (const [j,f] of Object.entries(P.feet)) {
+      if (!P.joints[j]) continue;
+      const pa = px(P.joints[j]), pt = px(f.toe);
+      s += `<line x1="${pa[0]}" y1="${pa[1]}" x2="${pt[0]}" y2="${pt[1]}" stroke="${col}" stroke-width="3" stroke-dasharray="4 4"/><circle cx="${pt[0]}" cy="${pt[1]}" r="4" fill="${col}"/>`;
+    }
+    for (const [name,v] of Object.entries(P.joints)) {
+      const c = px(v);
+      const isHead = P.head === name;
+      s += `<circle class="joint-dot" cx="${c[0]}" cy="${c[1]}" r="${isHead?9:6}" fill="${col}" stroke="#fff" stroke-width="1.5"/>`;
+      s += `<text x="${c[0]+9}" y="${c[1]+4}" font-size="12" fill="${col}" font-family="ui-monospace,Menlo,monospace">${name}${isHead?' ●':''}</text>`;
+    }
+  }
+  for (const [name,def] of Object.entries(state.roles)) {
+    const pt = resolveRole(def); if (!pt) continue;
+    const c = px(pt);
+    s += `<circle cx="${c[0]}" cy="${c[1]}" r="5" fill="none" stroke="var(--role)" stroke-width="2"/><text x="${c[0]+7}" y="${c[1]-6}" font-size="11" fill="var(--role)" font-family="ui-monospace,Menlo,monospace">${name}</text>`;
+  }
+  svg.innerHTML = s;
+
+  // joints list
+  const P = state.people[state.activePerson];
+  $('joints').innerHTML = Object.keys(P.joints).map(n =>
+    `<div class="item"><code>${n}${P.head===n?' (head)':''}</code><span><button class="x" data-del-joint="${n}">✕</button></span></div>`).join('') || `<div class="tiny">No joints yet for ${state.activePerson}.</div>`;
+  // bones list
+  $('bones').innerHTML = P.bones.map((b,i) => `<div class="item"><code>${b[0]} — ${b[1]}</code><button class="x" data-del-bone="${i}">✕</button></div>`).join('') || `<div class="tiny">No bones.</div>`;
+  // feet list
+  $('feet').innerHTML = Object.entries(P.feet).map(([j,f]) => `<div class="item"><code>${j} → toe [${f.toe}]</code><button class="x" data-del-foot="${j}">✕</button></div>`).join('') || `<div class="tiny">No feet.</div>`;
+  // roles list
+  $('roles').innerHTML = Object.entries(state.roles).map(([n,d]) => `<div class="item"><code>${n} = ${JSON.stringify(d)}</code><button class="x" data-del-role="${n}">✕</button></div>`).join('') || `<div class="tiny">No roles.</div>`;
+  // cues list
+  $('cues').innerHTML = state.cues.map((c,i) => `<div class="item"><code>${c.id}</code><button class="x" data-del-cue="${i}">✕</button></div>`).join('') || `<div class="tiny">No cues.</div>`;
+
+  // selects
+  const jointNames = Object.keys(P.joints);
+  fillSelect($('boneA'), jointNames, $('boneA').value);
+  fillSelect($('boneB'), jointNames, $('boneB').value);
+  fillSelect($('footJoint'), jointNames, $('footJoint').value);
+  const refs = allJointRefs();
+  fillSelect($('rjoint1'), refs, $('rjoint1').value);
+  fillSelect($('rjoint2'), refs, $('rjoint2').value);
+}
+function resolveRole(def) {
+  const j = (ref) => { const [p,n] = ref.split('.'); return state.people[p]?.joints[n]; };
+  if (def.joint) return j(def.joint);
+  if (def.point) return def.point;
+  if (def.midpoint) { const a=j(def.midpoint[0]), b=j(def.midpoint[1]); return a&&b?[(a[0]+b[0])/2,(a[1]+b[1])/2]:null; }
+  return null;
+}
+
+// delete handlers (event delegation)
+document.querySelector('.side').addEventListener('click', (e) => {
+  const t = e.target;
+  const P = state.people[state.activePerson];
+  if (t.dataset.delJoint) { const n=t.dataset.delJoint; delete P.joints[n]; if(P.head===n)P.head=''; P.bones=P.bones.filter(b=>b[0]!==n&&b[1]!==n); delete P.feet[n]; refresh(); }
+  else if (t.dataset.delBone!==undefined) { P.bones.splice(+t.dataset.delBone,1); refresh(); }
+  else if (t.dataset.delFoot) { delete P.feet[t.dataset.delFoot]; refresh(); }
+  else if (t.dataset.delRole) { delete state.roles[t.dataset.delRole]; refresh(); }
+  else if (t.dataset.delCue!==undefined) { state.cues.splice(+t.dataset.delCue,1); refresh(); }
+});
+
+// export
+function buildJSON() {
+  const person = (p) => {
+    const o = { head: p.head, joints: p.joints, bones: p.bones };
+    if (Object.keys(p.feet).length) o.feet = p.feet;
+    return o;
+  };
+  const obj = {
+    id: $('pid').value.trim() || 'untitled',
+    label: $('plabel').value.trim() || '',
+    view: $('pview').value.trim() || 'side',
+    people: { opp: person(state.people.opp), you: person(state.people.you) },
+    roles: state.roles,
+    cues: state.cues,
+  };
+  return JSON.stringify(obj, null, 2);
+}
+$('gen').addEventListener('click', () => { $('out').value = buildJSON(); });
+$('copy').addEventListener('click', () => { $('out').value = buildJSON(); $('out').select(); navigator.clipboard?.writeText($('out').value); });
+$('download').addEventListener('click', () => {
+  const data = buildJSON(); const blob = new Blob([data], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = ($('pid').value.trim()||'position') + '.json'; a.click();
+});
+
+idle(); refresh();
+</script>
+</body>
+</html>

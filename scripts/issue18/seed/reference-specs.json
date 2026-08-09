@@ -1,0 +1,63 @@
+{
+  "note": "Hand-authored 'golden' specs per (position, cue). Used by the harness in --offline mode (no GEMINI key) to exercise validation + rendering deterministically, and as the expected output the LLM's real specs can be judged against. These are what a black belt would draw for each cue; note how the primitive set changes cue-to-cue.",
+  "de-la-riva": {
+    "heel-hamstring": [
+      { "type": "force", "anchor": "hook_heel", "relation": { "toward": "opp_hamstring" }, "intensity": "high" },
+      { "type": "pressure", "anchor": "heel_on_hamstring" },
+      { "type": "counter", "anchor": "heel_on_hamstring", "relation": { "toward": "your_hip" } },
+      { "type": "base", "anchor": "posting_forearm" }
+    ],
+    "second-foot-hip": [
+      { "type": "force", "anchor": "second_foot", "relation": { "toward": "opp_hip" }, "intensity": "medium" },
+      { "type": "frame", "anchor": "second_foot", "relation": { "away_from": "opp_hip" } },
+      { "type": "base", "anchor": "posting_forearm" }
+    ],
+    "load-the-hook": [
+      { "type": "rotation", "anchor": "your_shoulder", "relation": { "around": "hook_heel" } },
+      { "type": "weight-distribution", "anchor": "your_shoulder", "intensity": "high" },
+      { "type": "base", "anchor": "posting_hand" }
+    ]
+  },
+  "back-mount": {
+    "seatbelt": [
+      { "type": "grip", "anchor": ["over_hand", "under_hand"] },
+      { "type": "pressure", "anchor": "clasp" }
+    ],
+    "hooks-in": [
+      { "type": "force", "anchor": "your_hook", "relation": { "toward": "opp_thigh" }, "intensity": "medium" },
+      { "type": "frame", "anchor": "your_hook", "relation": { "away_from": "opp_hip" } }
+    ],
+    "chest-flatten": [
+      { "type": "weight-distribution", "anchor": "your_chest", "intensity": "high" },
+      { "type": "pressure", "anchor": "opp_upper_back" }
+    ]
+  },
+  "closed-guard": {
+    "break-posture": [
+      { "type": "grip", "anchor": ["your_hand", "opp_lapel"] },
+      { "type": "force", "anchor": "opp_shoulders", "relation": { "toward": "your_hip" }, "intensity": "high" }
+    ],
+    "pants-grip-frame": [
+      { "type": "grip", "anchor": ["your_hand", "opp_pants_hem"] },
+      { "type": "frame", "anchor": "your_elbow", "relation": { "away_from": "opp_inner_thigh" } }
+    ],
+    "lock-and-squeeze": [
+      { "type": "pressure", "anchor": "opp_waist" },
+      { "type": "counter", "anchor": "opp_waist", "relation": { "away_from": "your_hip" } }
+    ]
+  },
+  "butterfly-guard": {
+    "hook-lift": [
+      { "type": "force", "anchor": "your_hook", "relation": { "toward": "opp_thigh" }, "intensity": "high" },
+      { "type": "frame", "anchor": "your_hook", "relation": { "away_from": "opp_hip" } }
+    ],
+    "underhook-head": [
+      { "type": "force", "anchor": "your_underhook", "relation": { "toward": "opp_armpit" }, "intensity": "medium" },
+      { "type": "pressure", "anchor": "opp_shoulder" }
+    ],
+    "off-hip-turn": [
+      { "type": "rotation", "anchor": "opp_shoulder", "relation": { "around": "your_hook" } },
+      { "type": "weight-distribution", "anchor": "your_hip", "intensity": "medium" }
+    ]
+  }
+}

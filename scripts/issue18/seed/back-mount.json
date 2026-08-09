@@ -1,0 +1,89 @@
+{
+  "id": "back-mount",
+  "label": "Back mount",
+  "note": "Attacker (you) behind, opponent seated and reclined into you. Hand-authored schematic skeleton on the 820x520 landscape.",
+  "people": {
+    "opp": {
+      "head": "head",
+      "joints": {
+        "head": [0.60, 0.22],
+        "neck": [0.585, 0.30],
+        "hip": [0.52, 0.54],
+        "l_knee": [0.64, 0.60],
+        "l_foot": [0.74, 0.72],
+        "r_knee": [0.62, 0.68],
+        "r_foot": [0.76, 0.78],
+        "shoulder": [0.585, 0.32],
+        "elbow": [0.66, 0.40],
+        "hand": [0.70, 0.48]
+      },
+      "bones": [
+        ["neck", "hip"],
+        ["hip", "l_knee"],
+        ["l_knee", "l_foot"],
+        ["hip", "r_knee"],
+        ["r_knee", "r_foot"],
+        ["shoulder", "elbow"],
+        ["elbow", "hand"]
+      ]
+    },
+    "you": {
+      "head": "head",
+      "joints": {
+        "head": [0.44, 0.26],
+        "neck": [0.42, 0.33],
+        "hip": [0.32, 0.60],
+        "o_shoulder": [0.42, 0.35],
+        "o_elbow": [0.50, 0.36],
+        "o_hand": [0.585, 0.44],
+        "u_shoulder": [0.40, 0.42],
+        "u_elbow": [0.48, 0.48],
+        "u_hand": [0.575, 0.50],
+        "l_knee": [0.44, 0.64],
+        "l_foot": [0.58, 0.62],
+        "r_knee": [0.42, 0.70],
+        "r_foot": [0.58, 0.70]
+      },
+      "bones": [
+        ["neck", "hip"],
+        ["neck", "o_shoulder"],
+        ["o_shoulder", "o_elbow"],
+        ["o_elbow", "o_hand"],
+        ["hip", "u_shoulder"],
+        ["u_shoulder", "u_elbow"],
+        ["u_elbow", "u_hand"],
+        ["hip", "l_knee"],
+        ["l_knee", "l_foot"],
+        ["hip", "r_knee"],
+        ["r_knee", "r_foot"]
+      ]
+    }
+  },
+  "roles": {
+    "over_hand": { "joint": "you.o_hand" },
+    "under_hand": { "joint": "you.u_hand" },
+    "clasp": { "point": [0.58, 0.47] },
+    "opp_chest": { "midpoint": ["opp.neck", "opp.hip"] },
+    "opp_upper_back": { "point": [0.55, 0.40] },
+    "opp_far_shoulder": { "joint": "opp.shoulder" },
+    "your_hook": { "joint": "you.l_foot" },
+    "opp_thigh": { "joint": "opp.l_knee" },
+    "your_chest": { "point": [0.46, 0.36] },
+    "opp_hip": { "joint": "opp.hip" },
+    "your_hip": { "joint": "you.hip" }
+  },
+  "cues": [
+    {
+      "id": "seatbelt",
+      "text": "From back mount, drive one arm over the opponent's shoulder and the other under the opposite armpit, clasping your hands across their chest."
+    },
+    {
+      "id": "hooks-in",
+      "text": "In back mount, insert both feet as hooks inside the opponent's thighs, ankles apart, never crossed together."
+    },
+    {
+      "id": "chest-flatten",
+      "text": "Keep your chest glued to the opponent's upper back and drive your weight forward to flatten them out."
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "id": "closed-guard",
+  "label": "Closed guard",
+  "note": "Bottom player (you) on their back, legs wrapped around the top player's waist; top player kneeling. Attacking-from-bottom perspective. Hand-authored schematic on the 820x520 landscape.",
+  "people": {
+    "opp": {
+      "head": "head",
+      "joints": {
+        "head": [0.62, 0.16],
+        "neck": [0.60, 0.26],
+        "hip": [0.58, 0.52],
+        "l_knee": [0.50, 0.72],
+        "l_foot": [0.44, 0.86],
+        "r_knee": [0.66, 0.72],
+        "r_foot": [0.72, 0.86],
+        "shoulder": [0.60, 0.28],
+        "elbow": [0.52, 0.40],
+        "hand": [0.46, 0.50]
+      },
+      "bones": [
+        ["neck", "hip"],
+        ["hip", "l_knee"],
+        ["l_knee", "l_foot"],
+        ["hip", "r_knee"],
+        ["r_knee", "r_foot"],
+        ["shoulder", "elbow"],
+        ["elbow", "hand"]
+      ]
+    },
+    "you": {
+      "head": "head",
+      "joints": {
+        "head": [0.12, 0.66],
+        "neck": [0.16, 0.64],
+        "hip": [0.44, 0.58],
+        "l_knee": [0.56, 0.46],
+        "l_foot": [0.66, 0.47],
+        "r_knee": [0.54, 0.62],
+        "r_foot": [0.66, 0.56],
+        "arm_shoulder": [0.18, 0.63],
+        "arm_elbow": [0.30, 0.60],
+        "arm_hand": [0.46, 0.52]
+      },
+      "bones": [
+        ["neck", "arm_shoulder"],
+        ["neck", "hip"],
+        ["hip", "l_knee"],
+        ["l_knee", "l_foot"],
+        ["hip", "r_knee"],
+        ["r_knee", "r_foot"],
+        ["arm_shoulder", "arm_elbow"],
+        ["arm_elbow", "arm_hand"]
+      ]
+    }
+  },
+  "roles": {
+    "your_hand": { "joint": "you.arm_hand" },
+    "your_elbow": { "joint": "you.arm_elbow" },
+    "feet_lock": { "point": [0.68, 0.51] },
+    "opp_waist": { "joint": "opp.hip" },
+    "opp_lapel": { "point": [0.585, 0.34] },
+    "opp_shoulders": { "joint": "opp.shoulder" },
+    "opp_pants_hem": { "point": [0.56, 0.64] },
+    "opp_inner_thigh": { "point": [0.58, 0.62] },
+    "opp_hip": { "joint": "opp.hip" },
+    "your_hip": { "joint": "you.hip" }
+  },
+  "cues": [
+    {
+      "id": "break-posture",
+      "text": "From closed guard, grip a cross lapel and pull the opponent's shoulders down toward your hips to break their posture before attacking."
+    },
+    {
+      "id": "pants-grip-frame",
+      "text": "Defending closed guard, grip the top hem of their pants with elbows pinned to the inside of their thighs, forearms bracing their abdomen."
+    },
+    {
+      "id": "lock-and-squeeze",
+      "text": "Keep your ankles locked behind their back and squeeze your knees to stop them from posturing up or standing."
+    }
+  ]
+}

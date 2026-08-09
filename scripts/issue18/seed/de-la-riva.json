@@ -1,0 +1,90 @@
+{
+  "id": "de-la-riva",
+  "label": "De La Riva guard",
+  "note": "Ported from spike/dlr-force-diagram-mockup.html (820x520) and normalized to [0,1]. This is the golden position: offline render should reproduce the mockup.",
+  "people": {
+    "opp": {
+      "head": "head",
+      "joints": {
+        "head": [0.7805, 0.1827],
+        "neck": [0.7805, 0.2308],
+        "hip": [0.7805, 0.4904],
+        "l_knee": [0.6829, 0.6635],
+        "l_foot": [0.6244, 0.8808],
+        "r_knee": [0.8439, 0.6769],
+        "r_foot": [0.8732, 0.8808],
+        "shoulder": [0.7805, 0.3038],
+        "elbow": [0.7488, 0.3942],
+        "hand": [0.7293, 0.4731]
+      },
+      "bones": [
+        ["neck", "hip"],
+        ["hip", "l_knee"],
+        ["l_knee", "l_foot"],
+        ["hip", "r_knee"],
+        ["r_knee", "r_foot"],
+        ["shoulder", "elbow"],
+        ["elbow", "hand"]
+      ],
+      "feet": {
+        "l_foot": { "toe": [0.588, 0.905] },
+        "r_foot": { "toe": [0.912, 0.905] }
+      }
+    },
+    "you": {
+      "head": "head",
+      "joints": {
+        "head": [0.1317, 0.6769],
+        "neck": [0.1561, 0.6769],
+        "hip": [0.3659, 0.6962],
+        "hook_knee": [0.5244, 0.6192],
+        "hook_foot": [0.7171, 0.5923],
+        "base_knee": [0.4537, 0.7962],
+        "base_foot": [0.7390, 0.5038],
+        "arm_shoulder": [0.1829, 0.6769],
+        "arm_elbow": [0.3659, 0.8077],
+        "arm_hand": [0.6098, 0.8615]
+      },
+      "bones": [
+        ["neck", "arm_shoulder"],
+        ["neck", "hip"],
+        ["hip", "hook_knee"],
+        ["hook_knee", "hook_foot"],
+        ["hip", "base_knee"],
+        ["base_knee", "base_foot"],
+        ["arm_shoulder", "arm_elbow"],
+        ["arm_elbow", "arm_hand"]
+      ],
+      "feet": {
+        "hook_foot": { "toe": [0.735, 0.548] },
+        "base_foot": { "toe": [0.775, 0.470] }
+      }
+    }
+  },
+  "roles": {
+    "hook_heel": { "joint": "you.hook_foot" },
+    "second_foot": { "joint": "you.base_foot" },
+    "opp_hamstring": { "midpoint": ["opp.hip", "opp.l_knee"] },
+    "heel_on_hamstring": { "point": [0.722, 0.588] },
+    "opp_hip": { "joint": "opp.hip" },
+    "opp_lead_knee": { "joint": "opp.l_knee" },
+    "posting_forearm": { "joint": "you.arm_elbow" },
+    "posting_hand": { "joint": "you.arm_hand" },
+    "your_hip": { "joint": "you.hip" },
+    "your_shoulder": { "joint": "you.arm_shoulder" }
+  },
+  "cues": [
+    {
+      "id": "heel-hamstring",
+      "text": "From de la riva, keep your sweeping leg's heel digging into the opponent's hamstring to prevent their forward push."
+    },
+    {
+      "id": "second-foot-hip",
+      "text": "In De La Riva, drive your second foot into the opponent's near hip to frame distance and stop them from stepping in."
+    },
+    {
+      "id": "load-the-hook",
+      "text": "From De La Riva, drop your outside shoulder toward the mat and load the hook, keeping your posting hand based out so you don't get flattened."
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "id": "butterfly-guard",
+  "label": "Butterfly guard",
+  "note": "Bottom player (you) seated upright with both insteps hooking under the opponent's thighs; opponent kneeling in front. Hand-authored schematic on the 820x520 landscape.",
+  "people": {
+    "opp": {
+      "head": "head",
+      "joints": {
+        "head": [0.66, 0.20],
+        "neck": [0.64, 0.28],
+        "hip": [0.62, 0.52],
+        "l_knee": [0.54, 0.66],
+        "l_foot": [0.50, 0.80],
+        "r_knee": [0.70, 0.66],
+        "r_foot": [0.76, 0.80],
+        "shoulder": [0.64, 0.30],
+        "elbow": [0.56, 0.40],
+        "hand": [0.50, 0.48]
+      },
+      "bones": [
+        ["neck", "hip"],
+        ["hip", "l_knee"],
+        ["l_knee", "l_foot"],
+        ["hip", "r_knee"],
+        ["r_knee", "r_foot"],
+        ["shoulder", "elbow"],
+        ["elbow", "hand"]
+      ]
+    },
+    "you": {
+      "head": "head",
+      "joints": {
+        "head": [0.24, 0.30],
+        "neck": [0.26, 0.38],
+        "hip": [0.34, 0.62],
+        "l_knee": [0.44, 0.58],
+        "l_foot": [0.56, 0.60],
+        "r_knee": [0.42, 0.66],
+        "r_foot": [0.54, 0.66],
+        "arm_shoulder": [0.28, 0.40],
+        "arm_elbow": [0.38, 0.44],
+        "arm_hand": [0.50, 0.42]
+      },
+      "bones": [
+        ["neck", "arm_shoulder"],
+        ["neck", "hip"],
+        ["hip", "l_knee"],
+        ["l_knee", "l_foot"],
+        ["hip", "r_knee"],
+        ["r_knee", "r_foot"],
+        ["arm_shoulder", "arm_elbow"],
+        ["arm_elbow", "arm_hand"]
+      ]
+    }
+  },
+  "roles": {
+    "your_hook": { "joint": "you.l_foot" },
+    "opp_thigh": { "joint": "opp.l_knee" },
+    "your_underhook": { "joint": "you.arm_hand" },
+    "opp_armpit": { "point": [0.58, 0.36] },
+    "opp_shoulder": { "joint": "opp.shoulder" },
+    "your_chest": { "point": [0.30, 0.44] },
+    "opp_chest": { "midpoint": ["opp.neck", "opp.hip"] },
+    "opp_hip": { "joint": "opp.hip" },
+    "your_hip": { "joint": "you.hip" }
+  },
+  "cues": [
+    {
+      "id": "hook-lift",
+      "text": "In butterfly guard, wedge both insteps as hooks under the opponent's thighs and lift to off-balance them."
+    },
+    {
+      "id": "underhook-head",
+      "text": "From butterfly guard, drive an underhook deep and clamp your head against their shoulder, chest tight to their chest."
+    },
+    {
+      "id": "off-hip-turn",
+      "text": "Angle off to one hip and load your hook, turning the opponent toward the open space to sweep."
+    }
+  ]
+}
