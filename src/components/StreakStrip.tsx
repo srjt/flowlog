@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 import { Card, Skeleton, Text } from '@/components/ui';
 import { SESSIONS_TO_UNLOCK } from '@/config/featureFlags';
@@ -9,13 +9,21 @@ import type { SportTrends } from '@/services/TrendsService';
  * and progress toward unlocking Trends. Shows a skeleton while loading and an
  * encouraging prompt for brand-new users. Values come from `computeTrends`
  * (single source of truth) via `useSessionTrends`.
+ *
+ * When `onPress` is provided, the populated strip becomes a tappable control
+ * (button role) so the user can jump from "here's your streak" to the sessions
+ * behind it. Stays navigation-agnostic — the caller owns the target. The
+ * loading skeleton and the zero-session prompt are never interactive (there's
+ * nothing to view yet).
  */
 export function StreakStrip({
   trends,
   loading,
+  onPress,
 }: {
   trends: SportTrends | null;
   loading: boolean;
+  onPress?: () => void;
 }) {
   if (loading) {
     return <Skeleton testID="streak-skeleton" className="h-[68px] w-full" />;
@@ -36,8 +44,8 @@ export function StreakStrip({
   const remaining = Math.max(0, SESSIONS_TO_UNLOCK - count);
   const pct = Math.min(100, (count / SESSIONS_TO_UNLOCK) * 100);
 
-  return (
-    <Card testID="streak-strip" className="gap-2">
+  const body = (
+    <>
       <View className="flex-row items-center justify-between">
         <Text variant="body">🔥 {trends.streakDays}-day streak</Text>
         <Text variant="caption">{count} sessions</Text>
@@ -60,6 +68,26 @@ export function StreakStrip({
           Trends unlocked — see the Trends tab.
         </Text>
       )}
+    </>
+  );
+
+  // The card padding already exceeds the 44px minimum touch target.
+  if (onPress) {
+    return (
+      <Pressable
+        testID="streak-strip"
+        accessibilityRole="button"
+        accessibilityLabel="View your session log"
+        onPress={onPress}
+      >
+        <Card className="gap-2">{body}</Card>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Card testID="streak-strip" className="gap-2">
+      {body}
     </Card>
   );
 }
