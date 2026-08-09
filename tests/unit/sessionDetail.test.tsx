@@ -9,11 +9,28 @@ jest.mock('@/services/sessionsSource', () => ({
   saveSessionFeedback: jest.fn(async () => undefined),
   deleteSession: jest.fn(async () => undefined),
 }));
-jest.mock('expo-router', () => ({
-  router: { back: jest.fn(), push: jest.fn() },
-  Stack: { Screen: () => null },
-  useLocalSearchParams: () => ({ id: 's1' }),
-}));
+jest.mock('expo-router', () => {
+  const React = require('react');
+  return {
+    router: { back: jest.fn(), push: jest.fn() },
+    // Render the header slots so headerLeft/headerRight controls are reachable
+    // at the test seam (the real native header is not mounted under jest).
+    Stack: {
+      Screen: ({ options }: { options?: Record<string, unknown> }) =>
+        React.createElement(
+          React.Fragment,
+          null,
+          typeof options?.headerLeft === 'function'
+            ? (options.headerLeft as () => unknown)()
+            : null,
+          typeof options?.headerRight === 'function'
+            ? (options.headerRight as () => unknown)()
+            : null,
+        ),
+    },
+    useLocalSearchParams: () => ({ id: 's1' }),
+  };
+});
 jest.mock('react-native-safe-area-context', () => {
   const RN = require('react-native');
   return { SafeAreaView: RN.View };
@@ -71,6 +88,15 @@ describe('SessionDetailScreen delete', () => {
 
     expect(deleteSession).toHaveBeenCalledWith('s1');
     expect(useSessionStore.getState().history).toHaveLength(0);
+    expect(router.back).toHaveBeenCalled();
+  });
+
+  it('shows a "Back" control that navigates back', () => {
+    const { getByTestId } = render(<SessionDetailScreen />);
+    const back = getByTestId('session-back');
+    expect(back.props.accessibilityLabel).toBe('Back');
+    expect(back.props.accessibilityRole).toBe('button');
+    fireEvent.press(back);
     expect(router.back).toHaveBeenCalled();
   });
 
