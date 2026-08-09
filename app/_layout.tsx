@@ -11,6 +11,7 @@ import {
   addReminderResponseListener,
   configureNotificationHandler,
   getInitialReminderUrl,
+  loadDigestPrefs,
   loadReminderPrefs,
 } from '@/services/NotificationService';
 import { useUserStore } from '@/store/userStore';
@@ -29,12 +30,16 @@ export default function RootLayout() {
   const setOnboardingComplete = useUserStore((s) => s.setOnboardingComplete);
   const setAuthBootstrapped = useUserStore((s) => s.setAuthBootstrapped);
   const setReminderPrefs = useUserStore((s) => s.setReminderPrefs);
+  const setDigestPrefs = useUserStore((s) => s.setDigestPrefs);
 
-  // Reminder notifications: configure foreground display, hydrate saved prefs,
-  // and route to Record when a reminder is tapped (cold launch or while open).
+  // Reminder + digest notifications: configure foreground display, hydrate saved
+  // prefs (so Profile reflects the schedule the user previously set, surviving
+  // restarts), and route to the deep-link target when a notification is tapped
+  // (cold launch or while open) — a reminder → Record, the digest → /digest.
   useEffect(() => {
     configureNotificationHandler();
     loadReminderPrefs().then(setReminderPrefs);
+    loadDigestPrefs().then(setDigestPrefs);
     getInitialReminderUrl().then((url) => {
       if (url) router.push(url as never);
     });
@@ -42,7 +47,7 @@ export default function RootLayout() {
       router.push(url as never),
     );
     return unsubscribe;
-  }, [setReminderPrefs]);
+  }, [setReminderPrefs, setDigestPrefs]);
 
   useEffect(() => {
     // Demo / local-test: auto-sign-in a dev user and skip the onboarding gate.
@@ -92,6 +97,9 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="(flow)" />
           <Stack.Screen name="session/[id]" />
+          <Stack.Screen name="digest/index" />
+          <Stack.Screen name="digest/[weekId]" />
+          <Stack.Screen name="digest/history" />
         </Stack>
       </RootErrorBoundary>
     </SafeAreaProvider>

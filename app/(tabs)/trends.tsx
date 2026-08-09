@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card, Text } from '@/components/ui';
 import { SESSIONS_TO_UNLOCK } from '@/config/featureFlags';
-import { applyDigestPrefs } from '@/services/NotificationService';
+import { applyDigestPrefsWithHistory } from '@/services/DigestService';
 import { loadSessions } from '@/services/sessionsSource';
 import {
   computeTrends,
@@ -30,13 +30,12 @@ export default function TrendsScreen() {
       const userId = authUser?.id ?? 'demo-user';
       loadSessions(userId, activeSport)
         .then((sessions) => {
-          const computed = computeTrends(
-            sessions.filter((s) => s.sportKey === activeSport),
-          );
-          setTrends(computed);
-          // Keep the weekly digest's baked-in summary fresh with the latest data.
+          const scoped = sessions.filter((s) => s.sportKey === activeSport);
+          setTrends(computeTrends(scoped));
+          // Materialize any newly-elapsed digests and keep the notification's
+          // baked body aligned with the latest stored digest.
           if (digestPrefs.enabled) {
-            applyDigestPrefs(digestPrefs, computed).catch((err) =>
+            applyDigestPrefsWithHistory(digestPrefs, scoped).catch((err) =>
               logger.warn('digest refresh failed', err),
             );
           }

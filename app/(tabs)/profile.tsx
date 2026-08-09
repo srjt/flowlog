@@ -190,6 +190,13 @@ export default function ProfileScreen() {
 
         <DigestSettings />
 
+        <Button
+          testID="digest-history-link"
+          title="View weekly digests"
+          variant="secondary"
+          onPress={() => router.push('/digest/history')}
+        />
+
         <Button title="Sign out" variant="secondary" onPress={signOut} />
 
         {!isDemoMode && !isLocalPipeline ? (
