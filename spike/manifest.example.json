@@ -1,0 +1,13 @@
+{
+  "model": "gemini-3-pro-image",
+  "positions": [
+    {
+      "name": "de la riva",
+      "cue": "Keep your sweeping leg's heel actively digging into the opponent's hamstring to prevent their push.",
+      "refs": [
+        { "type": "diagram", "path": "spike/refs/de-la-riva.diagram.png" },
+        { "type": "photo",   "path": "spike/refs/de-la-riva.photo.jpg" }
+      ]
+    }
+  ]
+}

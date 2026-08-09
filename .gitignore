@@ -37,3 +37,8 @@ cue-image-test.png
 .env
 .env.local
 .env*.local
+
+# Cue-image spike: local reference inputs + generated outputs (do not commit)
+spike/refs/
+spike/out/
+spike/manifest.json
