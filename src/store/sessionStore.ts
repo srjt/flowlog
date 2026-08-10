@@ -49,6 +49,7 @@ interface SessionState {
     sessionId: string,
     thumbsUp: boolean,
     reason?: string | null,
+    note?: string | null,
   ) => void;
   setError: (message: string | null) => void;
   reset: () => void;
@@ -79,11 +80,16 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((state) => ({
       history: state.history.map((s) => (s.id === session.id ? session : s)),
     })),
-  setFeedback: (sessionId, thumbsUp, reason) =>
+  setFeedback: (sessionId, thumbsUp, reason, note) =>
     set((state) => ({
       history: state.history.map((s) =>
         s.id === sessionId
-          ? { ...s, thumbsUp, feedbackReason: reason ?? null }
+          ? {
+              ...s,
+              thumbsUp,
+              feedbackReason: reason ?? null,
+              feedbackNote: note ?? null,
+            }
           : s,
       ),
     })),

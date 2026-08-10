@@ -43,6 +43,7 @@ export class LocalTestStorageProvider implements IStorageProvider {
       qualityGatePassed: session.qualityGatePassed,
       thumbsUp: null,
       feedbackReason: null,
+      feedbackNote: null,
       pipelineVersion: session.pipelineVersion,
       createdAt: new Date().toISOString(),
     };
@@ -108,11 +109,13 @@ export class LocalTestStorageProvider implements IStorageProvider {
     sessionId: string,
     thumbsUp: boolean,
     reason?: string | null,
+    note?: string | null,
   ): Promise<void> {
     const row = sessions.find((s) => s.id === sessionId);
     if (row) {
       row.thumbsUp = thumbsUp;
       row.feedbackReason = reason ?? null;
+      row.feedbackNote = note ?? null;
     }
   }
 

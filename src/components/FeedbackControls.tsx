@@ -1,23 +1,33 @@
-import { Pressable, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, TextInput, View } from 'react-native';
 
 import { Text } from '@/components/ui';
 import { FEEDBACK_REASONS } from '@/constants/feedback';
 
+/** Max length for the free-text 👎 note — a sensible cap, not a hard limit. */
+export const FEEDBACK_NOTE_MAX = 500;
+
 /**
  * Thumbs up/down on a coaching cue. Choosing 👎 reveals single-select reason
- * chips (the most useful "why" signal). Controlled — the parent owns the state
- * and persists. Used by both the Result screen and Session Detail.
+ * chips (the quick "why" signal) plus an optional free-text note (the richer
+ * "what was wrong / how to improve" signal) — the two are independent. Fully
+ * controlled: the parent owns thumb/reason/note and persists them. Used by both
+ * the Result screen and Session Detail.
  */
 export function FeedbackControls({
   thumb,
   reason,
+  note,
   onThumb,
   onReason,
+  onNote,
 }: {
   thumb: boolean | null;
   reason: string | null;
+  note: string | null;
   onThumb: (up: boolean) => void;
   onReason: (reason: string) => void;
+  onNote: (note: string) => void;
 }) {
   return (
     <View className="gap-3">
@@ -54,37 +64,78 @@ export function FeedbackControls({
       </View>
 
       {thumb === false ? (
-        <View className="gap-2">
-          <Text variant="caption">What was off?</Text>
-          <View className="flex-row flex-wrap gap-2">
-            {FEEDBACK_REASONS.map((r) => {
-              const selected = reason === r;
-              return (
-                <Pressable
-                  key={r}
-                  testID={`reason-${r}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Reason: ${r}`}
-                  accessibilityState={{ selected }}
-                  onPress={() => onReason(r)}
-                  className={`min-h-[44px] justify-center rounded-full border px-3 py-2 ${
-                    selected
-                      ? 'border-primary bg-primary/20'
-                      : 'border-muted bg-surface'
-                  }`}
-                >
-                  <Text
-                    variant="caption"
-                    className={selected ? 'text-white' : 'text-muted'}
+        <View className="gap-3">
+          <View className="gap-2">
+            <Text variant="caption">What was off?</Text>
+            <View className="flex-row flex-wrap gap-2">
+              {FEEDBACK_REASONS.map((r) => {
+                const selected = reason === r;
+                return (
+                  <Pressable
+                    key={r}
+                    testID={`reason-${r}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Reason: ${r}`}
+                    accessibilityState={{ selected }}
+                    onPress={() => onReason(r)}
+                    className={`min-h-[44px] justify-center rounded-full border px-3 py-2 ${
+                      selected
+                        ? 'border-primary bg-primary/20'
+                        : 'border-muted bg-surface'
+                    }`}
                   >
-                    {r}
-                  </Text>
-                </Pressable>
-              );
-            })}
+                    <Text
+                      variant="caption"
+                      className={selected ? 'text-white' : 'text-muted'}
+                    >
+                      {r}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
+
+          <NoteField value={note} onCommit={onNote} />
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * Optional free-text note. Keeps a local draft so we don't persist on every
+ * keystroke; commits to the parent on blur. Re-seeds from `value` when it
+ * changes externally (a loaded session, or a clear on thumb flip).
+ */
+function NoteField({
+  value,
+  onCommit,
+}: {
+  value: string | null;
+  onCommit: (note: string) => void;
+}) {
+  const [draft, setDraft] = useState(value ?? '');
+  useEffect(() => {
+    setDraft(value ?? '');
+  }, [value]);
+
+  return (
+    <View className="gap-1">
+      <Text variant="caption">Add a note (optional)</Text>
+      <TextInput
+        testID="feedback-note-input"
+        accessibilityLabel="Feedback note: what was wrong and how it could be improved"
+        placeholder="What was wrong, and how could it be better?"
+        placeholderTextColor="#8A8A99"
+        value={draft}
+        onChangeText={setDraft}
+        onBlur={() => onCommit(draft.trim())}
+        multiline
+        maxLength={FEEDBACK_NOTE_MAX}
+        textAlignVertical="top"
+        className="min-h-20 rounded-xl border border-muted bg-surface px-4 py-3 text-base text-white"
+      />
     </View>
   );
 }

@@ -209,10 +209,15 @@ export class SupabaseStorageProvider implements IStorageProvider {
     sessionId: string,
     thumbsUp: boolean,
     reason?: string | null,
+    note?: string | null,
   ): Promise<void> {
     const { error } = await supabase
       .from('sessions')
-      .update({ thumbs_up: thumbsUp, feedback_reason: reason ?? null })
+      .update({
+        thumbs_up: thumbsUp,
+        feedback_reason: reason ?? null,
+        feedback_note: note ?? null,
+      })
       .eq('id', sessionId);
     if (error) throw new Error(`Set feedback failed: ${error.message}`);
   }
@@ -267,6 +272,7 @@ function mapSession(row: any): Session {
     qualityGatePassed: row.quality_gate_passed ?? false,
     thumbsUp: row.thumbs_up ?? null,
     feedbackReason: row.feedback_reason ?? null,
+    feedbackNote: row.feedback_note ?? null,
     pipelineVersion: row.pipeline_version ?? null,
     createdAt: row.created_at,
   };

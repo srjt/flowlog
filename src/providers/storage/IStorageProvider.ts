@@ -36,11 +36,15 @@ export interface IStorageProvider {
   /** Current computed trends for a user/sport, or null if none yet. */
   getUserTrends(userId: string, sportKey: string): Promise<UserTrends | null>;
 
-  /** Record thumbs-up/down feedback (and optional 👎 reason) on a session. */
+  /**
+   * Record thumbs-up/down feedback on a session, with an optional 👎 reason
+   * category and an optional independent free-text note.
+   */
   setSessionFeedback(
     sessionId: string,
     thumbsUp: boolean,
     reason?: string | null,
+    note?: string | null,
   ): Promise<void>;
 
   /** Permanently delete a session (RLS-scoped to the owner). */

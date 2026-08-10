@@ -43,17 +43,39 @@ export default function SessionDetailScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const persist = (up: boolean, reason: string | null) => {
+  const persist = (up: boolean, reason: string | null, note: string | null) => {
     if (!session) return;
-    setSession({ ...session, thumbsUp: up, feedbackReason: reason });
-    useSessionStore.getState().setFeedback(session.id, up, reason);
-    saveSessionFeedback(session.id, up, reason).catch((err) =>
+    setSession({
+      ...session,
+      thumbsUp: up,
+      feedbackReason: reason,
+      feedbackNote: note,
+    });
+    useSessionStore.getState().setFeedback(session.id, up, reason, note);
+    saveSessionFeedback(session.id, up, reason, note).catch((err) =>
       logger.warn('feedback save failed', err),
     );
   };
+  // Flipping to 👍 clears both; flipping to 👎 keeps whatever was saved.
   const onThumb = (up: boolean) =>
-    persist(up, up ? null : (session?.feedbackReason ?? null));
-  const onReason = (reason: string) => persist(false, reason);
+    up
+      ? persist(true, null, null)
+      : persist(
+          false,
+          session?.feedbackReason ?? null,
+          session?.feedbackNote ?? null,
+        );
+  const onReason = (reason: string) =>
+    persist(false, reason, session?.feedbackNote ?? null);
+  const onNote = (note: string) => {
+    // Note only applies to a 👎; ignore a stray blur after a flip to 👍.
+    if (session?.thumbsUp !== false) return;
+    persist(
+      false,
+      session?.feedbackReason ?? null,
+      note.length > 0 ? note : null,
+    );
+  };
 
   const onShare = async () => {
     if (!session) return;
@@ -289,8 +311,10 @@ export default function SessionDetailScreen() {
           <FeedbackControls
             thumb={session.thumbsUp ?? null}
             reason={session.feedbackReason ?? null}
+            note={session.feedbackNote ?? null}
             onThumb={onThumb}
             onReason={onReason}
+            onNote={onNote}
           />
 
           {confirmDelete ? (
