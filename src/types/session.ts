@@ -21,6 +21,11 @@ export interface Session {
   thumbsUp: boolean | null;
   /** Reason chosen on a 👎 (single-select), or null/undefined. */
   feedbackReason?: string | null;
+  /**
+   * Optional free-text note on a 👎 — what was wrong / how to improve.
+   * Independent of `feedbackReason`. Null/undefined when not provided.
+   */
+  feedbackNote?: string | null;
   pipelineVersion: string | null;
   createdAt: string;
 }

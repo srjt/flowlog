@@ -21,18 +21,27 @@ export async function loadSessions(
   return storageProvider.listSessions(userId);
 }
 
-/** Persist thumbs feedback (+ optional 👎 reason) for the current mode. */
+/**
+ * Persist thumbs feedback for the current mode, with an optional 👎 reason
+ * category and an optional independent free-text note.
+ */
 export async function saveSessionFeedback(
   sessionId: string,
   thumbsUp: boolean,
   reason?: string | null,
+  note?: string | null,
 ): Promise<void> {
   if (isDemoMode) return; // nothing persistent to write
   if (isLocalPipeline) {
-    await localTestStorage.setSessionFeedback(sessionId, thumbsUp, reason);
+    await localTestStorage.setSessionFeedback(
+      sessionId,
+      thumbsUp,
+      reason,
+      note,
+    );
     return;
   }
-  await storageProvider.setSessionFeedback(sessionId, thumbsUp, reason);
+  await storageProvider.setSessionFeedback(sessionId, thumbsUp, reason, note);
 }
 
 /** Permanently delete a session for the current mode. */

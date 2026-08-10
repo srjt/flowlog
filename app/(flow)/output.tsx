@@ -27,6 +27,7 @@ export default function OutputScreen() {
   const { authUser, activeSport } = useUserStore();
   const [thumb, setThumb] = useState<boolean | null>(null);
   const [reason, setReason] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
   const [celebrate, setCelebrate] = useState(false);
 
@@ -58,23 +59,37 @@ export default function OutputScreen() {
     return <Redirect href="/(tabs)/record" />;
   }
 
-  const persist = (up: boolean, r: string | null) => {
-    setFeedback(latestResult.sessionId, up, r); // updates the Log entry too
-    saveSessionFeedback(latestResult.sessionId, up, r).catch((err) =>
+  const persist = (up: boolean, r: string | null, n: string | null) => {
+    setFeedback(latestResult.sessionId, up, r, n); // updates the Log entry too
+    saveSessionFeedback(latestResult.sessionId, up, r, n).catch((err) =>
       logger.warn('feedback save failed', err),
     );
   };
 
   const onThumb = (up: boolean) => {
     setThumb(up);
+    // Flipping back to 👍 clears both the reason and the note — positive
+    // feedback carries neither.
     const r = up ? null : reason;
-    if (up) setReason(null);
-    persist(up, r);
+    const n = up ? null : note;
+    if (up) {
+      setReason(null);
+      setNote(null);
+    }
+    persist(up, r, n);
   };
 
   const onReason = (r: string) => {
     setReason(r);
-    persist(false, r);
+    persist(false, r, note);
+  };
+
+  const onNote = (n: string) => {
+    // Guard against a stray blur after the user has flipped back to 👍.
+    if (thumb !== false) return;
+    const value = n.length > 0 ? n : null;
+    setNote(value);
+    persist(false, reason, value);
   };
 
   return (
@@ -118,8 +133,10 @@ export default function OutputScreen() {
         <FeedbackControls
           thumb={thumb}
           reason={reason}
+          note={note}
           onThumb={onThumb}
           onReason={onReason}
+          onNote={onNote}
         />
 
         <Button
