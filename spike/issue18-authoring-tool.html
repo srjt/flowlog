@@ -10,16 +10,23 @@
     --bg:#f0eee9; --fg:#1c1d21; --muted:#6a7078; --panel:#faf9f7; --border:rgba(0,0,0,.14);
     --you:#2f6fd0; --opp:#d0742f; --role:#2f9e6d; --accent:#7b61c9; --danger:#d64545;
     --canvas:#e7e3da;
+    /* production-faithful preview palette (mirrors renderer.ts PAGE_CSS .fd) */
+    --fyou:#565b63; --fopp:#9aa0a8; --mat:#d8d2c6; --surface:#faf9f7;
+    --push:#dd6427; --pressure:#dd6427; --counter:#9aa0a6; --base:#2f77d6; --grip:#2f9e6d;
+    --frame:#7b61c9; --rotation:#c94f8a; --weight:#b58a1f; --movement:#3f9bd0;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#101114; --fg:#e9eaec; --muted:#9aa0a8; --panel:#17181b; --border:rgba(255,255,255,.14);
-      --you:#64a2f5; --opp:#ff9a5c; --role:#46c088; --accent:#a58bf0; --danger:#ef6b6b; --canvas:#1d1f23; }
+      --you:#64a2f5; --opp:#ff9a5c; --role:#46c088; --accent:#a58bf0; --danger:#ef6b6b; --canvas:#1d1f23;
+      --fyou:#c6ccd4; --fopp:#7f858d; --mat:#35373c; --surface:#17181b;
+      --push:#ff8a4c; --pressure:#ff8a4c; --counter:#737980; --base:#64a2f5; --grip:#46c088;
+      --frame:#a58bf0; --rotation:#ef7bb2; --weight:#d9b64a; --movement:#6cc0ef; }
   }
   body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--fg); }
   .top { padding:10px 16px; border-bottom:1px solid var(--border); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
   .top h1 { font-size:15px; margin:0; }
   .top .hint { font-size:12px; color:var(--muted); }
-  .layout { display:grid; grid-template-columns: 1fr 380px; gap:0; height: calc(100vh - 44px); }
+  .layout { display:grid; grid-template-columns: 1fr 400px; gap:0; height: calc(100vh - 44px); }
   @media (max-width:900px){ .layout{ grid-template-columns:1fr; height:auto; } }
   .stage { position:relative; background:var(--canvas); overflow:hidden; display:flex; align-items:center; justify-content:center; }
   .stage svg { width:100%; height:100%; display:block; touch-action:none; }
@@ -39,7 +46,6 @@
   .row { display:flex; gap:6px; align-items:center; }
   .row > * { flex:1; }
   .row.tight > * { flex:none; }
-  .pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:3px 8px; border:1px solid var(--border); border-radius:20px; margin:0 4px 4px 0; }
   .list { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
   .item { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:7px; background:var(--bg); }
   .item code { font-family: ui-monospace, Menlo, monospace; font-size:11px; }
@@ -48,6 +54,7 @@
   .tabs button.on { color:var(--bg); font-weight:700; }
   .tabs button.you.on { background:var(--you); border-color:var(--you); }
   .tabs button.opp.on { background:var(--opp); border-color:var(--opp); }
+  .tabs button.a.on { background:var(--accent); border-color:var(--accent); }
   .mode { font-size:12px; padding:6px 8px; border-radius:7px; border:1px dashed var(--border); color:var(--muted); margin:6px 0; min-height:32px; }
   .mode.active { border-color:var(--accent); color:var(--accent); border-style:solid; }
   .split { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
@@ -55,12 +62,24 @@
   .tiny { font-size:11px; color:var(--muted); line-height:1.4; }
   .joint-dot { cursor:grab; }
   .joint-dot:active { cursor:grabbing; }
+  /* faithful overlay animation (mirrors renderer.ts) */
+  .fd-force { animation: fdDrive 1.6s ease-in-out infinite; }
+  .fd-flow  { animation: fdFlow 1.1s linear infinite; }
+  .fd-core  { transform-box: fill-box; transform-origin:center; animation: fdPulse 1.6s ease-in-out infinite; }
+  .fd-halo  { transform-box: fill-box; transform-origin:center; animation: fdHalo 1.6s ease-in-out infinite; }
+  .fd-counter { animation: fdShove 2.2s ease-in-out infinite; }
+  @keyframes fdDrive { 0%,100%{transform:translate(0,0)} 50%{transform:translate(5px,-6px)} }
+  @keyframes fdFlow { to { stroke-dashoffset:-40; } }
+  @keyframes fdPulse { 0%,100%{transform:scale(1);opacity:.34} 50%{transform:scale(1.28);opacity:.52} }
+  @keyframes fdHalo { 0%,100%{transform:scale(1);opacity:.15} 50%{transform:scale(1.15);opacity:.24} }
+  @keyframes fdShove { 0%,100%{transform:translate(0,0)} 45%{transform:translate(-5px,0)} 60%{transform:translate(-1px,0)} }
+  @media (prefers-reduced-motion: reduce){ .fd-force,.fd-flow,.fd-core,.fd-halo,.fd-counter{ animation:none !important; } }
 </style>
 </head>
 <body>
 <div class="top">
   <h1>Keypoint base authoring</h1>
-  <span class="hint">Drop a reference image → click to place named joints over it → wire bones, feet, roles → export JSON. The reference is a tracing backdrop; it is never exported.</span>
+  <span class="hint">Load a position → drop a reference image → trace the joints over it → flip to <b>Fleshed</b> to see the real figure → check overlays → export. The reference is a tracing backdrop only; it is never exported.</span>
 </div>
 <div class="layout">
   <div class="stage" id="stage">
@@ -68,6 +87,21 @@
     <svg id="svg" viewBox="0 0 820 520" xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
   <div class="side">
+    <h2>Load / import</h2>
+    <div class="row tight" style="margin-bottom:6px">
+      <input type="file" id="importFile" accept="application/json,.json" style="flex:1" />
+    </div>
+    <div class="tiny">…or paste a seed JSON and Load:</div>
+    <textarea id="importIn" rows="3" spellcheck="false" placeholder='{"id":"de-la-riva", ...}'></textarea>
+    <div class="row tight" style="margin-top:6px"><button class="sm" id="loadJSON">Load JSON</button></div>
+
+    <h2>Display</h2>
+    <div class="tabs">
+      <button class="a on" data-skin="stickman">Stickman (edit)</button>
+      <button class="a" data-skin="fleshed">Fleshed (real)</button>
+    </div>
+    <label class="f"><input type="checkbox" id="showOverlay" checked style="width:auto"> show overlay preview</label>
+
     <h2>Reference backdrop</h2>
     <div class="row"><input type="file" id="file" accept="image/*" /></div>
     <label class="f">Backdrop opacity <span id="opv">0.6</span></label>
@@ -118,6 +152,30 @@
     <button class="sm" id="addRole" style="margin-top:8px">Add role</button>
     <div class="list" id="roles"></div>
 
+    <h2>Overlay preview</h2>
+    <p class="tiny">Draw test annotations on the pose to check that roles anchor where the marks land — this is exactly how the renderer draws a cue's spec. Paste a golden spec array, or build one annotation at a time.</p>
+    <textarea id="specIn" rows="3" spellcheck="false" placeholder='[{"type":"force","anchor":"hook_heel","relation":{"toward":"opp_hamstring"},"intensity":"high"}]'></textarea>
+    <div class="row tight" style="margin:6px 0"><button class="sm" id="renderSpec">Render spec</button><button class="ghost sm" id="clearAnns">Clear</button></div>
+    <div class="split3">
+      <div><label class="f">type</label>
+        <select id="aType">
+          <option>force</option><option>pressure</option><option>counter</option>
+          <option>base</option><option>grip</option><option>frame</option>
+          <option>rotation</option><option>weight-distribution</option><option>movement-path</option>
+        </select></div>
+      <div><label class="f">anchor role</label><select id="aAnchor"></select></div>
+      <button class="sm" id="addAnn">Add</button>
+    </div>
+    <div class="split3" style="margin-top:6px">
+      <div><label class="f">anchor 2 (grip)</label><select id="aAnchor2"></select></div>
+      <div><label class="f">relation</label>
+        <select id="aRel"><option value="">none</option><option>toward</option><option>away_from</option><option>around</option></select></div>
+      <div><label class="f">intensity</label>
+        <select id="aInt"><option>medium</option><option>low</option><option>high</option></select></div>
+    </div>
+    <label class="f">relation target role</label><select id="aTarget"></select>
+    <div class="list" id="anns"></div>
+
     <h2>Cues (optional)</h2>
     <div class="split3">
       <div><input id="cid" placeholder="cue-id" /></div>
@@ -132,242 +190,228 @@
       <button class="ghost sm" id="copy">Copy</button>
       <button class="ghost sm" id="download">Download</button>
     </div>
-    <textarea id="out" rows="12" spellcheck="false" placeholder="Generated base JSON appears here…"></textarea>
-    <p class="tiny">Coordinates are normalized [0,1] on the fixed 820×520 landscape canvas. Output matches <code>scripts/issue18/seed/*.json</code>; drop it in and run the harness.</p>
+    <textarea id="out" rows="10" spellcheck="false" placeholder="Generated base JSON appears here…"></textarea>
+    <p class="tiny">Normalized [0,1] on the fixed 820×520 landscape. Output matches <code>scripts/issue18/seed/*.json</code>. The overlay preview is NOT exported (specs come from the cue at runtime).</p>
   </div>
 </div>
 
 <script>
 const W = 820, H = 520;
 const svg = document.getElementById('svg');
-const NS = 'http://www.w3.org/2000/svg';
 const state = {
-  activePerson: 'you',
+  activePerson: 'you', skin: 'stickman', showOverlay: true,
   people: { you: { joints:{}, bones:[], head:'', feet:{} }, opp: { joints:{}, bones:[], head:'', feet:{} } },
-  roles: {},
-  cues: [],
-  mode: { type:'idle' },
-  drag: null,
+  roles: {}, cues: [], anns: [], mode: { type:'idle' }, drag: null,
 };
-const COLOR = { you:'var(--you)', opp:'var(--opp)' };
+const EDIT = { you:'var(--you)', opp:'var(--opp)' };      // bright, for editing dots/sticks
+const FLESH = { you:'var(--fyou)', opp:'var(--fopp)' };   // production greys
 const $ = (id) => document.getElementById(id);
 
-// ---- coordinate mapping ----
+// ── coordinate mapping ──
 function evtToNorm(e) {
   const r = svg.getBoundingClientRect();
-  // svg preserves aspect via viewBox + width/height 100%; compute the drawn box
   const scale = Math.min(r.width / W, r.height / H);
   const dw = W * scale, dh = H * scale;
   const ox = (r.width - dw) / 2, oy = (r.height - dh) / 2;
-  const x = (e.clientX - r.left - ox) / dw;
-  const y = (e.clientY - r.top - oy) / dh;
-  return [clamp(x), clamp(y)];
+  return [clamp((e.clientX - r.left - ox) / dw), clamp((e.clientY - r.top - oy) / dh)];
 }
 const clamp = (v) => Math.max(0, Math.min(1, Math.round(v*1000)/1000));
 const px = (v) => [v[0]*W, v[1]*H];
 
-// ---- backdrop ----
-$('file').addEventListener('change', (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  $('backdrop').src = URL.createObjectURL(f);
-});
-$('op').addEventListener('input', (e) => { $('backdrop').style.opacity = e.target.value; $('opv').textContent = e.target.value; });
-$('backdrop').style.opacity = 0.6;
+// ── ported vector helpers (px space, mirrors renderer.ts) ──
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1]], add=(a,b)=>[a[0]+b[0],a[1]+b[1]], scl=(a,k)=>[a[0]*k,a[1]*k];
+const vlen=(a)=>Math.hypot(a[0],a[1]), unit=(a)=>{const l=vlen(a)||1;return [a[0]/l,a[1]/l];}, perp=(a)=>[-a[1],a[0]];
+const r2=(n)=>Math.round(n*100)/100+'';
+const INTENSITY={low:.62,medium:.8,high:1};
+const intensityOf=(a)=>INTENSITY[a.intensity||'medium'];
+function humanize(role){ return (role||'').replace(/^opp_/,"opponent's ").replace(/^(you_|your_)/,'your ').replace(/_/g,' '); }
+function relationTarget(a){ const r=a.relation; if(!r)return null; if('toward'in r)return r.toward; if('away_from'in r)return r.away_from; if('around'in r)return r.around; return null; }
+function single(anchor){ return Array.isArray(anchor)?anchor[0]:anchor; }
 
-// ---- person tabs ----
-document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
-  state.activePerson = b.dataset.p;
-  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x.dataset.p === state.activePerson));
+// ── role resolution (normalized → px) ──
+function resolveRole(def){
+  const j=(ref)=>{const [p,n]=(ref||'').split('.');return state.people[p]?.joints[n];};
+  if(!def)return null;
+  if(def.joint)return j(def.joint);
+  if(def.point)return def.point;
+  if(def.midpoint){const a=j(def.midpoint[0]),b=j(def.midpoint[1]);return a&&b?[(a[0]+b[0])/2,(a[1]+b[1])/2]:null;}
+  return null;
+}
+const RN = (name)=> resolveRole(state.roles[name]);       // role → normalized
+const R  = (name)=> { const n=RN(name); return n?px(n):null; };  // role → px
+
+// ── backdrop ──
+$('file').addEventListener('change',(e)=>{ const f=e.target.files[0]; if(f)$('backdrop').src=URL.createObjectURL(f); });
+$('op').addEventListener('input',(e)=>{ $('backdrop').style.opacity=e.target.value; $('opv').textContent=e.target.value; });
+$('backdrop').style.opacity=0.6;
+
+// ── import ──
+function loadObj(obj){
+  const pers=(p)=>({ joints:p?.joints||{}, bones:p?.bones||[], head:p?.head||'', feet:p?.feet||{} });
+  state.people.opp=pers(obj.people?.opp); state.people.you=pers(obj.people?.you);
+  state.roles=obj.roles||{}; state.cues=obj.cues||[]; state.anns=[];
+  $('pid').value=obj.id||''; $('plabel').value=obj.label||''; $('pview').value=obj.view||'side';
+  refresh();
+}
+$('loadJSON').addEventListener('click',()=>{ try{ loadObj(JSON.parse($('importIn').value)); }catch(err){ alert('Invalid JSON: '+err.message); } });
+$('importFile').addEventListener('change',(e)=>{ const f=e.target.files[0]; if(!f)return; const rd=new FileReader(); rd.onload=()=>{ try{ loadObj(JSON.parse(rd.result)); }catch(err){ alert('Invalid JSON: '+err.message); } }; rd.readAsText(f); });
+
+// ── skin / overlay toggles ──
+document.querySelectorAll('.tabs button[data-skin]').forEach(b=>b.addEventListener('click',()=>{
+  state.skin=b.dataset.skin;
+  document.querySelectorAll('.tabs button[data-skin]').forEach(x=>x.classList.toggle('on',x.dataset.skin===state.skin));
+  refresh();
+}));
+$('showOverlay').addEventListener('change',(e)=>{ state.showOverlay=e.target.checked; refresh(); });
+
+// ── person tabs ──
+document.querySelectorAll('.tabs button[data-p]').forEach(b=>b.addEventListener('click',()=>{
+  state.activePerson=b.dataset.p;
+  document.querySelectorAll('.tabs button[data-p]').forEach(x=>x.classList.toggle('on',x.dataset.p===state.activePerson));
   refresh();
 }));
 
-// ---- mode ----
-function setMode(m, text) { state.mode = m; const el = $('mode'); el.textContent = text; el.classList.toggle('active', m.type !== 'idle'); }
-function idle() { setMode({type:'idle'}, 'Idle. Click a joint to move it; type a name and hit Place to add one.'); }
+// ── mode ──
+function setMode(m,text){ state.mode=m; const el=$('mode'); el.textContent=text; el.classList.toggle('active',m.type!=='idle'); }
+function idle(){ setMode({type:'idle'},'Idle. Click a joint to move it; type a name and hit Place to add one.'); }
+$('placeJoint').addEventListener('click',()=>{ const name=$('jname').value.trim(); if(!name)return alert('Enter a joint name first.'); setMode({type:'placeJoint',name,head:$('jhead').checked},`Click on the canvas to place "${name}" for ${state.activePerson}.`); });
+$('placeToe').addEventListener('click',()=>{ const j=$('footJoint').value; if(!j)return alert('Pick a joint to attach a toe to.'); setMode({type:'placeToe',joint:j},`Click to place the toe point for ${state.activePerson}.${j}.`); });
 
-$('placeJoint').addEventListener('click', () => {
-  const name = $('jname').value.trim();
-  if (!name) return alert('Enter a joint name first.');
-  setMode({ type:'placeJoint', name, head: $('jhead').checked }, `Click on the canvas to place "${name}" for ${state.activePerson}.`);
+// ── canvas interaction ──
+svg.addEventListener('pointerdown',(e)=>{
+  const p=evtToNorm(e);
+  if(state.mode.type==='placeJoint'){ const P=state.people[state.activePerson]; P.joints[state.mode.name]=p; if(state.mode.head)P.head=state.mode.name; $('jname').value=''; $('jhead').checked=false; idle(); refresh(); return; }
+  if(state.mode.type==='placeToe'){ state.people[state.activePerson].feet[state.mode.joint]={toe:p}; idle(); refresh(); return; }
+  if(state.mode.type==='placePoint'){ state.roles[state.mode.name]={point:p}; idle(); refresh(); return; }
+  const hit=hitJoint(p); if(hit){ state.drag=hit; svg.setPointerCapture(e.pointerId); }
 });
-$('placeToe').addEventListener('click', () => {
-  const j = $('footJoint').value;
-  if (!j) return alert('Pick a joint to attach a toe to.');
-  setMode({ type:'placeToe', joint:j }, `Click to place the toe point for ${state.activePerson}.${j}.`);
-});
+svg.addEventListener('pointermove',(e)=>{ if(!state.drag)return; state.people[state.drag.person].joints[state.drag.name]=evtToNorm(e); refresh(); });
+svg.addEventListener('pointerup',()=>{ state.drag=null; });
+function hitJoint(p){ let best=null,bd=0.025; for(const person of ['opp','you'])for(const [name,v] of Object.entries(state.people[person].joints)){ const d=Math.hypot(v[0]-p[0],v[1]-p[1]); if(d<bd){bd=d;best={person,name};} } return best; }
 
-// ---- canvas interaction ----
-svg.addEventListener('pointerdown', (e) => {
-  const p = evtToNorm(e);
-  if (state.mode.type === 'placeJoint') {
-    const P = state.people[state.activePerson];
-    P.joints[state.mode.name] = p;
-    if (state.mode.head) P.head = state.mode.name;
-    $('jname').value = ''; $('jhead').checked = false;
-    idle(); refresh(); return;
-  }
-  if (state.mode.type === 'placeToe') {
-    state.people[state.activePerson].feet[state.mode.joint] = { toe: p };
-    idle(); refresh(); return;
-  }
-  if (state.mode.type === 'placePoint') {
-    state.roles[state.mode.name] = { point: p };
-    idle(); refresh(); return;
-  }
-  // idle: hit-test joints for drag
-  const hit = hitJoint(p);
-  if (hit) { state.drag = hit; svg.setPointerCapture(e.pointerId); }
-});
-svg.addEventListener('pointermove', (e) => {
-  if (!state.drag) return;
-  const p = evtToNorm(e);
-  state.people[state.drag.person].joints[state.drag.name] = p;
-  refresh();
-});
-svg.addEventListener('pointerup', (e) => { state.drag = null; });
+// ── editors ──
+$('addBone').addEventListener('click',()=>{ const a=$('boneA').value,b=$('boneB').value; if(!a||!b||a===b)return; const P=state.people[state.activePerson]; if(!P.bones.some(x=>(x[0]===a&&x[1]===b)||(x[0]===b&&x[1]===a)))P.bones.push([a,b]); refresh(); });
+$('rstrat').addEventListener('change',()=>{ const s=$('rstrat').value; $('rjoint1wrap').style.display=s==='point'?'none':'block'; $('rjoint2wrap').style.display=s==='midpoint'?'block':'none'; });
+$('addRole').addEventListener('click',()=>{ const name=$('rname').value.trim(); if(!name)return alert('Enter a role name.'); const s=$('rstrat').value; if(s==='joint')state.roles[name]={joint:$('rjoint1').value}; else if(s==='midpoint')state.roles[name]={midpoint:[$('rjoint1').value,$('rjoint2').value]}; else { setMode({type:'placePoint',name},`Click to place the contact point for role "${name}".`); $('rname').value=''; return; } $('rname').value=''; refresh(); });
+$('addCue').addEventListener('click',()=>{ const id=$('cid').value.trim(),text=$('ctext').value.trim(); if(!id||!text)return; state.cues.push({id,text}); $('cid').value=''; $('ctext').value=''; refresh(); });
 
-function hitJoint(p) {
-  let best = null, bd = 0.025; // ~ within 2.5% of canvas
-  for (const person of ['opp','you']) {
-    for (const [name, v] of Object.entries(state.people[person].joints)) {
-      const d = Math.hypot(v[0]-p[0], v[1]-p[1]);
-      if (d < bd) { bd = d; best = { person, name }; }
-    }
-  }
-  return best;
-}
+// ── overlay preview builder ──
+$('addAnn').addEventListener('click',()=>{
+  const type=$('aType').value, a1=$('aAnchor').value, a2=$('aAnchor2').value;
+  if(!a1)return alert('Pick an anchor role (add roles first).');
+  const ann={type, anchor: (type==='grip'&&a2)?[a1,a2]:a1};
+  const rel=$('aRel').value, tgt=$('aTarget').value;
+  if(rel&&tgt)ann.relation={[rel]:tgt};
+  ann.intensity=$('aInt').value;
+  state.anns.push(ann); refresh();
+});
+$('renderSpec').addEventListener('click',()=>{ try{ const arr=JSON.parse($('specIn').value); state.anns=Array.isArray(arr)?arr:[arr]; refresh(); }catch(err){ alert('Invalid spec JSON: '+err.message); } });
+$('clearAnns').addEventListener('click',()=>{ state.anns=[]; refresh(); });
 
-// ---- bones / feet / roles editors ----
-$('addBone').addEventListener('click', () => {
-  const a = $('boneA').value, b = $('boneB').value;
-  if (!a || !b || a === b) return;
-  const P = state.people[state.activePerson];
-  if (!P.bones.some(x => (x[0]===a&&x[1]===b)||(x[0]===b&&x[1]===a))) P.bones.push([a,b]);
-  refresh();
-});
-$('rstrat').addEventListener('change', () => {
-  const s = $('rstrat').value;
-  $('rjoint1wrap').style.display = s === 'point' ? 'none' : 'block';
-  $('rjoint2wrap').style.display = s === 'midpoint' ? 'block' : 'none';
-});
-$('addRole').addEventListener('click', () => {
-  const name = $('rname').value.trim(); if (!name) return alert('Enter a role name.');
-  const s = $('rstrat').value;
-  if (s === 'joint') state.roles[name] = { joint: $('rjoint1').value };
-  else if (s === 'midpoint') state.roles[name] = { midpoint: [$('rjoint1').value, $('rjoint2').value] };
-  else { setMode({ type:'placePoint', name }, `Click to place the contact point for role "${name}".`); $('rname').value=''; return; }
-  $('rname').value=''; refresh();
-});
-$('addCue').addEventListener('click', () => {
-  const id = $('cid').value.trim(), text = $('ctext').value.trim();
-  if (!id || !text) return; state.cues.push({ id, text }); $('cid').value=''; $('ctext').value=''; refresh();
-});
+// ── ported base-skin renderers ──
+function jointRadius(name){ const n=name.toLowerCase();
+  if(n.includes('hip')||n.includes('pelvis')||n.includes('waist'))return 17;
+  if(n.includes('chest'))return 16; if(n.includes('shoulder'))return 13; if(n.includes('neck'))return 12;
+  if(n.includes('knee'))return 12; if(n.includes('foot')||n.includes('ankle')||n.includes('heel'))return 8;
+  if(n.includes('elbow'))return 9; if(n.includes('hand')||n.includes('wrist'))return 7; return 10; }
+function limbQuad(a,ra,b,rb){ const d=unit(sub(b,a)),n=perp(d); const p1=add(a,scl(n,ra)),p2=sub(a,scl(n,ra)),p3=sub(b,scl(n,rb)),p4=add(b,scl(n,rb));
+  return `<polygon points="${r2(p1[0])},${r2(p1[1])} ${r2(p4[0])},${r2(p4[1])} ${r2(p3[0])},${r2(p3[1])} ${r2(p2[0])},${r2(p2[1])}"/>`; }
+function drawStickman(P,col){ let s=`<g fill="none" stroke="${col}" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity=".9">`;
+  for(const [a,b] of P.bones){ if(!P.joints[a]||!P.joints[b])continue; const pa=px(P.joints[a]),pb=px(P.joints[b]); s+=`<line x1="${r2(pa[0])}" y1="${r2(pa[1])}" x2="${r2(pb[0])}" y2="${r2(pb[1])}"/>`; }
+  s+='</g>'; if(P.joints[P.head]){ const h=px(P.joints[P.head]); s+=`<circle cx="${r2(h[0])}" cy="${r2(h[1])}" r="20" fill="${col}"/>`; } return s; }
+function drawFleshed(P,col){ let s=`<g fill="${col}" stroke="none">`;
+  for(const [a,b] of P.bones){ if(!P.joints[a]||!P.joints[b])continue; const pa=px(P.joints[a]),pb=px(P.joints[b]),ra=jointRadius(a),rb=jointRadius(b);
+    s+=limbQuad(pa,ra,pb,rb)+`<circle cx="${r2(pa[0])}" cy="${r2(pa[1])}" r="${ra}"/><circle cx="${r2(pb[0])}" cy="${r2(pb[1])}" r="${rb}"/>`; }
+  s+='</g>';
+  for(const [an,f] of Object.entries(P.feet||{})){ if(!P.joints[an])continue; const ak=px(P.joints[an]),tt=px(f.toe);
+    s+=`<line x1="${r2(ak[0])}" y1="${r2(ak[1])}" x2="${r2(tt[0])}" y2="${r2(tt[1])}" stroke="${col}" stroke-width="15" stroke-linecap="round"/><circle cx="${r2(ak[0])}" cy="${r2(ak[1])}" r="9" fill="${col}"/>`; }
+  if(P.joints[P.head]){ const h=px(P.joints[P.head]); s+=`<ellipse cx="${r2(h[0])}" cy="${r2(h[1])}" rx="20" ry="23" fill="${col}"/>`; } return s; }
 
-// ---- render ----
-function allJointRefs() {
-  const refs = [];
-  for (const person of ['you','opp'])
-    for (const name of Object.keys(state.people[person].joints)) refs.push(`${person}.${name}`);
-  return refs;
-}
-function fillSelect(el, opts, keep) {
-  el.innerHTML = opts.map(o => `<option value="${o}">${o}</option>`).join('');
-  if (keep && opts.includes(keep)) el.value = keep;
-}
+// ── ported overlay primitive drawers (use px roles; skip if a role is missing) ──
+function arrow(from,to,color,w,mid){ return `<line x1="${r2(from[0])}" y1="${r2(from[1])}" x2="${r2(to[0])}" y2="${r2(to[1])}" stroke="${color}" stroke-width="${r2(w)}" stroke-linecap="round" marker-end="url(#${mid})"/>`; }
+function dForce(a){ const o=R(single(a.anchor)),t=R(relationTarget(a)); if(!o||!t)return '';
+  const dir=unit(sub(t,o)), d=(a.relation&&'away_from'in a.relation)?scl(dir,-1):dir, dist=vlen(sub(t,o));
+  const l=Math.min(95*intensityOf(a),Math.max(44,dist*1.6)), tip=add(o,scl(d,l)), w=4+2.5*intensityOf(a);
+  return `<g class="fd-force">`+arrow(o,tip,'var(--push)',w,'fdPush')+`<line class="fd-flow" x1="${r2(o[0])}" y1="${r2(o[1])}" x2="${r2(tip[0])}" y2="${r2(tip[1])}" stroke="var(--surface)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="3 13" opacity=".85"/></g>`; }
+function dPressure(a){ const c=R(single(a.anchor)); if(!c)return ''; const k=intensityOf(a);
+  return `<circle class="fd-halo" cx="${r2(c[0])}" cy="${r2(c[1])}" r="${r2(34*k)}" fill="var(--pressure)"/><circle class="fd-core" cx="${r2(c[0])}" cy="${r2(c[1])}" r="${r2(13*k)}" fill="var(--pressure)"/>`; }
+function dCounter(a){ const o=R(single(a.anchor)),t=R(relationTarget(a)); if(!o||!t)return '';
+  const dir=unit(sub(t,o)), d=(a.relation&&'away_from'in a.relation)?scl(dir,-1):dir, tip=add(o,scl(d,66)), n=perp(d), bx=add(o,scl(d,30));
+  const x1=add(bx,scl(n,9)),x2=sub(bx,scl(n,9)),x3=add(add(bx,scl(d,12)),scl(n,9)),x4=sub(add(bx,scl(d,12)),scl(n,9));
+  return `<g class="fd-counter"><line x1="${r2(o[0])}" y1="${r2(o[1])}" x2="${r2(tip[0])}" y2="${r2(tip[1])}" stroke="var(--counter)" stroke-width="4" stroke-dasharray="7 6" marker-end="url(#fdCounter)"/></g><g stroke="var(--counter)" stroke-width="3" stroke-linecap="round"><line x1="${r2(x1[0])}" y1="${r2(x1[1])}" x2="${r2(x4[0])}" y2="${r2(x4[1])}"/><line x1="${r2(x2[0])}" y1="${r2(x2[1])}" x2="${r2(x3[0])}" y2="${r2(x3[1])}"/></g>`; }
+function dBase(a){ const c=R(single(a.anchor)); if(!c)return ''; return `<circle cx="${r2(c[0])}" cy="${r2(c[1])}" r="13" fill="none" stroke="var(--base)" stroke-width="3"/><circle cx="${r2(c[0])}" cy="${r2(c[1])}" r="3.5" fill="var(--base)"/>`; }
+function dGrip(a){ const roles=Array.isArray(a.anchor)?a.anchor:[a.anchor]; const hand=R(roles[0]),tgt=R(roles[1]||roles[0]); if(!hand||!tgt)return '';
+  return `<line x1="${r2(hand[0])}" y1="${r2(hand[1])}" x2="${r2(tgt[0])}" y2="${r2(tgt[1])}" stroke="var(--grip)" stroke-width="3.5" stroke-linecap="round"/><circle cx="${r2(tgt[0])}" cy="${r2(tgt[1])}" r="10" fill="none" stroke="var(--grip)" stroke-width="3.5"/><circle cx="${r2(hand[0])}" cy="${r2(hand[1])}" r="5" fill="var(--grip)"/>`; }
+function dFrame(a){ const an=R(single(a.anchor)); if(!an)return ''; const tr=relationTarget(a); const tp=tr?R(tr):null;
+  const dir=tp?scl(unit(sub(tp,an)),-1):[0,-1], n=perp(dir), bA=add(an,scl(n,20)),bB=sub(an,scl(n,20)),pA=add(bA,scl(dir,16)),pB=add(bB,scl(dir,16));
+  return `<g stroke="var(--frame)" stroke-width="5" stroke-linecap="round" fill="none"><line x1="${r2(bA[0])}" y1="${r2(bA[1])}" x2="${r2(bB[0])}" y2="${r2(bB[1])}"/><line x1="${r2(bA[0])}" y1="${r2(bA[1])}" x2="${r2(pA[0])}" y2="${r2(pA[1])}"/><line x1="${r2(bB[0])}" y1="${r2(bB[1])}" x2="${r2(pB[0])}" y2="${r2(pB[1])}"/></g>`; }
+function dRotation(a){ const piv=R(relationTarget(a)),an=R(single(a.anchor)); if(!piv||!an)return '';
+  const rad=Math.max(26,vlen(sub(an,piv))), a0=Math.atan2(an[1]-piv[1],an[0]-piv[0]), a1=a0+2.1;
+  const p0=[piv[0]+rad*Math.cos(a0),piv[1]+rad*Math.sin(a0)], p1=[piv[0]+rad*Math.cos(a1),piv[1]+rad*Math.sin(a1)];
+  return `<path class="fd-rot" d="M ${r2(p0[0])} ${r2(p0[1])} A ${r2(rad)} ${r2(rad)} 0 0 1 ${r2(p1[0])} ${r2(p1[1])}" fill="none" stroke="var(--rotation)" stroke-width="4.5" marker-end="url(#fdRot)"/><circle cx="${r2(piv[0])}" cy="${r2(piv[1])}" r="4" fill="var(--rotation)"/>`; }
+function dWeight(a){ const c=R(single(a.anchor)); if(!c)return ''; const k=intensityOf(a), rows=Math.round(2+k); let s='';
+  for(let i=0;i<rows;i++){ const y=c[1]-26-i*12; s+=`<polyline points="${r2(c[0]-12)},${r2(y)} ${r2(c[0])},${r2(y+9)} ${r2(c[0]+12)},${r2(y)}" fill="none" stroke="var(--weight)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="${r2(0.5+i*0.2)}"/>`; }
+  return s+`<circle cx="${r2(c[0])}" cy="${r2(c[1])}" r="6" fill="var(--weight)"/>`; }
+function dMovement(a){ const o=R(single(a.anchor)),t=R(relationTarget(a)); if(!o||!t)return '';
+  return `<line class="fd-flow" x1="${r2(o[0])}" y1="${r2(o[1])}" x2="${r2(t[0])}" y2="${r2(t[1])}" stroke="var(--movement)" stroke-width="4" stroke-linecap="round" stroke-dasharray="2 12" marker-end="url(#fdMove)"/>`; }
+const DRAW={ force:dForce, pressure:dPressure, counter:dCounter, base:dBase, grip:dGrip, frame:dFrame, rotation:dRotation, 'weight-distribution':dWeight, 'movement-path':dMovement };
+function markerDefs(){ const m=(id,w,cv)=>`<marker id="${id}" markerUnits="userSpaceOnUse" markerWidth="${w}" markerHeight="${w}" refX="${w*0.7}" refY="${w/2}" orient="auto"><path d="M0,0 L${w},${w/2} L0,${w} L${w*0.3},${w/2} Z" fill="var(${cv})"/></marker>`;
+  return `<defs>${m('fdPush',18,'--push')}${m('fdCounter',15,'--counter')}${m('fdRot',15,'--rotation')}${m('fdMove',15,'--movement')}</defs>`; }
+
+// ── main render ──
 function refresh() {
-  // svg
-  let s = `<line x1="40" y1="${H-48}" x2="${W-40}" y2="${H-48}" stroke="var(--muted)" stroke-width="4" stroke-linecap="round" opacity=".4"/>`;
-  for (const person of ['opp','you']) {
-    const P = state.people[person], col = COLOR[person];
-    for (const [a,b] of P.bones) {
-      if (!P.joints[a]||!P.joints[b]) continue;
-      const pa = px(P.joints[a]), pb = px(P.joints[b]);
-      s += `<line x1="${pa[0]}" y1="${pa[1]}" x2="${pb[0]}" y2="${pb[1]}" stroke="${col}" stroke-width="6" stroke-linecap="round" opacity=".55"/>`;
-    }
-    for (const [j,f] of Object.entries(P.feet)) {
-      if (!P.joints[j]) continue;
-      const pa = px(P.joints[j]), pt = px(f.toe);
-      s += `<line x1="${pa[0]}" y1="${pa[1]}" x2="${pt[0]}" y2="${pt[1]}" stroke="${col}" stroke-width="3" stroke-dasharray="4 4"/><circle cx="${pt[0]}" cy="${pt[1]}" r="4" fill="${col}"/>`;
-    }
-    for (const [name,v] of Object.entries(P.joints)) {
-      const c = px(v);
-      const isHead = P.head === name;
-      s += `<circle class="joint-dot" cx="${c[0]}" cy="${c[1]}" r="${isHead?9:6}" fill="${col}" stroke="#fff" stroke-width="1.5"/>`;
-      s += `<text x="${c[0]+9}" y="${c[1]+4}" font-size="12" fill="${col}" font-family="ui-monospace,Menlo,monospace">${name}${isHead?' ●':''}</text>`;
-    }
-  }
-  for (const [name,def] of Object.entries(state.roles)) {
-    const pt = resolveRole(def); if (!pt) continue;
-    const c = px(pt);
-    s += `<circle cx="${c[0]}" cy="${c[1]}" r="5" fill="none" stroke="var(--role)" stroke-width="2"/><text x="${c[0]+7}" y="${c[1]-6}" font-size="11" fill="var(--role)" font-family="ui-monospace,Menlo,monospace">${name}</text>`;
-  }
+  const flesh = state.skin==='fleshed';
+  let s = markerDefs();
+  s += `<line x1="40" y1="${H-48}" x2="${W-40}" y2="${H-48}" stroke="var(--mat)" stroke-width="6" stroke-linecap="round"/>`;
+  // base skin (opp then you)
+  for(const person of ['opp','you']){ const P=state.people[person]; s += flesh? drawFleshed(P,FLESH[person]) : drawStickman(P,EDIT[person]); }
+  // overlay preview
+  if(state.showOverlay) for(const ann of state.anns){ const fn=DRAW[ann.type]; if(fn) s+=fn(ann); }
+  // role markers
+  for(const [name,def] of Object.entries(state.roles)){ const nrm=resolveRole(def); if(!nrm)continue; const c=px(nrm);
+    s+=`<circle cx="${r2(c[0])}" cy="${r2(c[1])}" r="5" fill="none" stroke="var(--role)" stroke-width="2"/><text x="${r2(c[0]+7)}" y="${r2(c[1]-6)}" font-size="11" fill="var(--role)" font-family="ui-monospace,Menlo,monospace">${name}</text>`; }
+  // editing aids: joint dots + labels + toe indicators (always, on top)
+  for(const person of ['opp','you']){ const P=state.people[person], col=EDIT[person];
+    for(const [j,f] of Object.entries(P.feet||{})){ if(!P.joints[j])continue; const pa=px(P.joints[j]),pt=px(f.toe);
+      s+=`<line x1="${r2(pa[0])}" y1="${r2(pa[1])}" x2="${r2(pt[0])}" y2="${r2(pt[1])}" stroke="${col}" stroke-width="2" stroke-dasharray="3 3" opacity=".7"/><circle cx="${r2(pt[0])}" cy="${r2(pt[1])}" r="3" fill="${col}"/>`; }
+    for(const [name,v] of Object.entries(P.joints)){ const c=px(v), isHead=P.head===name;
+      s+=`<circle class="joint-dot" cx="${r2(c[0])}" cy="${r2(c[1])}" r="${isHead?7:5}" fill="${col}" stroke="#fff" stroke-width="1.5"/><text x="${r2(c[0]+8)}" y="${r2(c[1]+4)}" font-size="11" fill="${col}" font-family="ui-monospace,Menlo,monospace">${name}${isHead?' ●':''}</text>`; } }
   svg.innerHTML = s;
 
-  // joints list
-  const P = state.people[state.activePerson];
-  $('joints').innerHTML = Object.keys(P.joints).map(n =>
-    `<div class="item"><code>${n}${P.head===n?' (head)':''}</code><span><button class="x" data-del-joint="${n}">✕</button></span></div>`).join('') || `<div class="tiny">No joints yet for ${state.activePerson}.</div>`;
-  // bones list
-  $('bones').innerHTML = P.bones.map((b,i) => `<div class="item"><code>${b[0]} — ${b[1]}</code><button class="x" data-del-bone="${i}">✕</button></div>`).join('') || `<div class="tiny">No bones.</div>`;
-  // feet list
-  $('feet').innerHTML = Object.entries(P.feet).map(([j,f]) => `<div class="item"><code>${j} → toe [${f.toe}]</code><button class="x" data-del-foot="${j}">✕</button></div>`).join('') || `<div class="tiny">No feet.</div>`;
-  // roles list
-  $('roles').innerHTML = Object.entries(state.roles).map(([n,d]) => `<div class="item"><code>${n} = ${JSON.stringify(d)}</code><button class="x" data-del-role="${n}">✕</button></div>`).join('') || `<div class="tiny">No roles.</div>`;
-  // cues list
-  $('cues').innerHTML = state.cues.map((c,i) => `<div class="item"><code>${c.id}</code><button class="x" data-del-cue="${i}">✕</button></div>`).join('') || `<div class="tiny">No cues.</div>`;
+  // side lists
+  const P=state.people[state.activePerson];
+  $('joints').innerHTML=Object.keys(P.joints).map(n=>`<div class="item"><code>${n}${P.head===n?' (head)':''}</code><button class="x" data-del-joint="${n}">✕</button></div>`).join('')||`<div class="tiny">No joints yet for ${state.activePerson}.</div>`;
+  $('bones').innerHTML=P.bones.map((b,i)=>`<div class="item"><code>${b[0]} — ${b[1]}</code><button class="x" data-del-bone="${i}">✕</button></div>`).join('')||`<div class="tiny">No bones.</div>`;
+  $('feet').innerHTML=Object.entries(P.feet).map(([j,f])=>`<div class="item"><code>${j} → toe</code><button class="x" data-del-foot="${j}">✕</button></div>`).join('')||`<div class="tiny">No feet.</div>`;
+  $('roles').innerHTML=Object.entries(state.roles).map(([n,d])=>`<div class="item"><code>${n} = ${JSON.stringify(d)}</code><button class="x" data-del-role="${n}">✕</button></div>`).join('')||`<div class="tiny">No roles.</div>`;
+  $('anns').innerHTML=state.anns.map((a,i)=>`<div class="item"><code>${a.type} · ${JSON.stringify(a.anchor)}${a.relation?' → '+JSON.stringify(a.relation):''}</code><button class="x" data-del-ann="${i}">✕</button></div>`).join('')||`<div class="tiny">No preview annotations.</div>`;
+  $('cues').innerHTML=state.cues.map((c,i)=>`<div class="item"><code>${c.id}</code><button class="x" data-del-cue="${i}">✕</button></div>`).join('')||`<div class="tiny">No cues.</div>`;
 
   // selects
-  const jointNames = Object.keys(P.joints);
-  fillSelect($('boneA'), jointNames, $('boneA').value);
-  fillSelect($('boneB'), jointNames, $('boneB').value);
-  fillSelect($('footJoint'), jointNames, $('footJoint').value);
-  const refs = allJointRefs();
-  fillSelect($('rjoint1'), refs, $('rjoint1').value);
-  fillSelect($('rjoint2'), refs, $('rjoint2').value);
+  const jn=Object.keys(P.joints); fill($('boneA'),jn,$('boneA').value); fill($('boneB'),jn,$('boneB').value); fill($('footJoint'),jn,$('footJoint').value);
+  const refs=[]; for(const p of ['you','opp'])for(const n of Object.keys(state.people[p].joints))refs.push(`${p}.${n}`);
+  fill($('rjoint1'),refs,$('rjoint1').value); fill($('rjoint2'),refs,$('rjoint2').value);
+  const roleNames=Object.keys(state.roles);
+  fill($('aAnchor'),roleNames,$('aAnchor').value); fill($('aAnchor2'),['',...roleNames],$('aAnchor2').value); fill($('aTarget'),['',...roleNames],$('aTarget').value);
 }
-function resolveRole(def) {
-  const j = (ref) => { const [p,n] = ref.split('.'); return state.people[p]?.joints[n]; };
-  if (def.joint) return j(def.joint);
-  if (def.point) return def.point;
-  if (def.midpoint) { const a=j(def.midpoint[0]), b=j(def.midpoint[1]); return a&&b?[(a[0]+b[0])/2,(a[1]+b[1])/2]:null; }
-  return null;
-}
+function fill(el,opts,keep){ el.innerHTML=opts.map(o=>`<option value="${o}">${o||'—'}</option>`).join(''); if(keep&&opts.includes(keep))el.value=keep; }
 
-// delete handlers (event delegation)
-document.querySelector('.side').addEventListener('click', (e) => {
-  const t = e.target;
-  const P = state.people[state.activePerson];
-  if (t.dataset.delJoint) { const n=t.dataset.delJoint; delete P.joints[n]; if(P.head===n)P.head=''; P.bones=P.bones.filter(b=>b[0]!==n&&b[1]!==n); delete P.feet[n]; refresh(); }
-  else if (t.dataset.delBone!==undefined) { P.bones.splice(+t.dataset.delBone,1); refresh(); }
-  else if (t.dataset.delFoot) { delete P.feet[t.dataset.delFoot]; refresh(); }
-  else if (t.dataset.delRole) { delete state.roles[t.dataset.delRole]; refresh(); }
-  else if (t.dataset.delCue!==undefined) { state.cues.splice(+t.dataset.delCue,1); refresh(); }
+// delete delegation
+document.querySelector('.side').addEventListener('click',(e)=>{ const t=e.target, P=state.people[state.activePerson];
+  if(t.dataset.delJoint){ const n=t.dataset.delJoint; delete P.joints[n]; if(P.head===n)P.head=''; P.bones=P.bones.filter(b=>b[0]!==n&&b[1]!==n); delete P.feet[n]; refresh(); }
+  else if(t.dataset.delBone!==undefined){ P.bones.splice(+t.dataset.delBone,1); refresh(); }
+  else if(t.dataset.delFoot){ delete P.feet[t.dataset.delFoot]; refresh(); }
+  else if(t.dataset.delRole){ delete state.roles[t.dataset.delRole]; refresh(); }
+  else if(t.dataset.delAnn!==undefined){ state.anns.splice(+t.dataset.delAnn,1); refresh(); }
+  else if(t.dataset.delCue!==undefined){ state.cues.splice(+t.dataset.delCue,1); refresh(); }
 });
 
 // export
-function buildJSON() {
-  const person = (p) => {
-    const o = { head: p.head, joints: p.joints, bones: p.bones };
-    if (Object.keys(p.feet).length) o.feet = p.feet;
-    return o;
-  };
-  const obj = {
-    id: $('pid').value.trim() || 'untitled',
-    label: $('plabel').value.trim() || '',
-    view: $('pview').value.trim() || 'side',
-    people: { opp: person(state.people.opp), you: person(state.people.you) },
-    roles: state.roles,
-    cues: state.cues,
-  };
-  return JSON.stringify(obj, null, 2);
-}
-$('gen').addEventListener('click', () => { $('out').value = buildJSON(); });
-$('copy').addEventListener('click', () => { $('out').value = buildJSON(); $('out').select(); navigator.clipboard?.writeText($('out').value); });
-$('download').addEventListener('click', () => {
-  const data = buildJSON(); const blob = new Blob([data], {type:'application/json'});
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = ($('pid').value.trim()||'position') + '.json'; a.click();
-});
+function buildJSON(){ const person=(p)=>{ const o={head:p.head,joints:p.joints,bones:p.bones}; if(Object.keys(p.feet).length)o.feet=p.feet; return o; };
+  return JSON.stringify({ id:$('pid').value.trim()||'untitled', label:$('plabel').value.trim()||'', view:$('pview').value.trim()||'side', people:{opp:person(state.people.opp),you:person(state.people.you)}, roles:state.roles, cues:state.cues }, null, 2); }
+$('gen').addEventListener('click',()=>{ $('out').value=buildJSON(); });
+$('copy').addEventListener('click',()=>{ $('out').value=buildJSON(); $('out').select(); navigator.clipboard?.writeText($('out').value); });
+$('download').addEventListener('click',()=>{ const blob=new Blob([buildJSON()],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=($('pid').value.trim()||'position')+'.json'; a.click(); });
 
 idle(); refresh();
 </script>
