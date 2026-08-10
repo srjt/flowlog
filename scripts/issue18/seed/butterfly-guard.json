@@ -1,24 +1,25 @@
 {
   "id": "butterfly-guard",
   "label": "Butterfly guard",
-  "note": "Bottom player (you) seated upright with both insteps hooking under the opponent's thighs; opponent kneeling in front. Hand-authored schematic on the 820x520 landscape.",
+  "note": "Bottom player (you) seated, leaning back on a post, both insteps hooked UNDER the opponent's thighs; opponent seated/crouched close and posturing forward (NOT standing). Side view. Corrected first pass (2026) — panel to certify. 820x520 landscape, normalized [0,1].",
   "people": {
     "opp": {
       "head": "head",
       "joints": {
-        "head": [0.66, 0.20],
-        "neck": [0.64, 0.28],
-        "hip": [0.62, 0.52],
-        "l_knee": [0.54, 0.66],
-        "l_foot": [0.50, 0.80],
-        "r_knee": [0.70, 0.66],
-        "r_foot": [0.76, 0.80],
-        "shoulder": [0.64, 0.30],
-        "elbow": [0.56, 0.40],
-        "hand": [0.50, 0.48]
+        "head": [0.61, 0.33],
+        "neck": [0.60, 0.41],
+        "hip": [0.63, 0.63],
+        "l_knee": [0.52, 0.62],
+        "l_foot": [0.47, 0.77],
+        "r_knee": [0.69, 0.65],
+        "r_foot": [0.75, 0.78],
+        "shoulder": [0.58, 0.43],
+        "elbow": [0.53, 0.51],
+        "hand": [0.48, 0.57]
       },
       "bones": [
         ["neck", "hip"],
+        ["neck", "shoulder"],
         ["hip", "l_knee"],
         ["l_knee", "l_foot"],
         ["hip", "r_knee"],
@@ -30,16 +31,16 @@
     "you": {
       "head": "head",
       "joints": {
-        "head": [0.24, 0.30],
-        "neck": [0.26, 0.38],
-        "hip": [0.34, 0.62],
-        "l_knee": [0.44, 0.58],
-        "l_foot": [0.56, 0.60],
-        "r_knee": [0.42, 0.66],
-        "r_foot": [0.54, 0.66],
-        "arm_shoulder": [0.28, 0.40],
-        "arm_elbow": [0.38, 0.44],
-        "arm_hand": [0.50, 0.42]
+        "head": [0.15, 0.35],
+        "neck": [0.18, 0.43],
+        "hip": [0.30, 0.65],
+        "l_knee": [0.42, 0.60],
+        "l_foot": [0.53, 0.64],
+        "r_knee": [0.40, 0.68],
+        "r_foot": [0.51, 0.71],
+        "arm_shoulder": [0.20, 0.45],
+        "arm_elbow": [0.33, 0.47],
+        "arm_hand": [0.46, 0.43]
       },
       "bones": [
         ["neck", "arm_shoulder"],
@@ -57,9 +58,9 @@
     "your_hook": { "joint": "you.l_foot" },
     "opp_thigh": { "joint": "opp.l_knee" },
     "your_underhook": { "joint": "you.arm_hand" },
-    "opp_armpit": { "point": [0.58, 0.36] },
+    "opp_armpit": { "point": [0.56, 0.45] },
     "opp_shoulder": { "joint": "opp.shoulder" },
-    "your_chest": { "point": [0.30, 0.44] },
+    "your_chest": { "point": [0.26, 0.49] },
     "opp_chest": { "midpoint": ["opp.neck", "opp.hip"] },
     "opp_hip": { "joint": "opp.hip" },
     "your_hip": { "joint": "you.hip" }

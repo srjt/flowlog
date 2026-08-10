@@ -1,24 +1,25 @@
 {
   "id": "closed-guard",
   "label": "Closed guard",
-  "note": "Bottom player (you) on their back, legs wrapped around the top player's waist; top player kneeling. Attacking-from-bottom perspective. Hand-authored schematic on the 820x520 landscape.",
+  "note": "Bottom player (you) on their back; top player KNEELING inside your guard, leaning forward; your legs wrap their waist with ankles locked behind their back. Side view, attacking-from-bottom. Corrected first pass (2026) — panel to certify. 820x520 landscape, normalized [0,1].",
   "people": {
     "opp": {
       "head": "head",
       "joints": {
-        "head": [0.62, 0.16],
-        "neck": [0.60, 0.26],
-        "hip": [0.58, 0.52],
-        "l_knee": [0.50, 0.72],
-        "l_foot": [0.44, 0.86],
-        "r_knee": [0.66, 0.72],
-        "r_foot": [0.72, 0.86],
-        "shoulder": [0.60, 0.28],
-        "elbow": [0.52, 0.40],
-        "hand": [0.46, 0.50]
+        "head": [0.47, 0.30],
+        "neck": [0.52, 0.37],
+        "hip": [0.63, 0.56],
+        "l_knee": [0.60, 0.75],
+        "l_foot": [0.73, 0.80],
+        "r_knee": [0.67, 0.75],
+        "r_foot": [0.81, 0.80],
+        "shoulder": [0.54, 0.39],
+        "elbow": [0.47, 0.47],
+        "hand": [0.41, 0.55]
       },
       "bones": [
         ["neck", "hip"],
+        ["neck", "shoulder"],
         ["hip", "l_knee"],
         ["l_knee", "l_foot"],
         ["hip", "r_knee"],
@@ -30,16 +31,16 @@
     "you": {
       "head": "head",
       "joints": {
-        "head": [0.12, 0.66],
-        "neck": [0.16, 0.64],
-        "hip": [0.44, 0.58],
-        "l_knee": [0.56, 0.46],
-        "l_foot": [0.66, 0.47],
-        "r_knee": [0.54, 0.62],
-        "r_foot": [0.66, 0.56],
-        "arm_shoulder": [0.18, 0.63],
-        "arm_elbow": [0.30, 0.60],
-        "arm_hand": [0.46, 0.52]
+        "head": [0.09, 0.70],
+        "neck": [0.15, 0.68],
+        "hip": [0.41, 0.64],
+        "l_knee": [0.55, 0.50],
+        "l_foot": [0.67, 0.43],
+        "r_knee": [0.57, 0.58],
+        "r_foot": [0.69, 0.47],
+        "arm_shoulder": [0.18, 0.66],
+        "arm_elbow": [0.31, 0.60],
+        "arm_hand": [0.48, 0.45]
       },
       "bones": [
         ["neck", "arm_shoulder"],
@@ -56,12 +57,12 @@
   "roles": {
     "your_hand": { "joint": "you.arm_hand" },
     "your_elbow": { "joint": "you.arm_elbow" },
-    "feet_lock": { "point": [0.68, 0.51] },
+    "feet_lock": { "point": [0.68, 0.45] },
     "opp_waist": { "joint": "opp.hip" },
-    "opp_lapel": { "point": [0.585, 0.34] },
+    "opp_lapel": { "point": [0.53, 0.41] },
     "opp_shoulders": { "joint": "opp.shoulder" },
-    "opp_pants_hem": { "point": [0.56, 0.64] },
-    "opp_inner_thigh": { "point": [0.58, 0.62] },
+    "opp_pants_hem": { "point": [0.61, 0.70] },
+    "opp_inner_thigh": { "point": [0.61, 0.64] },
     "opp_hip": { "joint": "opp.hip" },
     "your_hip": { "joint": "you.hip" }
   },
