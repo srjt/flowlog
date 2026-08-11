@@ -193,7 +193,16 @@ export default function SessionDetailScreen() {
           <Text variant="caption">Session not found.</Text>
         </View>
       ) : (
-        <ScrollView contentContainerClassName="gap-5 px-6 pb-8 pt-4">
+        <ScrollView
+          contentContainerClassName="gap-5 px-6 pb-8 pt-4"
+          // Keep the feedback note and the transcript editor (and their submit
+          // controls) reachable when the keyboard is open: inset scroll content
+          // for the keyboard (iOS), and keep taps working while it's up so the
+          // first tap on a button isn't swallowed just to dismiss the keyboard.
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets
+        >
           <Text variant="caption" className="text-white">
             {new Date(session.sessionDate).toLocaleDateString()} ·{' '}
             {session.sportKey.toUpperCase()}

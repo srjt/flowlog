@@ -94,7 +94,17 @@ export default function OutputScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <ScrollView contentContainerClassName="gap-5 px-6 py-6">
+      <ScrollView
+        contentContainerClassName="gap-5 px-6 py-6"
+        // When the feedback-note keyboard opens it must not hide the note field
+        // or the Done button: inset the scroll content for the keyboard (iOS) so
+        // everything below scrolls into view, keep taps working while it's open
+        // (default "never" would swallow the first tap on a button just to
+        // dismiss the keyboard), and let a downward swipe dismiss it.
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
+      >
         <FirstResultCelebration
           sessionCount={sessionCount}
           celebrate={celebrate}
