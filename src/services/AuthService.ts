@@ -121,12 +121,27 @@ export class AuthService {
   }
 
   /**
-   * Deliberately uses `getUser()` (a network round-trip that re-verifies with
-   * Supabase's server) instead of reading `session.user` from `getSession()`
-   * — Supabase's own documented best practice, since `session.user` isn't
-   * re-verified server-side. Trade-off: requires network access.
+   * Restore the signed-in user on cold launch.
+   *
+   * `getSession()` first: it reads the persisted tokens and, when the access
+   * token has expired, refreshes it using the stored refresh token — so a
+   * returning user (e.g. opening the app a day later, once the ~1h access token
+   * is long expired) is recovered instead of being logged out. Calling
+   * `getUser()` alone here was the bug: it sends the CURRENT access token to the
+   * server without refreshing, so an expired token just returned an error and
+   * the app dropped the user to login while a valid refresh token sat unused.
+   *
+   * Then `getUser()` to re-verify against the server (Supabase's documented best
+   * practice — `session.user` isn't re-verified server-side). By this point the
+   * access token is fresh, so the round-trip succeeds. Both steps need network.
    */
   async getSessionUser(): Promise<AuthUser | null> {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+    if (sessionError || !session) return null;
+
     const { data, error } = await supabase.auth.getUser();
     if (error || !data.user) return null;
     return toAuthUser(data.user);
