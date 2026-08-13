@@ -122,7 +122,8 @@
 
     <h2>Skeleton template</h2>
     <div class="row tight"><button class="sm" id="addSkeleton">Add standard skeleton to active person</button></div>
-    <p class="tiny">Drops a canonical human skeleton (COCO-style joints + toe direction) with correct bones + proportions, offset to this person's side. Drag joints into the pose. Standardizes joint names across positions and is the same schema a pose-detection model outputs (video horizon).</p>
+    <p class="tiny">Drops a canonical human skeleton (COCO-style joints + toe direction) with correct bones + proportions, offset to this person's side. Standardizes joint names across positions and is the same schema a pose-detection model outputs (video horizon).</p>
+    <label class="f"><input type="checkbox" id="rig" checked style="width:auto"> <b>rig posing</b> — dragging a joint rotates the limb about its parent and carries the sub-limb, keeping bone length (drag the pelvis to move the whole body). Uncheck to free-drag / resize a bone.</label>
 
     <h2>Place joint</h2>
     <div class="split3">
@@ -203,7 +204,7 @@
 const W = 820, H = 520;
 const svg = document.getElementById('svg');
 const state = {
-  activePerson: 'you', skin: 'stickman', showOverlay: true,
+  activePerson: 'you', skin: 'stickman', showOverlay: true, rig: true,
   people: { you: { joints:{}, bones:[], head:'', feet:{} }, opp: { joints:{}, bones:[], head:'', feet:{} } },
   roles: {}, cues: [], anns: [], mode: { type:'idle' }, drag: null,
 };
@@ -267,6 +268,7 @@ document.querySelectorAll('.tabs button[data-skin]').forEach(b=>b.addEventListen
   refresh();
 }));
 $('showOverlay').addEventListener('change',(e)=>{ state.showOverlay=e.target.checked; refresh(); });
+$('rig').addEventListener('change',(e)=>{ state.rig=e.target.checked; });
 
 // ── person tabs ──
 document.querySelectorAll('.tabs button[data-p]').forEach(b=>b.addEventListener('click',()=>{
@@ -319,11 +321,42 @@ svg.addEventListener('pointerdown',(e)=>{
   if(state.mode.type==='placeJoint'){ const P=state.people[state.activePerson]; P.joints[state.mode.name]=p; if(state.mode.head)P.head=state.mode.name; $('jname').value=''; $('jhead').checked=false; idle(); refresh(); return; }
   if(state.mode.type==='placeToe'){ state.people[state.activePerson].feet[state.mode.joint]={toe:p}; idle(); refresh(); return; }
   if(state.mode.type==='placePoint'){ state.roles[state.mode.name]={point:p}; idle(); refresh(); return; }
-  const hit=hitJoint(p); if(hit){ state.drag=hit; svg.setPointerCapture(e.pointerId); }
+  const hit=hitJoint(p); if(hit){ state.drag=hit; if(state.rig) state.drag.tree=hierarchy(hit.person); svg.setPointerCapture(e.pointerId); }
 });
-svg.addEventListener('pointermove',(e)=>{ if(!state.drag)return; state.people[state.drag.person].joints[state.drag.name]=evtToNorm(e); refresh(); });
+svg.addEventListener('pointermove',(e)=>{ if(!state.drag)return; const cur=evtToNorm(e);
+  const P=state.people[state.drag.person], name=state.drag.name;
+  if(!state.rig || !state.drag.tree){ P.joints[name]=cur; refresh(); return; }         // free drag
+  const { parent, children } = state.drag.tree, par=parent[name];
+  const sub=[name, ...descendants(children,name)];
+  if(par==null){ // root / disconnected → translate this joint + its subtree
+    const o=P.joints[name], d=[cur[0]-o[0], cur[1]-o[1]];
+    for(const n of sub) P.joints[n]=[clamp(P.joints[n][0]+d[0]), clamp(P.joints[n][1]+d[1])];
+  } else {       // FK: rotate the (parent→name) limb toward the cursor, keep length, carry subtree
+    const A=P.joints[par], ov=[P.joints[name][0]-A[0], P.joints[name][1]-A[1]];
+    const tv=[cur[0]-A[0], cur[1]-A[1]], tl=Math.hypot(tv[0],tv[1])||1e-6;
+    const oa=Math.atan2(ov[1],ov[0]), na=Math.atan2(tv[1],tv[0]), da=na-oa;
+    const c=Math.cos(da), s=Math.sin(da);
+    for(const n of sub){ const vx=P.joints[n][0]-A[0], vy=P.joints[n][1]-A[1];
+      P.joints[n]=[clamp(A[0]+vx*c-vy*s), clamp(A[1]+vx*s+vy*c)]; }
+  }
+  refresh();
+});
 svg.addEventListener('pointerup',()=>{ state.drag=null; });
 function hitJoint(p){ let best=null,bd=0.025; for(const person of ['opp','you'])for(const [name,v] of Object.entries(state.people[person].joints)){ const d=Math.hypot(v[0]-p[0],v[1]-p[1]); if(d<bd){bd=d;best={person,name};} } return best; }
+// Build a parent/children tree from the person's bones (rooted at pelvis→neck→head→any,
+// per connected component) so a drag can rotate a limb and carry its subtree (FK).
+function hierarchy(person){
+  const P=state.people[person], adj={}, parent={}, children={};
+  for(const n of Object.keys(P.joints)){ adj[n]=[]; children[n]=[]; }
+  for(const [a,b] of P.bones){ if(adj[a]&&adj[b]){ adj[a].push(b); adj[b].push(a); } }
+  const pri=(n)=> n==='pelvis'?0 : n==='neck'?1 : n==='head'?2 : 3;
+  const roots=Object.keys(P.joints).sort((a,b)=>pri(a)-pri(b));
+  const seen=new Set();
+  for(const start of roots){ if(seen.has(start))continue; seen.add(start); parent[start]=null;
+    const q=[start]; while(q.length){ const u=q.shift(); for(const v of adj[u]){ if(!seen.has(v)){ seen.add(v); parent[v]=u; children[u].push(v); q.push(v); } } } }
+  return { parent, children };
+}
+function descendants(children,name){ const out=[], st=[...(children[name]||[])]; while(st.length){ const n=st.pop(); out.push(n); for(const c of children[n]) st.push(c); } return out; }
 
 // ── editors ──
 $('addBone').addEventListener('click',()=>{ const a=$('boneA').value,b=$('boneB').value; if(!a||!b||a===b)return; const P=state.people[state.activePerson]; if(!P.bones.some(x=>(x[0]===a&&x[1]===b)||(x[0]===b&&x[1]===a)))P.bones.push([a,b]); refresh(); });
