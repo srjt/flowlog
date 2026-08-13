@@ -42,3 +42,6 @@ cue-image-test.png
 spike/refs/
 spike/out/
 spike/manifest.json
+
+# scratch pose-viewer output (scripts/renderPoseCheck.ts)
+spike/pose-check.html

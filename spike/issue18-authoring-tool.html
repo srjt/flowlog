@@ -120,6 +120,10 @@
       <button class="opp" data-p="opp">opp</button>
     </div>
 
+    <h2>Skeleton template</h2>
+    <div class="row tight"><button class="sm" id="addSkeleton">Add standard skeleton to active person</button></div>
+    <p class="tiny">Drops a canonical human skeleton (COCO-style joints + toe direction) with correct bones + proportions, offset to this person's side. Drag joints into the pose. Standardizes joint names across positions and is the same schema a pose-detection model outputs (video horizon).</p>
+
     <h2>Place joint</h2>
     <div class="split3">
       <div><label class="f">joint name</label><input id="jname" placeholder="hook_foot" /></div>
@@ -270,6 +274,38 @@ document.querySelectorAll('.tabs button[data-p]').forEach(b=>b.addEventListener(
   document.querySelectorAll('.tabs button[data-p]').forEach(x=>x.classList.toggle('on',x.dataset.p===state.activePerson));
   refresh();
 }));
+
+// ── standard skeleton template (COCO-style joints + toe) ──
+const SKEL = {
+  head: 'head',
+  joints: {
+    head:[0.5,0.10], neck:[0.5,0.17], pelvis:[0.5,0.44],
+    left_shoulder:[0.44,0.19], right_shoulder:[0.56,0.19],
+    left_elbow:[0.42,0.31], right_elbow:[0.58,0.31],
+    left_wrist:[0.41,0.43], right_wrist:[0.59,0.43],
+    left_hip:[0.46,0.45], right_hip:[0.54,0.45],
+    left_knee:[0.45,0.65], right_knee:[0.55,0.65],
+    left_ankle:[0.45,0.84], right_ankle:[0.55,0.84],
+  },
+  bones: [
+    ['neck','pelvis'],['neck','left_shoulder'],['neck','right_shoulder'],
+    ['left_shoulder','left_elbow'],['left_elbow','left_wrist'],
+    ['right_shoulder','right_elbow'],['right_elbow','right_wrist'],
+    ['pelvis','left_hip'],['pelvis','right_hip'],
+    ['left_hip','left_knee'],['left_knee','left_ankle'],
+    ['right_hip','right_knee'],['right_knee','right_ankle'],
+  ],
+  feet: { left_ankle:{toe:[0.43,0.90]}, right_ankle:{toe:[0.57,0.90]} },
+};
+$('addSkeleton').addEventListener('click',()=>{
+  const person=state.activePerson, P=state.people[person];
+  if(Object.keys(P.joints).length && !confirm(`Replace ${person}'s current joints with a fresh standard skeleton?`)) return;
+  const dx = person==='opp' ? -0.20 : 0.20;
+  const joints={}; for(const [k,v] of Object.entries(SKEL.joints)) joints[k]=[clamp(v[0]+dx),v[1]];
+  const feet={}; for(const [k,f] of Object.entries(SKEL.feet)) feet[k]={toe:[clamp(f.toe[0]+dx),f.toe[1]]};
+  state.people[person]={ joints, bones: SKEL.bones.map(b=>[...b]), head: SKEL.head, feet };
+  refresh();
+});
 
 // ── mode ──
 function setMode(m,text){ state.mode=m; const el=$('mode'); el.textContent=text; el.classList.toggle('active',m.type!=='idle'); }
