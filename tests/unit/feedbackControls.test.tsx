@@ -42,6 +42,28 @@ describe('FeedbackControls note', () => {
     expect(onNote).toHaveBeenCalledWith('cue was too vague, name the grip');
   });
 
+  it('saves the typed note when the Save button is pressed', () => {
+    const { getByTestId, onNote, getByText } = setup(false);
+
+    fireEvent.changeText(
+      getByTestId('feedback-note-input'),
+      'grip was unnamed',
+    );
+    fireEvent.press(getByTestId('feedback-note-save'));
+
+    expect(onNote).toHaveBeenCalledWith('grip was unnamed');
+    expect(getByText(/Saved/)).toBeTruthy(); // confirmation shown
+  });
+
+  it('keeps Save disabled until there is a new note to save', () => {
+    const { getByTestId } = setup(false);
+    const save = getByTestId('feedback-note-save');
+
+    expect(save.props.accessibilityState?.disabled).toBe(true);
+    fireEvent.changeText(getByTestId('feedback-note-input'), 'x');
+    expect(save.props.accessibilityState?.disabled).toBe(false);
+  });
+
   it('seeds the field from a previously saved note', () => {
     const { getByTestId } = setup(false, 'earlier note');
     expect(getByTestId('feedback-note-input').props.value).toBe('earlier note');
