@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 
-import { Text } from '@/components/ui';
+import { Button, Text } from '@/components/ui';
 import { FEEDBACK_REASONS } from '@/constants/feedback';
 
 /** Max length for the free-text 👎 note — a sensible cap, not a hard limit. */
@@ -105,8 +105,11 @@ export function FeedbackControls({
 
 /**
  * Optional free-text note. Keeps a local draft so we don't persist on every
- * keystroke; commits to the parent on blur. Re-seeds from `value` when it
- * changes externally (a loaded session, or a clear on thumb flip).
+ * keystroke. An explicit "Save note" button commits it (with a "Saved ✓"
+ * confirmation) so the user has a clear, visible way to save and knows it
+ * worked; blur also commits as a safety net (tapping away still saves).
+ * Re-seeds from `value` when it changes externally (a loaded session, or a
+ * clear on thumb flip).
  */
 function NoteField({
   value,
@@ -116,12 +119,21 @@ function NoteField({
   onCommit: (note: string) => void;
 }) {
   const [draft, setDraft] = useState(value ?? '');
+  const [savedValue, setSavedValue] = useState(value ?? '');
   useEffect(() => {
     setDraft(value ?? '');
+    setSavedValue(value ?? '');
   }, [value]);
 
+  const save = () => {
+    const trimmed = draft.trim();
+    onCommit(trimmed);
+    setSavedValue(trimmed);
+  };
+  const dirty = draft.trim() !== savedValue;
+
   return (
-    <View className="gap-1">
+    <View className="gap-2">
       <Text variant="caption">Add a note (optional)</Text>
       <TextInput
         testID="feedback-note-input"
@@ -130,12 +142,28 @@ function NoteField({
         placeholderTextColor="#8A8A99"
         value={draft}
         onChangeText={setDraft}
-        onBlur={() => onCommit(draft.trim())}
+        onBlur={save}
         multiline
         maxLength={FEEDBACK_NOTE_MAX}
         textAlignVertical="top"
         className="min-h-20 rounded-xl border border-muted bg-surface px-4 py-3 text-base text-white"
       />
+      <View className="flex-row items-center justify-between gap-3">
+        <Text
+          testID="feedback-note-status"
+          variant="caption"
+          className={dirty ? 'text-muted' : 'text-success'}
+        >
+          {dirty ? 'Unsaved changes' : savedValue.length > 0 ? 'Saved ✓' : ''}
+        </Text>
+        <Button
+          testID="feedback-note-save"
+          title="Save note"
+          variant="secondary"
+          disabled={!dirty}
+          onPress={save}
+        />
+      </View>
     </View>
   );
 }
