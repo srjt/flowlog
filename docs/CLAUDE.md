@@ -13,6 +13,8 @@ index to go deep.
 4. [`PROVIDERS.md`](./PROVIDERS.md) — how to swap or add an external provider.
 5. [`SPORTS.md`](./SPORTS.md) — how to add a new sport (3 files + 1 registry line).
 6. [`DATABASE.md`](./DATABASE.md) — schema, RLS, migration rules.
+   - [`MIGRATIONS.md`](./MIGRATIONS.md) — keeping prod schema in sync with
+     `supabase/migrations/`, and recovering from drift.
 7. [`TESTING.md`](./TESTING.md) — what must be tested and the coverage targets.
 8. [`adr/`](./adr/) — architecture decision records: why the architecture is the way it is.
 
