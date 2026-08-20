@@ -43,8 +43,14 @@ export default function SessionDetailScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const persist = (up: boolean, reason: string | null, note: string | null) => {
-    if (!session) return;
+  // Optimistically update local + store, then return the DB write's promise so
+  // callers that care (the note field) can await it and surface a real result.
+  const persist = (
+    up: boolean,
+    reason: string | null,
+    note: string | null,
+  ): Promise<void> => {
+    if (!session) return Promise.resolve();
     setSession({
       ...session,
       thumbsUp: up,
@@ -52,25 +58,28 @@ export default function SessionDetailScreen() {
       feedbackNote: note,
     });
     useSessionStore.getState().setFeedback(session.id, up, reason, note);
-    saveSessionFeedback(session.id, up, reason, note).catch((err) =>
-      logger.warn('feedback save failed', err),
-    );
+    return saveSessionFeedback(session.id, up, reason, note);
   };
+  const warnOnFail = (p: Promise<void>) =>
+    void p.catch((err) => logger.warn('feedback save failed', err));
   // Flipping to 👍 clears both; flipping to 👎 keeps whatever was saved.
   const onThumb = (up: boolean) =>
-    up
-      ? persist(true, null, null)
-      : persist(
-          false,
-          session?.feedbackReason ?? null,
-          session?.feedbackNote ?? null,
-        );
+    warnOnFail(
+      up
+        ? persist(true, null, null)
+        : persist(
+            false,
+            session?.feedbackReason ?? null,
+            session?.feedbackNote ?? null,
+          ),
+    );
   const onReason = (reason: string) =>
-    persist(false, reason, session?.feedbackNote ?? null);
+    warnOnFail(persist(false, reason, session?.feedbackNote ?? null));
   const onNote = (note: string) => {
     // Note only applies to a 👎; ignore a stray blur after a flip to 👍.
     if (session?.thumbsUp !== false) return;
-    persist(
+    // Return the promise (uncaught) so the note field reflects success/failure.
+    return persist(
       false,
       session?.feedbackReason ?? null,
       note.length > 0 ? note : null,

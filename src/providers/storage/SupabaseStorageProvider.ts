@@ -211,15 +211,26 @@ export class SupabaseStorageProvider implements IStorageProvider {
     reason?: string | null,
     note?: string | null,
   ): Promise<void> {
-    const { error } = await supabase
+    // `.select()` so we can tell whether a row was actually updated. Without it
+    // an UPDATE that matches nothing (RLS: auth.uid() is null when the session
+    // is stale, or an id mismatch) returns no error AND no indication — a silent
+    // no-op that looks "saved" to the caller. Treat 0 rows as a failure so the
+    // UI can surface it instead of falsely confirming.
+    const { data, error } = await supabase
       .from('sessions')
       .update({
         thumbs_up: thumbsUp,
         feedback_reason: reason ?? null,
         feedback_note: note ?? null,
       })
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .select('id');
     if (error) throw new Error(`Set feedback failed: ${error.message}`);
+    if (!data || data.length === 0) {
+      throw new Error(
+        'Feedback was not saved — the session could not be found (you may be signed out).',
+      );
+    }
   }
 
   async deleteSession(sessionId: string): Promise<void> {

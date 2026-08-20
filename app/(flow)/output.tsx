@@ -59,11 +59,11 @@ export default function OutputScreen() {
     return <Redirect href="/(tabs)/record" />;
   }
 
+  // Optimistically update local state, then return the DB write's promise so
+  // callers that care (the note field) can await it and surface a real result.
   const persist = (up: boolean, r: string | null, n: string | null) => {
     setFeedback(latestResult.sessionId, up, r, n); // updates the Log entry too
-    saveSessionFeedback(latestResult.sessionId, up, r, n).catch((err) =>
-      logger.warn('feedback save failed', err),
-    );
+    return saveSessionFeedback(latestResult.sessionId, up, r, n);
   };
 
   const onThumb = (up: boolean) => {
@@ -76,12 +76,16 @@ export default function OutputScreen() {
       setReason(null);
       setNote(null);
     }
-    persist(up, r, n);
+    void persist(up, r, n).catch((err) =>
+      logger.warn('feedback save failed', err),
+    );
   };
 
   const onReason = (r: string) => {
     setReason(r);
-    persist(false, r, note);
+    void persist(false, r, note).catch((err) =>
+      logger.warn('feedback save failed', err),
+    );
   };
 
   const onNote = (n: string) => {
@@ -89,7 +93,8 @@ export default function OutputScreen() {
     if (thumb !== false) return;
     const value = n.length > 0 ? n : null;
     setNote(value);
-    persist(false, reason, value);
+    // Return the promise (uncaught) so the note field reflects success/failure.
+    return persist(false, reason, value);
   };
 
   return (

@@ -27,7 +27,9 @@ export function FeedbackControls({
   note: string | null;
   onThumb: (up: boolean) => void;
   onReason: (reason: string) => void;
-  onNote: (note: string) => void;
+  // May return a promise; the note field awaits it so it can confirm a real
+  // save or surface a failure (rather than optimistically claiming "Saved").
+  onNote: (note: string) => void | Promise<void>;
 }) {
   return (
     <View className="gap-3">
@@ -103,34 +105,64 @@ export function FeedbackControls({
   );
 }
 
+type NoteSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
 /**
  * Optional free-text note. Keeps a local draft so we don't persist on every
- * keystroke. An explicit "Save note" button commits it (with a "Saved ✓"
- * confirmation) so the user has a clear, visible way to save and knows it
- * worked; blur also commits as a safety net (tapping away still saves).
- * Re-seeds from `value` when it changes externally (a loaded session, or a
- * clear on thumb flip).
+ * keystroke. An explicit "Save note" button commits it and reflects the REAL
+ * outcome — "Saving…", then "Saved ✓" only once the parent's persist resolves,
+ * or an error the user can retry — so the confirmation never lies. Blur also
+ * commits (when there are unsaved changes) as a safety net. Re-seeds from
+ * `value` when it changes externally (a loaded session, or a clear on flip).
  */
 function NoteField({
   value,
   onCommit,
 }: {
   value: string | null;
-  onCommit: (note: string) => void;
+  onCommit: (note: string) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState(value ?? '');
   const [savedValue, setSavedValue] = useState(value ?? '');
+  const [status, setStatus] = useState<NoteSaveStatus>('idle');
   useEffect(() => {
     setDraft(value ?? '');
     setSavedValue(value ?? '');
+    setStatus('idle');
   }, [value]);
 
-  const save = () => {
-    const trimmed = draft.trim();
-    onCommit(trimmed);
-    setSavedValue(trimmed);
-  };
   const dirty = draft.trim() !== savedValue;
+
+  const save = async () => {
+    const trimmed = draft.trim();
+    setStatus('saving');
+    try {
+      await onCommit(trimmed);
+      setSavedValue(trimmed);
+      setStatus('saved');
+    } catch {
+      // The parent's persist rejected (e.g. the write hit 0 rows / a network
+      // error). Keep the draft so the user can retry, and show the failure.
+      setStatus('error');
+    }
+  };
+
+  const statusText =
+    status === 'saving'
+      ? 'Saving…'
+      : status === 'error'
+        ? 'Couldn’t save — tap Save note to try again.'
+        : dirty
+          ? 'Unsaved changes'
+          : savedValue.length > 0
+            ? 'Saved ✓'
+            : '';
+  const statusClass =
+    status === 'error'
+      ? 'text-danger'
+      : status === 'saved' && !dirty
+        ? 'text-success'
+        : 'text-muted';
 
   return (
     <View className="gap-2">
@@ -142,7 +174,9 @@ function NoteField({
         placeholderTextColor="#8A8A99"
         value={draft}
         onChangeText={setDraft}
-        onBlur={save}
+        onBlur={() => {
+          if (dirty) void save();
+        }}
         multiline
         maxLength={FEEDBACK_NOTE_MAX}
         textAlignVertical="top"
@@ -152,16 +186,18 @@ function NoteField({
         <Text
           testID="feedback-note-status"
           variant="caption"
-          className={dirty ? 'text-muted' : 'text-success'}
+          className={statusClass}
         >
-          {dirty ? 'Unsaved changes' : savedValue.length > 0 ? 'Saved ✓' : ''}
+          {statusText}
         </Text>
         <Button
           testID="feedback-note-save"
           title="Save note"
           variant="secondary"
-          disabled={!dirty}
-          onPress={save}
+          loading={status === 'saving'}
+          // Enabled while there are unsaved changes, or to retry after an error.
+          disabled={status === 'saving' || (!dirty && status !== 'error')}
+          onPress={() => void save()}
         />
       </View>
     </View>

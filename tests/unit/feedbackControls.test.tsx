@@ -2,10 +2,14 @@ import { fireEvent, render } from '@testing-library/react-native';
 
 import { FeedbackControls } from '@/components/FeedbackControls';
 
-function setup(thumb: boolean | null, note: string | null = null) {
+function setup(
+  thumb: boolean | null,
+  note: string | null = null,
+  onNote: (n: string) => void | Promise<void> = jest.fn(),
+) {
   const onThumb = jest.fn();
   const onReason = jest.fn();
-  const onNote = jest.fn();
+  const noteSpy = jest.fn(onNote);
   const utils = render(
     <FeedbackControls
       thumb={thumb}
@@ -13,10 +17,10 @@ function setup(thumb: boolean | null, note: string | null = null) {
       note={note}
       onThumb={onThumb}
       onReason={onReason}
-      onNote={onNote}
+      onNote={noteSpy}
     />,
   );
-  return { ...utils, onThumb, onReason, onNote };
+  return { ...utils, onThumb, onReason, onNote: noteSpy };
 }
 
 describe('FeedbackControls note', () => {
@@ -31,7 +35,7 @@ describe('FeedbackControls note', () => {
     expect(none.queryByTestId('feedback-note-input')).toBeNull();
   });
 
-  it('commits the typed note to the parent on blur', () => {
+  it('commits the typed note to the parent on blur (when changed)', () => {
     const { getByTestId, onNote } = setup(false);
     const input = getByTestId('feedback-note-input');
 
@@ -42,8 +46,8 @@ describe('FeedbackControls note', () => {
     expect(onNote).toHaveBeenCalledWith('cue was too vague, name the grip');
   });
 
-  it('saves the typed note when the Save button is pressed', () => {
-    const { getByTestId, onNote, getByText } = setup(false);
+  it('confirms "Saved" only after the parent resolves', async () => {
+    const { getByTestId, onNote, findByText } = setup(false);
 
     fireEvent.changeText(
       getByTestId('feedback-note-input'),
@@ -52,7 +56,25 @@ describe('FeedbackControls note', () => {
     fireEvent.press(getByTestId('feedback-note-save'));
 
     expect(onNote).toHaveBeenCalledWith('grip was unnamed');
-    expect(getByText(/Saved/)).toBeTruthy(); // confirmation shown
+    expect(await findByText(/Saved/)).toBeTruthy();
+  });
+
+  it('surfaces an error (and keeps the draft) when the save fails', async () => {
+    const failing = jest.fn(() => Promise.reject(new Error('0 rows')));
+    const { getByTestId, findByText } = setup(false, null, failing);
+
+    fireEvent.changeText(getByTestId('feedback-note-input'), 'important note');
+    fireEvent.press(getByTestId('feedback-note-save'));
+
+    expect(await findByText(/Couldn.t save/)).toBeTruthy();
+    // Draft is preserved so the user can retry.
+    expect(getByTestId('feedback-note-input').props.value).toBe(
+      'important note',
+    );
+    // And the button is re-enabled for a retry.
+    expect(
+      getByTestId('feedback-note-save').props.accessibilityState?.disabled,
+    ).toBe(false);
   });
 
   it('keeps Save disabled until there is a new note to save', () => {
