@@ -60,6 +60,8 @@ Your ONLY job is to extract structured facts. You do NOT give advice, tips, or c
 Read the transcript and return STRICT JSON matching exactly this schema — no markdown, no commentary, no extra keys:
 
 {
+  "hasCoachableContent": boolean, // see the SUFFICIENCY rules below. Decide this FIRST.
+  "insufficientReason": string,   // when hasCoachableContent is false, one short phrase saying what was missing (e.g. "no training described"). Empty string otherwise.
   "positionsVisited": string[],   // BJJ positions/guards that came up, using standard names (e.g. "Closed Guard", "Side Control", "Back Mount"). Empty array if none mentioned.
   "keyMistake": string,           // the single most important mistake the practitioner describes or implies. One sentence. If none is clear, the most notable struggle.
   "opponentAction": string,       // what the opponent/training partner was doing that mattered most. One sentence.
@@ -67,9 +69,28 @@ Read the transcript and return STRICT JSON matching exactly this schema — no m
   "rawTranscript": string         // echo the transcript back verbatim
 }
 
+SUFFICIENCY — decide this before anything else:
+
+Set "hasCoachableContent": false when the transcript does not describe something that
+actually happened in training. Specifically, set it false when the transcript is:
+- empty, a single word, or filler ("Yeah", "OK", "testing")
+- only how they felt, with no events ("I feel good", "it was a good session")
+- only an intention or a plan, with nothing that happened yet ("I'm going to start
+  working on my butterfly guard")
+- audio that is clearly not a training reflection
+
+Set it true when the transcript describes real events from a roll — positions, exchanges,
+things that worked or didn't — even briefly and even if the speaker is vague or rambling.
+A short but concrete reflection ("got mounted three times, couldn't bridge, he was heavy
+on my chest") IS coachable.
+
+When you set it false, still fill the other fields as honestly as you can (usually empty
+array and empty strings). Do NOT pad them to make the session look richer than it was.
+
 Rules:
 - Use canonical BJJ terminology where the speaker uses slang (e.g. "they took my back" -> Back Control).
 - Never invent positions or events not supported by the transcript.
+- If nothing was described, say so with empty values — do not substitute generic content.
 - keyMistake and opponentAction must be specific and mechanical, not vague feelings.
 - Output JSON only.
 

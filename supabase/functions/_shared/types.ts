@@ -15,6 +15,9 @@ export interface ExtractionOutput {
   opponentAction: string;
   sentiment: string;
   rawTranscript: string;
+  /** Issue #44 — see src/services/ExtractionService.ts for the full rationale. */
+  hasCoachableContent: boolean;
+  insufficientReason: string;
 }
 
 export interface CoachingOutput {
@@ -50,9 +53,12 @@ export interface ProcessRequest {
 export interface PipelineOutput {
   sessionId: string;
   structuredSummary: string;
-  coachingCue: string;
-  targetPosition: string;
+  /** Null when the pipeline declined (issue #44) — no cue was invented. */
+  coachingCue: string | null;
+  targetPosition: string | null;
   sentiment: string;
   qualityGatePassed: boolean;
   processingSteps: ProcessingStep[];
+  declined: boolean;
+  declinedReason: string;
 }

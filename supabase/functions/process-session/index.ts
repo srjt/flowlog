@@ -115,6 +115,36 @@ Deno.serve(async (req: Request) => {
       const sport = getSportContext(existing.sport_key);
 
       const extraction = await extract(editedTranscript, sport, skillLevel);
+
+      // A corrected transcript can still have nothing coachable in it
+      // (issue #44) — decline here too rather than inventing on re-analysis.
+      if (!extraction.hasCoachableContent) {
+        stage = 'reanalyze_persist';
+        const declined = await dbUpdate(
+          `sessions?id=eq.${reanalyzeSessionId}&user_id=eq.${user.id}`,
+          {
+            raw_transcript: editedTranscript,
+            positions_visited: extraction.positionsVisited,
+            key_mistake: extraction.keyMistake,
+            opponent_action: extraction.opponentAction,
+            sentiment: extraction.sentiment,
+            coaching_cue: null,
+            target_position: null,
+            quality_gate_passed: false,
+            pipeline_version: PIPELINE_VERSION,
+          },
+        );
+        await updateUserTrends(user.id, existing.sport_key);
+        return jsonResponse(
+          {
+            ...outputFromRow(declined ?? existing, sport),
+            declined: true,
+            declinedReason: extraction.insufficientReason,
+          },
+          200,
+        );
+      }
+
       const { recentMistakes, dominantWeakness } = await loadHistory(
         user.id,
         existing.sport_key,
@@ -265,6 +295,74 @@ Deno.serve(async (req: Request) => {
       skillLevel,
     );
 
+    // Shared insert for both the normal and the declined path — the
+    // idempotency/conflict handling must be identical for each.
+    const insertSession = async (analysis: {
+      cue: string | null;
+      targetPosition: string | null;
+      qualityGatePassed: boolean;
+    }): Promise<{ row: any } | { conflictOutput: Response }> => {
+      try {
+        const row = await dbInsert('sessions', {
+          user_id: user.id,
+          sport_key: sportKey,
+          session_date: sessionDate ?? new Date().toISOString(),
+          audio_storage_path: audioStoragePath,
+          raw_transcript: transcription.transcript,
+          positions_visited: extraction.positionsVisited,
+          key_mistake: extraction.keyMistake,
+          opponent_action: extraction.opponentAction,
+          sentiment: extraction.sentiment,
+          coaching_cue: analysis.cue,
+          target_position: analysis.targetPosition,
+          quality_gate_passed: analysis.qualityGatePassed,
+          pipeline_version: PIPELINE_VERSION,
+          client_session_id: clientSessionId,
+        });
+        return { row };
+      } catch (err) {
+        // Two in-flight retries can race past the replay check; the partial
+        // unique index turns the loser into a conflict — return the winner.
+        const msg = String((err as Error).message ?? '');
+        if (clientSessionId && /409|23505|duplicate/i.test(msg)) {
+          const rows = await dbSelect(
+            `sessions?select=*&user_id=eq.${user.id}` +
+              `&client_session_id=eq.${clientSessionId}&limit=1`,
+          );
+          if (rows?.[0]) {
+            return {
+              conflictOutput: jsonResponse(outputFromRow(rows[0], sport), 200),
+            };
+          }
+        }
+        throw err;
+      }
+    };
+
+    // ── Decline path (issue #44) ────────────────────────────────────────────
+    // Nothing coachable in the recording. Skip coaching entirely rather than let
+    // the model invent a cue from empty inputs — it will, fluently, and the
+    // quality gate cannot tell. The Session is still inserted (null cue) so the
+    // reflection and the user's streak survive; the client offers re-record.
+    if (!extraction.hasCoachableContent) {
+      stage = 'persistence';
+      const declinedRow = await insertSession({
+        cue: null,
+        targetPosition: null,
+        qualityGatePassed: false,
+      });
+      if ('conflictOutput' in declinedRow) return declinedRow.conflictOutput;
+      await updateUserTrends(user.id, sportKey);
+      return jsonResponse(
+        {
+          ...outputFromRow(declinedRow.row, sport),
+          declined: true,
+          declinedReason: extraction.insufficientReason,
+        },
+        200,
+      );
+    }
+
     // History for coaching (best-effort).
     const { recentMistakes, dominantWeakness } = await loadHistory(
       user.id,
@@ -304,39 +402,13 @@ Deno.serve(async (req: Request) => {
 
     // ── Stage 4: persistence ────────────────────────────────────────────────
     stage = 'persistence';
-    let session;
-    try {
-      session = await dbInsert('sessions', {
-        user_id: user.id,
-        sport_key: sportKey,
-        session_date: sessionDate ?? new Date().toISOString(),
-        audio_storage_path: audioStoragePath,
-        raw_transcript: transcription.transcript,
-        positions_visited: extraction.positionsVisited,
-        key_mistake: extraction.keyMistake,
-        opponent_action: extraction.opponentAction,
-        sentiment: extraction.sentiment,
-        coaching_cue: gate.coaching.cue,
-        target_position: gate.coaching.targetPosition,
-        quality_gate_passed: gate.passed,
-        pipeline_version: PIPELINE_VERSION,
-        client_session_id: clientSessionId,
-      });
-    } catch (err) {
-      // Two in-flight retries can race past the replay check; the partial
-      // unique index turns the loser into a conflict — return the winner.
-      const msg = String((err as Error).message ?? '');
-      if (clientSessionId && /409|23505|duplicate/i.test(msg)) {
-        const rows = await dbSelect(
-          `sessions?select=*&user_id=eq.${user.id}` +
-            `&client_session_id=eq.${clientSessionId}&limit=1`,
-        );
-        if (rows?.[0]) {
-          return jsonResponse(outputFromRow(rows[0], sport), 200);
-        }
-      }
-      throw err;
-    }
+    const inserted = await insertSession({
+      cue: gate.coaching.cue,
+      targetPosition: gate.coaching.targetPosition,
+      qualityGatePassed: gate.passed,
+    });
+    if ('conflictOutput' in inserted) return inserted.conflictOutput;
+    const session = inserted.row;
 
     // Recompute trends so the NEXT session's coaching is trend-aware
     // (best-effort — never fail the request over this).
@@ -350,6 +422,8 @@ Deno.serve(async (req: Request) => {
       sentiment: extraction.sentiment,
       qualityGatePassed: gate.passed,
       processingSteps: STEPS,
+      declined: false,
+      declinedReason: '',
     };
     return jsonResponse(output, 200);
   } catch (err) {
@@ -386,10 +460,15 @@ function outputFromRow(
       },
       sport.sessionUnit,
     ),
-    coachingCue: row.coaching_cue ?? '',
-    targetPosition: row.target_position ?? '',
+    // A row with no cue is a declined take (issue #44) — never coerce it to an
+    // empty string, or the client renders a blank cue card instead of the
+    // honest empty state.
+    coachingCue: row.coaching_cue ?? null,
+    targetPosition: row.target_position ?? null,
     sentiment: row.sentiment ?? 'neutral',
     qualityGatePassed: row.quality_gate_passed ?? false,
+    declined: row.coaching_cue == null,
+    declinedReason: '',
     processingSteps: STEPS,
   };
 }

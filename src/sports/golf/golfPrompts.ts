@@ -14,6 +14,8 @@ export const GOLF_EXTRACTION_PROMPT = `TODO(golf): Write the golf extraction pro
 
 It must return STRICT JSON matching:
 {
+  "hasCoachableContent": boolean, // false when the transcript describes no actual play — filler, feelings only, or a plan rather than something that happened
+  "insufficientReason": string,   // short phrase when hasCoachableContent is false; empty string otherwise
   "positionsVisited": string[],  // golf situations / shot types encountered
   "keyMistake": string,
   "opponentAction": string,      // golf has no opponent — repurpose as "course/condition challenge"

@@ -197,7 +197,48 @@ export async function extract(
     opponentAction: parsed.opponentAction ?? '',
     sentiment,
     rawTranscript: transcript,
+    ...judgeSufficiency(
+      transcript,
+      parsed.hasCoachableContent,
+      parsed.insufficientReason,
+    ),
   };
+}
+
+/**
+ * Sufficiency (issue #44) — mirrors `ExtractionService.judgeSufficiency` on the
+ * client. Two independent checks, both must pass before a cue is generated:
+ * the model's own verdict, and a word-count backstop that cannot be talked out
+ * of its answer. A missing model verdict degrades to `true` (prior behaviour);
+ * the backstop still applies.
+ */
+export const MIN_TRANSCRIPT_WORDS = 8;
+
+export function judgeSufficiency(
+  transcript: string,
+  modelVerdict: boolean | undefined,
+  modelReason: string | undefined,
+  minWords: number = MIN_TRANSCRIPT_WORDS,
+): { hasCoachableContent: boolean; insufficientReason: string } {
+  const trimmed = transcript.trim();
+  const words = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
+
+  if (words < minWords) {
+    return {
+      hasCoachableContent: false,
+      insufficientReason:
+        modelVerdict === false && modelReason?.trim()
+          ? modelReason.trim()
+          : 'the recording was too short to work from',
+    };
+  }
+  if (modelVerdict === false) {
+    return {
+      hasCoachableContent: false,
+      insufficientReason: modelReason?.trim() || 'no training was described',
+    };
+  }
+  return { hasCoachableContent: true, insufficientReason: '' };
 }
 
 // ── Coaching (Stage 2) ──────────────────────────────────────────────────────

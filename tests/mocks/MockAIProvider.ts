@@ -12,6 +12,8 @@ const DEFAULT_EXTRACTION: ExtractionOutput = {
   opponentAction: 'Attacked the back the moment I turned away.',
   sentiment: 'flat',
   rawTranscript: '',
+  hasCoachableContent: true,
+  insufficientReason: '',
 };
 
 const DEFAULT_GOOD_COACHING: CoachingOutput = {
@@ -32,11 +34,15 @@ export class MockAIProvider implements IAIProvider {
   lastStrict = false;
   strictCallCount = 0;
 
+  public extraction: ExtractionOutput;
+
   constructor(
-    public extraction: ExtractionOutput = DEFAULT_EXTRACTION,
+    extraction: Partial<ExtractionOutput> = {},
     public coachingQueue: CoachingOutput[] = [],
     public defaultCoaching: CoachingOutput = DEFAULT_GOOD_COACHING,
-  ) {}
+  ) {
+    this.extraction = { ...DEFAULT_EXTRACTION, ...extraction };
+  }
 
   async isAvailable(): Promise<boolean> {
     return this.available;
