@@ -33,6 +33,16 @@ export const golfContext: ISportContext = {
     'keep your head down',
     'just have fun',
   ],
+  // TODO(golf): golf's position vocabulary (lie, shot type, hazard) is not
+  // written yet. An empty list plus a normalizer that always abstains is the
+  // honest stub — it degrades to ungrounded behaviour rather than guessing.
+  positions: [],
+  normalizePosition: () => ({
+    id: null,
+    base: null,
+    label: null,
+    perspective: 'unknown',
+  }),
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };
