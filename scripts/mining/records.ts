@@ -106,6 +106,39 @@ export interface ValidationResult {
 const GI_VALUES = new Set(['gi', 'no-gi', 'either']);
 const LEVELS = new Set(['beginner', 'intermediate', 'advanced', 'any']);
 
+/**
+ * Synonyms the model reasonably reaches for. Normalised rather than rejected.
+ *
+ * The distinction that matters: reject what is WRONG, normalise what is merely
+ * PHRASED differently. A position outside the taxonomy is dangerous and must be
+ * rejected — every later lookup would be confidently wrong. `gi: "any"` is not
+ * dangerous, it is the same meaning as "either" in the vocabulary the model
+ * already uses for `level`. Rejecting it cost an entire volume: 23 of that
+ * volume's 24 records were thrown away over this one word.
+ */
+const GI_SYNONYMS: Record<string, string> = {
+  any: 'either',
+  both: 'either',
+  'n/a': 'either',
+  none: 'either',
+  nogi: 'no-gi',
+  'no gi': 'no-gi',
+  no_gi: 'no-gi',
+  gi_only: 'gi',
+  'gi only': 'gi',
+};
+
+const LEVEL_SYNONYMS: Record<string, string> = {
+  all: 'any',
+  either: 'any',
+  novice: 'beginner',
+  white: 'beginner',
+  fundamental: 'beginner',
+  fundamentals: 'beginner',
+  expert: 'advanced',
+  'high level': 'advanced',
+};
+
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
@@ -162,8 +195,10 @@ export function validateRecords(
     }
 
     const pre = (r.preconditions ?? {}) as Record<string, unknown>;
-    const gi = str(pre.gi) || 'either';
-    const level = str(pre.level) || 'any';
+    const giRaw = str(pre.gi).toLowerCase() || 'either';
+    const levelRaw = str(pre.level).toLowerCase() || 'any';
+    const gi = GI_SYNONYMS[giRaw] ?? giRaw;
+    const level = LEVEL_SYNONYMS[levelRaw] ?? levelRaw;
     if (!GI_VALUES.has(gi)) {
       reject(`preconditions.gi must be gi | no-gi | either`, pre.gi);
       return;

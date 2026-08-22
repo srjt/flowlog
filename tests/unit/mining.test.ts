@@ -264,3 +264,54 @@ describe('chapterCoverage', () => {
     ]);
   });
 });
+
+describe('validateRecords — precondition synonyms', () => {
+  // Rejecting "any" for gi cost an entire volume: 23 of 24 records discarded
+  // over one word that meant exactly what "either" means.
+  it('normalises gi synonyms instead of rejecting them', () => {
+    for (const [given, expected] of [
+      ['any', 'either'],
+      ['both', 'either'],
+      ['no gi', 'no-gi'],
+      ['nogi', 'no-gi'],
+      ['GI', 'gi'],
+    ] as const) {
+      const { valid, rejected } = validateRecords(
+        [good({ preconditions: { gi: given, level: 'any' } })],
+        SOURCE,
+        noChapters,
+      );
+      expect(rejected).toHaveLength(0);
+      expect(valid[0]?.preconditions.gi).toBe(expected);
+    }
+  });
+
+  it('normalises level synonyms', () => {
+    const { valid } = validateRecords(
+      [good({ preconditions: { gi: 'either', level: 'high level' } })],
+      SOURCE,
+      noChapters,
+    );
+    expect(valid[0]?.preconditions.level).toBe('advanced');
+  });
+
+  it('still rejects a genuinely unknown value', () => {
+    // Forgiving on phrasing, strict on meaning.
+    const { rejected } = validateRecords(
+      [good({ preconditions: { gi: 'sometimes', level: 'any' } })],
+      SOURCE,
+      noChapters,
+    );
+    expect(rejected[0]?.reason).toMatch(/gi/);
+  });
+
+  it('never normalises an out-of-taxonomy position', () => {
+    // A wrong position is dangerous in a way a synonym is not.
+    const { rejected } = validateRecords(
+      [good({ position: 'side control bottom' })],
+      SOURCE,
+      noChapters,
+    );
+    expect(rejected).toHaveLength(1);
+  });
+});
