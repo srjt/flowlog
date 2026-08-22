@@ -16,7 +16,13 @@
  * and must never be committed.
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -35,8 +41,21 @@ import {
   type Chapter,
 } from './transcript.ts';
 
-const MODEL = 'claude-opus-4-6';
+/**
+ * Provider defaults. The project runs on either Claude or Gemini (`AI_PROVIDER`
+ * in the app); the miner mirrors that rather than assuming one.
+ *
+ * Mining is a one-off, quality-critical extraction over a whole volume, so the
+ * stronger model is the right default — `.env.example` already documents
+ * `gemini-2.5-pro` as the step up from the app's `gemini-2.5-flash` default.
+ */
+const DEFAULT_MODEL = {
+  gemini: 'gemini-2.5-pro',
+  claude: 'claude-opus-4-6',
+} as const;
 const MAX_TOKENS = 32000;
+
+type Provider = keyof typeof DEFAULT_MODEL;
 
 function die(msg: string): never {
   console.error(`error: ${msg}`);
@@ -49,7 +68,16 @@ function arg(flag: string): string | null {
 }
 const has = (flag: string) => process.argv.includes(flag);
 
-/** Find a chapter index sitting beside the volume, if the title ships one. */
+/**
+ * Find a chapter index sitting beside the volume, if the title ships one.
+ *
+ * Naming is inconsistent across the library — `Contents.txt`, `Content.txt`,
+ * or the instructional's full title as the filename. So try the conventional
+ * names first, then fall back to any sibling .txt that actually PARSES as an
+ * index: several timestamped `MM:SS - Title` lines and no transcript
+ * timestamps. Cheap, and it keeps the completeness check available on more
+ * titles instead of silently going missing because of a filename.
+ */
 function findChapterIndex(volumePath: string): string | null {
   const dir = dirname(volumePath);
   for (const name of [
@@ -61,9 +89,25 @@ function findChapterIndex(volumePath: string): string | null {
     const p = join(dir, name);
     if (existsSync(p)) return p;
   }
-  // Some titles keep the index in a differently-named .txt alongside the
-  // volumes; fall back to any .txt that parses as an index.
-  return null;
+  let best: { path: string; chapters: number } | null = null;
+  for (const entry of readdirSync(dir)) {
+    if (!entry.toLowerCase().endsWith('.txt')) continue;
+    const p = join(dir, entry);
+    if (p === volumePath) continue;
+    let text: string;
+    try {
+      text = readFileSync(p, 'utf8');
+    } catch {
+      continue;
+    }
+    // A transcript, not an index — transcripts carry [h:mm:ss -> ...] lines.
+    if (/^\[\d+:\d{2}:\d{2}/m.test(text)) continue;
+    const chapters = parseChapterIndex(text).length;
+    if (chapters >= 5 && (!best || chapters > best.chapters)) {
+      best = { path: p, chapters };
+    }
+  }
+  return best?.path ?? null;
 }
 
 function slugify(s: string): string {
@@ -73,15 +117,85 @@ function slugify(s: string): string {
     .replace(/^-|-$/g, '');
 }
 
-async function callClaude(prompt: string): Promise<string> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
+/**
+ * Read keys from a local .env if present, without clobbering anything already
+ * exported. Keeps the miner usable without re-exporting secrets per shell;
+ * .env is gitignored.
+ */
+function loadDotEnv(): void {
+  const path = join(process.cwd(), '.env');
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/.exec(line);
+    if (!m) continue;
+    const [, k, rawValue] = m;
+    if (!k || process.env[k]) continue;
+    const v = (rawValue ?? '').replace(/^['"]|['"]$/g, '').trim();
+    if (v) process.env[k] = v;
+  }
+}
+
+/** Which provider to use: explicit flag, else whichever key is available. */
+function resolveProvider(): Provider {
+  const explicit = arg('--provider');
+  if (explicit === 'gemini' || explicit === 'claude') return explicit;
+  if (process.env.GEMINI_API_KEY) return 'gemini';
+  if (process.env.ANTHROPIC_API_KEY) return 'claude';
+  die(
+    'No API key found. Set GEMINI_API_KEY (or ANTHROPIC_API_KEY), in your\n' +
+      '  shell or in .env.\n' +
+      '  Or use --dry-run to assemble the prompt without calling the API,\n' +
+      '  or --from-json <file> to reprocess a saved response.',
+  );
+}
+
+/**
+ * Gemini, in JSON mode. `responseMimeType: application/json` makes the model
+ * return parseable JSON rather than fenced prose, which removes a whole class
+ * of parse failure. Mirrors the edge function's call shape.
+ */
+async function callGemini(prompt: string, model: string): Promise<string> {
+  const key = process.env.GEMINI_API_KEY!;
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/` +
+    `${model}:generateContent?key=${encodeURIComponent(key)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        maxOutputTokens: MAX_TOKENS,
+        // Extraction, not composition — keep it faithful to the transcript.
+        temperature: 0.2,
+        responseMimeType: 'application/json',
+      },
+    }),
+  });
+  if (!res.ok) {
+    die(`Gemini API ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  }
+  const json = (await res.json()) as {
+    candidates?: {
+      content?: { parts?: { text?: string }[] };
+      finishReason?: string;
+    }[];
+  };
+  const candidate = json.candidates?.[0];
+  const text = (candidate?.content?.parts ?? [])
+    .map((p) => p.text ?? '')
+    .join('');
+  if (!text) {
     die(
-      'ANTHROPIC_API_KEY is not set.\n' +
-        '  Use --dry-run to assemble the prompt without calling the API,\n' +
-        '  or --from-json <file> to reprocess a saved response.',
+      `Gemini returned no text (finishReason: ${candidate?.finishReason ?? 'unknown'}). ` +
+        `If this is MAX_TOKENS the volume produced more records than the output cap allows.`,
     );
   }
+  return text;
+}
+
+async function callClaude(prompt: string, model: string): Promise<string> {
+  const key = process.env.ANTHROPIC_API_KEY!;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -90,7 +204,7 @@ async function callClaude(prompt: string): Promise<string> {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       max_tokens: MAX_TOKENS,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -121,6 +235,8 @@ export function parseModelJson(text: string): unknown[] {
 }
 
 async function main() {
+  loadDotEnv();
+
   const volumePath = process.argv[2];
   if (!volumePath || volumePath.startsWith('--')) {
     die(
@@ -173,9 +289,18 @@ async function main() {
   }
 
   const fromJson = arg('--from-json');
-  const responseText = fromJson
-    ? readFileSync(fromJson, 'utf8')
-    : await callClaude(prompt);
+  let responseText: string;
+  if (fromJson) {
+    responseText = readFileSync(fromJson, 'utf8');
+  } else {
+    const provider = resolveProvider();
+    const model = arg('--model') ?? DEFAULT_MODEL[provider];
+    console.error(`calling ${provider} (${model})…`);
+    responseText =
+      provider === 'gemini'
+        ? await callGemini(prompt, model)
+        : await callClaude(prompt, model);
+  }
 
   const raw = parseModelJson(responseText);
   const slug = `${slugify(instructional)}-v${volume}`;
