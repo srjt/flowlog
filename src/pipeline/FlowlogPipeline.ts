@@ -8,6 +8,7 @@ import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
 import { getSportContext } from '@/sports';
 import type { ISportContext } from '@/sports/ISportContext';
+import type { Perspective } from '@/sports/positionTypes';
 import type {
   CoachingInput,
   PipelineInput,
@@ -132,6 +133,7 @@ export class FlowlogPipeline {
           sentiment: extraction.sentiment,
           coachingCue: null,
           targetPosition: null,
+          targetPositionId: null,
           qualityGatePassed: false,
           pipelineVersion: PIPELINE_VERSION,
         });
@@ -142,6 +144,7 @@ export class FlowlogPipeline {
           structuredSummary: this.buildSummary(extraction, sportContext),
           coachingCue: null,
           targetPosition: null,
+          targetPositionId: null,
           sentiment: extraction.sentiment,
           qualityGatePassed: false,
           processingSteps: steps,
@@ -182,6 +185,14 @@ export class FlowlogPipeline {
           : 'fallback used',
       );
 
+      // Resolve the cue's target position onto the canonical vocabulary so
+      // later grounding has a stable key to join on, not a free-text label.
+      const resolved = this.resolvePositionId(
+        sportContext,
+        gate.coaching.targetPosition,
+        extraction,
+      );
+
       // ── Stage 4: persistence ────────────────────────────────────────────
       begin('persistence');
       const audioStoragePath = await this.safeUploadAudio(
@@ -199,7 +210,10 @@ export class FlowlogPipeline {
         opponentAction: extraction.opponentAction,
         sentiment: extraction.sentiment,
         coachingCue: gate.coaching.cue,
-        targetPosition: gate.coaching.targetPosition,
+        // Canonical label ("Side control (bottom)") when the position
+        // resolved; otherwise keep what the model wrote.
+        targetPosition: resolved.label ?? gate.coaching.targetPosition,
+        targetPositionId: resolved.id,
         qualityGatePassed: gate.passed,
         pipelineVersion: PIPELINE_VERSION,
       });
@@ -209,7 +223,8 @@ export class FlowlogPipeline {
         sessionId: session.id,
         structuredSummary: this.buildSummary(extraction, sportContext),
         coachingCue: gate.coaching.cue,
-        targetPosition: gate.coaching.targetPosition,
+        targetPosition: resolved.label ?? gate.coaching.targetPosition,
+        targetPositionId: resolved.id,
         sentiment: extraction.sentiment,
         qualityGatePassed: gate.passed,
         processingSteps: steps,
@@ -258,6 +273,7 @@ export class FlowlogPipeline {
           sentiment: extraction.sentiment,
           coachingCue: null,
           targetPosition: null,
+          targetPositionId: null,
           qualityGatePassed: false,
           pipelineVersion: PIPELINE_VERSION,
         },
@@ -267,6 +283,7 @@ export class FlowlogPipeline {
         structuredSummary: this.buildSummary(extraction, sportContext),
         coachingCue: null,
         targetPosition: null,
+        targetPositionId: null,
         sentiment: extraction.sentiment,
         qualityGatePassed: false,
         processingSteps: this.reanalyzeSteps(),
@@ -293,6 +310,12 @@ export class FlowlogPipeline {
       (strict) => this.coaching.generate(coachingInput, strict),
     );
 
+    const resolved = this.resolvePositionId(
+      sportContext,
+      gate.coaching.targetPosition,
+      extraction,
+    );
+
     const session = await this.storage.updateSessionAnalysis(input.sessionId, {
       rawTranscript: transcript,
       positionsVisited: extraction.positionsVisited,
@@ -300,7 +323,8 @@ export class FlowlogPipeline {
       opponentAction: extraction.opponentAction,
       sentiment: extraction.sentiment,
       coachingCue: gate.coaching.cue,
-      targetPosition: gate.coaching.targetPosition,
+      targetPosition: resolved.label ?? gate.coaching.targetPosition,
+      targetPositionId: resolved.id,
       qualityGatePassed: gate.passed,
       pipelineVersion: PIPELINE_VERSION,
     });
@@ -309,7 +333,8 @@ export class FlowlogPipeline {
       sessionId: session.id,
       structuredSummary: this.buildSummary(extraction, sportContext),
       coachingCue: gate.coaching.cue,
-      targetPosition: gate.coaching.targetPosition,
+      targetPosition: resolved.label ?? gate.coaching.targetPosition,
+      targetPositionId: resolved.id,
       sentiment: extraction.sentiment,
       qualityGatePassed: gate.passed,
       processingSteps: this.reanalyzeSteps(),
@@ -384,6 +409,45 @@ export class FlowlogPipeline {
       logger.warn('audio upload failed; saving session without audio', err);
       return null;
     }
+  }
+
+  /**
+   * Resolve the coaching stage's free-text target position onto the sport's
+   * canonical vocabulary (issue #47/#48).
+   *
+   * The extraction's reported side is passed as a hint rather than as the
+   * answer: a side written into the position label itself ("Side Control
+   * (bottom)") is more specific and wins. Returns null whenever the position or
+   * the side is undetermined — there is no nearest-match fallback, because a
+   * wrong id makes every later lookup confidently wrong.
+   */
+  private resolvePositionId(
+    sportContext: ISportContext,
+    targetPosition: string | null,
+    extraction: {
+      keyMistake: string;
+      opponentAction: string;
+      rawTranscript: string;
+      perspective: Perspective | 'unknown';
+    },
+  ): { id: string | null; label: string | null } {
+    const context = [
+      extraction.keyMistake,
+      extraction.opponentAction,
+      extraction.rawTranscript,
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const match = sportContext.normalizePosition(
+      targetPosition,
+      context,
+      extraction.perspective,
+    );
+    // Only adopt the canonical label when the position FULLY resolved. A
+    // canonical-looking label must imply a canonical id, or the display and the
+    // stored key disagree — "Side control" shown while nothing was keyed.
+    return { id: match.id, label: match.id ? match.label : null };
   }
 
   private buildSummary(

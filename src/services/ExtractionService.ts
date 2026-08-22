@@ -2,6 +2,7 @@ import { PIPELINE_CONFIG } from '@/constants/pipelineConfig';
 import { aiProvider } from '@/providers/ai';
 import type { IAIProvider } from '@/providers/ai';
 import type { ISportContext } from '@/sports/ISportContext';
+import type { Perspective } from '@/sports/positionTypes';
 import type { ExtractionOutput } from '@/types/pipeline';
 import { logger } from '@/utils/logger';
 
@@ -44,6 +45,10 @@ export class ExtractionService {
       ? extraction.sentiment
       : 'neutral';
 
+    const perspective = ExtractionService.normalisePerspective(
+      extraction.perspective,
+    );
+
     const sufficiency = ExtractionService.judgeSufficiency(
       transcript,
       extraction.hasCoachableContent,
@@ -53,15 +58,30 @@ export class ExtractionService {
     logger.debug('extraction complete', {
       positions: extraction.positionsVisited.length,
       sentiment,
+      perspective,
       hasCoachableContent: sufficiency.hasCoachableContent,
     });
 
     return {
       ...extraction,
       sentiment,
+      perspective,
       rawTranscript: transcript,
       ...sufficiency,
     };
+  }
+
+  /**
+   * Constrain the model's reported side to the values we accept (issue #48).
+   *
+   * Anything unexpected — a missing field, 'neutral', prose, a hallucinated
+   * value — becomes `'unknown'`. Downstream that means the position resolves to
+   * no canonical id and grounding abstains, which is the correct outcome. The
+   * one thing that must never happen is an invalid value being trusted through
+   * and producing coaching aimed at the wrong side of the position.
+   */
+  static normalisePerspective(value: unknown): Perspective | 'unknown' {
+    return value === 'top' || value === 'bottom' ? value : 'unknown';
   }
 
   // ── Sufficiency (issue #44) ───────────────────────────────────────────────

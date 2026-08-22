@@ -61,6 +61,7 @@ function sample(id: string): Session {
     sentiment: 'frustrated',
     coachingCue: 'Get to your side.',
     targetPosition: 'Half guard',
+    targetPositionId: null,
     qualityGatePassed: true,
     thumbsUp: null,
     pipelineVersion: 'test',

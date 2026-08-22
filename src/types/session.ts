@@ -16,6 +16,12 @@ export interface Session {
   opponentAction: string | null;
   sentiment: string | null;
   coachingCue: string | null;
+  /**
+   * Canonical position id (issue #48), e.g. `side-control-bottom`. Null when
+   * the position or the side is undetermined — the free-text `targetPosition`
+   * is a display label, not a key.
+   */
+  targetPositionId: string | null;
   targetPosition: string | null;
   qualityGatePassed: boolean;
   thumbsUp: boolean | null;
@@ -49,6 +55,8 @@ export interface NewSession {
    */
   coachingCue: string | null;
   targetPosition: string | null;
+  /** Canonical position id (issue #48). Null when undetermined. */
+  targetPositionId: string | null;
   qualityGatePassed: boolean;
   pipelineVersion: string;
 }
@@ -72,6 +80,8 @@ export interface SessionAnalysisUpdate {
    */
   coachingCue: string | null;
   targetPosition: string | null;
+  /** Canonical position id (issue #48). Null when undetermined. */
+  targetPositionId: string | null;
   qualityGatePassed: boolean;
   pipelineVersion: string;
 }

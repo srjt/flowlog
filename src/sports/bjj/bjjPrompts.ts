@@ -63,6 +63,7 @@ Read the transcript and return STRICT JSON matching exactly this schema — no m
   "hasCoachableContent": boolean, // see the SUFFICIENCY rules below. Decide this FIRST.
   "insufficientReason": string,   // when hasCoachableContent is false, one short phrase saying what was missing (e.g. "no training described"). Empty string otherwise.
   "positionsVisited": string[],   // BJJ positions/guards that came up, using standard names (e.g. "Closed Guard", "Side Control", "Back Mount"). Empty array if none mentioned.
+  "perspective": string,          // exactly one of: "top", "bottom", "unknown". See PERSPECTIVE below.
   "keyMistake": string,           // the single most important mistake the practitioner describes or implies. One sentence. If none is clear, the most notable struggle.
   "opponentAction": string,       // what the opponent/training partner was doing that mattered most. One sentence.
   "sentiment": string,            // exactly one of: {{SENTIMENT_LABELS}}
@@ -86,6 +87,27 @@ on my chest") IS coachable.
 
 When you set it false, still fill the other fields as honestly as you can (usually empty
 array and empty strings). Do NOT pad them to make the session look richer than it was.
+
+PERSPECTIVE — which side of the position the practitioner was on:
+
+This matters more than it looks. Being on top of side control and being underneath it
+are opposite situations, and a correction for one is wrong for the other.
+
+Read it as a ROLE, not as literal height:
+- "top"    — they were controlling: holding a pin, passing the guard, on their opponent's back.
+- "bottom" — they were contained: pinned, playing guard, their back taken.
+- "unknown" — the transcript genuinely does not say.
+
+Judge it for the situation the KEY MISTAKE happened in, not for the whole session — a roll
+usually contains both. If they describe being stuck under side control and also passing
+someone's guard, and the mistake is about the pin, that is "bottom".
+
+Speakers rarely say "top" or "bottom" outright, so infer it from how they talk: "he mounted
+me" and "they took my back" are bottom; "I passed" and "I got the back" are top. Playing any
+guard is "bottom"; passing one is "top".
+
+**Return "unknown" rather than guessing.** A wrong side produces confident coaching aimed at
+the opposite situation, which is worse than no side at all.
 
 Rules:
 - Use canonical BJJ terminology where the speaker uses slang (e.g. "they took my back" -> Back Control).

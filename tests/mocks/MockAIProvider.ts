@@ -14,6 +14,7 @@ const DEFAULT_EXTRACTION: ExtractionOutput = {
   rawTranscript: '',
   hasCoachableContent: true,
   insufficientReason: '',
+  perspective: 'bottom',
 };
 
 const DEFAULT_GOOD_COACHING: CoachingOutput = {
