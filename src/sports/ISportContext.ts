@@ -1,3 +1,4 @@
+import type { PositionNormalizer, SportPosition } from '@/sports/positionTypes';
 import type { SportKey } from '@/types/sport';
 
 /**
@@ -35,6 +36,18 @@ export interface ISportContext {
 
   /** Generic phrases the quality gate rejects for this sport. */
   qualityGatePhrases: string[];
+  /**
+   * The sport's canonical position vocabulary. Perspective is part of a
+   * position's identity where the sport has sides — being on top of a pin and
+   * being under it are different situations with opposite advice.
+   */
+  positions: SportPosition[];
+  /**
+   * Maps free text (the extractor's `targetPosition`, a transcript phrase) onto
+   * `positions`. Returns a null id rather than a nearest match when the
+   * position or the side is unclear — callers abstain instead of guessing.
+   */
+  normalizePosition: PositionNormalizer;
 
   /** Recording bounds for this sport (seconds). */
   minRecordingSeconds: number;

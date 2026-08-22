@@ -11,6 +11,14 @@
 // versions bundle these fine. If your CLI rejects cross-directory imports,
 // either bump the CLI or add an import_map / copy the pure files into _shared.
 
+import type {
+  PositionNormalizer,
+  SportPosition,
+} from '../../../src/sports/positionTypes.ts';
+import {
+  BJJ_POSITIONS,
+  normalizePosition as normalizeBjjPosition,
+} from '../../../src/sports/bjj/bjjPositions.ts';
 import { BJJ_VOCABULARY_FLAT } from '../../../src/sports/bjj/bjjVocabulary.ts';
 import {
   BJJ_COACHING_PROMPT,
@@ -33,6 +41,10 @@ export interface ServerSportContext {
   coachingPrompt: string;
   sentimentLabels: string[];
   qualityGatePhrases: string[];
+  /** Canonical position vocabulary — same data the client uses, not a copy. */
+  positions: SportPosition[];
+  /** Maps free text onto `positions`; abstains rather than guessing. */
+  normalizePosition: PositionNormalizer;
   minRecordingSeconds: number;
   maxRecordingSeconds: number;
 }
@@ -46,6 +58,8 @@ const bjj: ServerSportContext = {
   coachingPrompt: BJJ_COACHING_PROMPT,
   sentimentLabels: BJJ_SENTIMENT_LABELS,
   qualityGatePhrases: BJJ_QUALITY_GATE_PHRASES,
+  positions: BJJ_POSITIONS,
+  normalizePosition: normalizeBjjPosition,
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };
@@ -64,6 +78,14 @@ const golf: ServerSportContext = {
     'keep your head down',
     'just have fun',
   ],
+  // TODO(golf): no golf position vocabulary yet. Abstaining is the honest stub.
+  positions: [],
+  normalizePosition: () => ({
+    id: null,
+    base: null,
+    label: null,
+    perspective: 'unknown',
+  }),
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };
