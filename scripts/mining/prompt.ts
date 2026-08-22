@@ -105,11 +105,40 @@ Return STRICT JSON: an array of objects, no markdown, no commentary.
 
 RULES
 
-- "quote" must appear verbatim in the transcript. It is the only thing that makes a record checkable. A record whose quote does not support its prescription is worse than no record.
-- Capture PRECONDITIONS carefully. Instructors frequently teach something while saying it only works at a certain level or against a certain reaction — an instructional in this series teaches a mount escape while stating plainly that it does not work at high level. A record that loses that qualification contradicts other records for the same position.
+- "quote" must appear VERBATIM in the transcript — copy the characters, do not tidy grammar, do not merge sentences from different moments. It is the only thing that makes a record checkable. A record whose quote does not support its prescription is worse than no record.
 - Prefer the instructor's own words and emphasis over a tidy summary.
 - Leave a field as an empty string when the transcript does not supply it. Do not pad.
 - Output JSON only.
+
+PRECONDITIONS — the most commonly under-filled part. Read this twice.
+
+When an instructor qualifies WHO a technique is for, or WHEN it works, that
+qualification belongs in the structured "preconditions" fields — NOT only in the prose
+of "prescription" or "why". A qualification left in prose is invisible to everything
+downstream, and two records for the same position then look like they contradict each
+other when they were simply describing different circumstances.
+
+"level" — set it whenever the instructor signals who the advice is for. Do not default to
+"any" out of caution. Signals include "when you're starting out", "at beginner level",
+"at high level this won't work", "against a good opponent", "in competition". This volume
+contains a clear case: the instructor teaches the bridging escape from mount while saying
+plainly that it does not work at high level and is taught to build body movement. The
+record for that must be level "beginner" — not "any".
+
+"gi" — set "gi" whenever the mechanic depends on gripping cloth: a sleeve, a lapel, a
+collar, a seam, a pant leg. This is a gi instructional and many escapes are grip-dependent.
+Only use "either" when the technique genuinely works without a jacket.
+
+"opponent" — what the opponent must be doing for this to apply: their posture, their grips,
+their weight, the reaction they just gave you. Most techniques are taught as answers to a
+specific situation; name it.
+
+COUNTER — also commonly left empty.
+
+Instructors routinely say what the opponent does to defeat the technique, and what to do
+about it: "he'll base out with his free hand", "a good opponent will re-pummel here", "if
+he posts, you switch to...". Capture that in "counter" whenever it is spoken. Leave it
+empty only when the instructor genuinely never says how the move gets stopped.
 
 TRANSCRIPT
 
