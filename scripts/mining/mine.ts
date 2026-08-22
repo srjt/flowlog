@@ -50,7 +50,10 @@ import {
  * `gemini-2.5-pro` as the step up from the app's `gemini-2.5-flash` default.
  */
 const DEFAULT_MODEL = {
-  gemini: 'gemini-2.5-pro',
+  // gemini-2.5-pro is retired for new keys; the API's own 404 names this as
+  // the replacement. Model availability differs per key, so do not guess —
+  // `--list-models` asks the API what this key can actually use.
+  gemini: 'gemini-3.1-pro-preview',
   claude: 'claude-opus-4-6',
 } as const;
 const MAX_TOKENS = 32000;
@@ -135,6 +138,41 @@ function loadDotEnv(): void {
   }
 }
 
+/**
+ * Ask the API which models this key can actually use.
+ *
+ * Model availability changes and differs per key — gemini-2.5-pro was retired
+ * for new keys mid-project. Guessing an id from memory produces a confusing
+ * 404; this asks.
+ */
+async function listGeminiModels(): Promise<void> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) die('GEMINI_API_KEY is not set.');
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}&pageSize=200`,
+  );
+  if (!res.ok)
+    die(`Gemini API ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const json = (await res.json()) as {
+    models?: {
+      name?: string;
+      displayName?: string;
+      supportedGenerationMethods?: string[];
+      outputTokenLimit?: number;
+    }[];
+  };
+  const usable = (json.models ?? []).filter((m) =>
+    (m.supportedGenerationMethods ?? []).includes('generateContent'),
+  );
+  console.error(`\n${usable.length} models support generateContent:\n`);
+  for (const m of usable) {
+    const id = (m.name ?? '').replace(/^models\//, '');
+    const out = m.outputTokenLimit ? `  out<=${m.outputTokenLimit}` : '';
+    console.error(`  ${id.padEnd(42)}${out}  ${m.displayName ?? ''}`);
+  }
+  console.error(`\nPass one with --model <id>.\n`);
+}
+
 /** Which provider to use: explicit flag, else whichever key is available. */
 function resolveProvider(): Provider {
   const explicit = arg('--provider');
@@ -173,7 +211,14 @@ async function callGemini(prompt: string, model: string): Promise<string> {
     }),
   });
   if (!res.ok) {
-    die(`Gemini API ${res.status}: ${(await res.text()).slice(0, 400)}`);
+    const body = (await res.text()).slice(0, 500);
+    if (res.status === 404) {
+      die(
+        `Gemini API 404 — the model "${model}" is not available to this key.\n` +
+          `  Run with --list-models to see what is, then pass --model <id>.\n\n  ${body}`,
+      );
+    }
+    die(`Gemini API ${res.status}: ${body}`);
   }
   const json = (await res.json()) as {
     candidates?: {
@@ -236,6 +281,11 @@ export function parseModelJson(text: string): unknown[] {
 
 async function main() {
   loadDotEnv();
+
+  if (has('--list-models')) {
+    await listGeminiModels();
+    return;
+  }
 
   const volumePath = process.argv[2];
   if (!volumePath || volumePath.startsWith('--')) {
