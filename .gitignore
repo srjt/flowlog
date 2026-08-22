@@ -33,3 +33,11 @@ yarn-error.*
 *.pem
 .vscode/
 .idea/
+
+# Instructional corpus and the frozen cue baseline (wayfinder #30).
+# Both hold third-party instructional text or real session transcripts and
+# must never be committed. The tools live in scripts/; their OUTPUT does not.
+/baseline/
+flowlog-baseline/
+*baseline.json
+*baseline.meta.json
