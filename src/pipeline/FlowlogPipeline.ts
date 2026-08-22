@@ -105,6 +105,51 @@ export class FlowlogPipeline {
       );
       done('extraction', `${extraction.positionsVisited.length} positions`);
 
+      // ── Decline path (issue #44) ────────────────────────────────────────
+      // Nothing coachable in the recording. Skip coaching entirely rather than
+      // let the model invent a cue from empty inputs — it will, fluently, and
+      // the quality gate cannot tell. The Session is still saved (with a null
+      // cue) so the user's reflection and their streak survive; the UI offers
+      // re-record or keep.
+      if (!extraction.hasCoachableContent) {
+        done('coaching', 'skipped — nothing to coach');
+        done('quality_gate', 'skipped');
+
+        begin('persistence');
+        const declinedAudioPath = await this.safeUploadAudio(
+          input.userId,
+          input.audioUri,
+        );
+        const declinedSession = await this.storage.saveSession({
+          userId: input.userId,
+          sportKey: input.sportKey,
+          sessionDate: input.sessionDate.toISOString(),
+          audioStoragePath: declinedAudioPath,
+          rawTranscript: transcription.transcript,
+          positionsVisited: extraction.positionsVisited,
+          keyMistake: extraction.keyMistake,
+          opponentAction: extraction.opponentAction,
+          sentiment: extraction.sentiment,
+          coachingCue: null,
+          targetPosition: null,
+          qualityGatePassed: false,
+          pipelineVersion: PIPELINE_VERSION,
+        });
+        done('persistence');
+
+        return {
+          sessionId: declinedSession.id,
+          structuredSummary: this.buildSummary(extraction, sportContext),
+          coachingCue: null,
+          targetPosition: null,
+          sentiment: extraction.sentiment,
+          qualityGatePassed: false,
+          processingSteps: steps,
+          declined: true,
+          declinedReason: extraction.insufficientReason,
+        };
+      }
+
       // History for coaching context (best-effort — never block on it).
       const { recentMistakes, dominantWeakness } = await this.loadHistory(
         input.userId,
@@ -168,6 +213,8 @@ export class FlowlogPipeline {
         sentiment: extraction.sentiment,
         qualityGatePassed: gate.passed,
         processingSteps: steps,
+        declined: false,
+        declinedReason: '',
       };
     } catch (err) {
       const running = steps.find((s) => s.status === 'running');
@@ -197,6 +244,36 @@ export class FlowlogPipeline {
       sportContext,
       input.skillLevel,
     );
+
+    // A corrected transcript can still turn out to have nothing coachable in it
+    // (issue #44) — decline here too rather than inventing on re-analysis.
+    if (!extraction.hasCoachableContent) {
+      const declined = await this.storage.updateSessionAnalysis(
+        input.sessionId,
+        {
+          rawTranscript: transcript,
+          positionsVisited: extraction.positionsVisited,
+          keyMistake: extraction.keyMistake,
+          opponentAction: extraction.opponentAction,
+          sentiment: extraction.sentiment,
+          coachingCue: null,
+          targetPosition: null,
+          qualityGatePassed: false,
+          pipelineVersion: PIPELINE_VERSION,
+        },
+      );
+      return {
+        sessionId: declined.id,
+        structuredSummary: this.buildSummary(extraction, sportContext),
+        coachingCue: null,
+        targetPosition: null,
+        sentiment: extraction.sentiment,
+        qualityGatePassed: false,
+        processingSteps: this.reanalyzeSteps(),
+        declined: true,
+        declinedReason: extraction.insufficientReason,
+      };
+    }
 
     const { recentMistakes, dominantWeakness } = await this.loadHistory(
       input.userId,
@@ -236,6 +313,8 @@ export class FlowlogPipeline {
       sentiment: extraction.sentiment,
       qualityGatePassed: gate.passed,
       processingSteps: this.reanalyzeSteps(),
+      declined: false,
+      declinedReason: '',
     };
   }
 

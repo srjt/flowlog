@@ -83,6 +83,8 @@ export function buildDemoOutput(sportKey: SportKey): PipelineOutput {
     targetPosition: result.targetPosition,
     sentiment: result.sentiment,
     qualityGatePassed: true,
+    declined: false,
+    declinedReason: '',
     processingSteps: STEP_ORDER.map(
       (name): ProcessingStep => ({
         name,

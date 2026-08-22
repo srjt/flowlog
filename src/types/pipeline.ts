@@ -31,6 +31,15 @@ export interface ExtractionOutput {
   opponentAction: string;
   sentiment: string;
   rawTranscript: string;
+  /**
+   * Whether the transcript actually described something coachable (issue #44).
+   * The model judges this; `ExtractionService` additionally applies a word-count
+   * backstop, so a `false` here can come from either. When false the pipeline
+   * declines: coaching never runs and no cue is invented.
+   */
+  hasCoachableContent: boolean;
+  /** Short phrase describing what was missing. Empty when content is sufficient. */
+  insufficientReason: string;
 }
 
 // ── Coaching (Stage 2) ──────────────────────────────────────────────────────
@@ -118,9 +127,18 @@ export interface ReanalyzeInput {
 export interface PipelineOutput {
   sessionId: string;
   structuredSummary: string;
-  coachingCue: string;
-  targetPosition: string;
+  /**
+   * Null when the pipeline declined (issue #44) — there was nothing coachable in
+   * the recording, so no cue was generated rather than one being invented.
+   * The Session is still saved; the UI renders an honest empty state.
+   */
+  coachingCue: string | null;
+  targetPosition: string | null;
   sentiment: string;
   qualityGatePassed: boolean;
   processingSteps: ProcessingStep[];
+  /** True when the pipeline declined to produce a cue. */
+  declined: boolean;
+  /** Why it declined — shown to the user as context. Empty unless `declined`. */
+  declinedReason: string;
 }

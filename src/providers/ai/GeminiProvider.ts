@@ -63,6 +63,11 @@ export class GeminiProvider implements IAIProvider {
       opponentAction: parsed.opponentAction ?? '',
       sentiment: parsed.sentiment ?? 'neutral',
       rawTranscript: input.transcript,
+      // Sufficiency (issue #44). Absent/malformed defaults to `true` so a
+      // provider response missing the field degrades to prior behaviour;
+      // ExtractionService's word-count backstop still applies either way.
+      hasCoachableContent: parsed.hasCoachableContent !== false,
+      insufficientReason: parsed.insufficientReason ?? '',
     };
   }
 

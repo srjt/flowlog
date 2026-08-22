@@ -21,6 +21,8 @@ const coachingInput: CoachingInput = {
     opponentAction: 'Took the back',
     sentiment: 'flat',
     rawTranscript: 'x',
+    hasCoachableContent: true,
+    insufficientReason: '',
   },
   sportContext: bjj,
   recentMistakes: [],

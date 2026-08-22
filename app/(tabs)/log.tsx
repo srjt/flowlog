@@ -113,7 +113,15 @@ export default function LogScreen() {
                     {item.sportKey.toUpperCase()}
                     {item.thumbsUp == null ? ' · needs review' : ''}
                   </Text>
-                  <Text variant="body">{item.coachingCue ?? '—'}</Text>
+                  {item.coachingCue ? (
+                    <Text variant="body">{item.coachingCue}</Text>
+                  ) : (
+                    // Declined take (issue #44) — no cue was generated because
+                    // there was nothing coachable in the recording.
+                    <Text variant="body" className="italic opacity-60">
+                      No cue — not enough in this one
+                    </Text>
+                  )}
                   {item.keyMistake ? (
                     <Text variant="caption">Mistake: {item.keyMistake}</Text>
                   ) : null}

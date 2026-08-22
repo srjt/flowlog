@@ -30,6 +30,8 @@ const OUTPUT: PipelineOutput = {
   coachingCue: 'cue',
   targetPosition: 'Half Guard',
   sentiment: 'neutral',
+  declined: false,
+  declinedReason: '',
   qualityGatePassed: true,
   processingSteps: [],
 };

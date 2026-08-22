@@ -34,6 +34,13 @@ interface SessionState {
   latestResult: PipelineOutput | null;
   history: Session[];
   errorMessage: string | null;
+  /**
+   * Consecutive takes the pipeline has declined (issue #44). Drives the
+   * reworded second decline — someone whose retry also failed needs an exit,
+   * not the advice repeated. Survives `reset()` so a re-record keeps counting;
+   * cleared automatically as soon as a take produces a real cue.
+   */
+  declineStreak: number;
 
   setStatus: (status: RecordingStatus) => void;
   setAudioUri: (uri: string | null) => void;
@@ -64,13 +71,22 @@ export const useSessionStore = create<SessionState>((set) => ({
   latestResult: null,
   history: [],
   errorMessage: null,
+  declineStreak: 0,
 
   setStatus: (status) => set({ status }),
   setAudioUri: (audioUri) => set({ audioUri }),
   setClientSessionId: (clientSessionId) => set({ clientSessionId }),
   setUploadedAudioPath: (uploadedAudioPath) => set({ uploadedAudioPath }),
   setSteps: (steps) => set({ steps }),
-  setLatestResult: (latestResult) => set({ latestResult }),
+  setLatestResult: (latestResult) =>
+    set((state) => ({
+      latestResult,
+      declineStreak: latestResult
+        ? latestResult.declined
+          ? state.declineStreak + 1
+          : 0
+        : state.declineStreak,
+    })),
   setHistory: (history) => set({ history }),
   removeSession: (sessionId) =>
     set((state) => ({
