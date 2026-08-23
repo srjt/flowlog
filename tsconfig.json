@@ -2,6 +2,11 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // The mining scripts under scripts/ run directly on Node's native
+    // TypeScript type-stripping, which requires explicit .ts specifiers on
+    // value imports. This only PERMITS them; app code is unaffected and Metro
+    // never sees these files.
+    "allowImportingTsExtensions": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,

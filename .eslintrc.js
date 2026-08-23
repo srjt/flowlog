@@ -82,6 +82,18 @@ module.exports = {
       },
     },
     {
+      // Standalone Node CLI scripts. These are not part of the app bundle:
+      // they run on `node` directly, outside Expo, so the typed `env` object
+      // (which validates EXPO_PUBLIC_* vars) does not apply and cannot supply
+      // a server-side key such as ANTHROPIC_API_KEY. Reading process.env is
+      // the correct thing to do here.
+      files: ['scripts/**/*.ts'],
+      rules: {
+        'no-restricted-properties': 'off',
+        'no-restricted-syntax': 'off',
+      },
+    },
+    {
       // Tests legitimately manipulate env and use require() for module isolation.
       files: ['tests/**/*.ts', 'tests/**/*.tsx'],
       rules: {
