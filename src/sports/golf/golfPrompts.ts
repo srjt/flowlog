@@ -17,6 +17,7 @@ It must return STRICT JSON matching:
   "hasCoachableContent": boolean, // false when the transcript describes no actual play — filler, feelings only, or a plan rather than something that happened
   "insufficientReason": string,   // short phrase when hasCoachableContent is false; empty string otherwise
   "positionsVisited": string[],  // golf situations / shot types encountered
+  "perspective": string,         // golf has no top/bottom — always "unknown" until a golf-specific axis is defined
   "keyMistake": string,
   "opponentAction": string,      // golf has no opponent — repurpose as "course/condition challenge"
   "sentiment": string,           // one of: {{SENTIMENT_LABELS}}

@@ -197,6 +197,12 @@ export async function extract(
     opponentAction: parsed.opponentAction ?? '',
     sentiment,
     rawTranscript: transcript,
+    // Constrain to accepted values — anything else becomes 'unknown', which
+    // makes the position resolve to no id and grounding abstain (issue #48).
+    perspective:
+      parsed.perspective === 'top' || parsed.perspective === 'bottom'
+        ? parsed.perspective
+        : 'unknown',
     ...judgeSufficiency(
       transcript,
       parsed.hasCoachableContent,

@@ -141,6 +141,7 @@ export default function SessionDetailScreen() {
         rawTranscript: text,
         coachingCue: result.coachingCue,
         targetPosition: result.targetPosition,
+        targetPositionId: result.targetPositionId,
         sentiment: result.sentiment,
       };
       setSession(next);

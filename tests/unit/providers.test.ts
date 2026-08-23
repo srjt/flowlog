@@ -23,6 +23,7 @@ const coachingInput: CoachingInput = {
     rawTranscript: 'x',
     hasCoachableContent: true,
     insufficientReason: '',
+    perspective: 'bottom',
   },
   sportContext: bjj,
   recentMistakes: [],

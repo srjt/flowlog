@@ -180,3 +180,29 @@ describe('fallback cue', () => {
     ).toBe(false);
   });
 });
+
+// ── Perspective (issue #48) ─────────────────────────────────────────────────
+describe('ExtractionService.normalisePerspective', () => {
+  it('accepts the two real sides', () => {
+    expect(ExtractionService.normalisePerspective('top')).toBe('top');
+    expect(ExtractionService.normalisePerspective('bottom')).toBe('bottom');
+  });
+
+  it('turns anything else into unknown rather than trusting it through', () => {
+    // A bad value here produces coaching aimed at the wrong side of the
+    // position, so the only safe default is to abstain.
+    for (const bad of [
+      undefined,
+      null,
+      '',
+      'neutral',
+      'TOP',
+      'on top',
+      'both',
+      42,
+      {},
+    ]) {
+      expect(ExtractionService.normalisePerspective(bad)).toBe('unknown');
+    }
+  });
+});

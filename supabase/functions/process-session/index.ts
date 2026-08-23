@@ -130,6 +130,7 @@ Deno.serve(async (req: Request) => {
             sentiment: extraction.sentiment,
             coaching_cue: null,
             target_position: null,
+            target_position_id: null,
             quality_gate_passed: false,
             pipeline_version: PIPELINE_VERSION,
           },
@@ -176,6 +177,14 @@ Deno.serve(async (req: Request) => {
       );
 
       stage = 'reanalyze_persist';
+      const reMatch = sport.normalizePosition(
+        gate.coaching.targetPosition,
+        [extraction.keyMistake, extraction.opponentAction, editedTranscript]
+          .filter(Boolean)
+          .join(' '),
+        extraction.perspective,
+      );
+      const reResolved = { id: reMatch.id, label: reMatch.id ? reMatch.label : null };
       const updated = await dbUpdate(
         `sessions?id=eq.${reanalyzeSessionId}&user_id=eq.${user.id}`,
         {
@@ -185,7 +194,8 @@ Deno.serve(async (req: Request) => {
           opponent_action: extraction.opponentAction,
           sentiment: extraction.sentiment,
           coaching_cue: gate.coaching.cue,
-          target_position: gate.coaching.targetPosition,
+          target_position: reResolved.label ?? gate.coaching.targetPosition,
+          target_position_id: reResolved.id,
           quality_gate_passed: gate.passed,
           pipeline_version: PIPELINE_VERSION,
         },
@@ -295,11 +305,29 @@ Deno.serve(async (req: Request) => {
       skillLevel,
     );
 
+    // Resolve the cue's free-text target position onto the canonical
+    // vocabulary (issue #47/#48) so later grounding has a stable key to join
+    // on. The extraction's reported side is a hint, not the answer — a side
+    // written into the label itself is more specific and wins.
+    // Only adopt the canonical label when the position FULLY resolved — a
+    // canonical-looking label must imply a canonical id.
+    const resolvePosition = (targetPosition: string | null) => {
+      const m = sport.normalizePosition(
+        targetPosition,
+        [extraction.keyMistake, extraction.opponentAction, transcription.transcript]
+          .filter(Boolean)
+          .join(' '),
+        extraction.perspective,
+      );
+      return { id: m.id, label: m.id ? m.label : null };
+    };
+
     // Shared insert for both the normal and the declined path — the
     // idempotency/conflict handling must be identical for each.
     const insertSession = async (analysis: {
       cue: string | null;
       targetPosition: string | null;
+      targetPositionId: string | null;
       qualityGatePassed: boolean;
     }): Promise<{ row: any } | { conflictOutput: Response }> => {
       try {
@@ -315,6 +343,7 @@ Deno.serve(async (req: Request) => {
           sentiment: extraction.sentiment,
           coaching_cue: analysis.cue,
           target_position: analysis.targetPosition,
+          target_position_id: analysis.targetPositionId,
           quality_gate_passed: analysis.qualityGatePassed,
           pipeline_version: PIPELINE_VERSION,
           client_session_id: clientSessionId,
@@ -349,6 +378,7 @@ Deno.serve(async (req: Request) => {
       const declinedRow = await insertSession({
         cue: null,
         targetPosition: null,
+        targetPositionId: null,
         qualityGatePassed: false,
       });
       if ('conflictOutput' in declinedRow) return declinedRow.conflictOutput;
@@ -402,9 +432,11 @@ Deno.serve(async (req: Request) => {
 
     // ── Stage 4: persistence ────────────────────────────────────────────────
     stage = 'persistence';
+    const resolved = resolvePosition(gate.coaching.targetPosition);
     const inserted = await insertSession({
       cue: gate.coaching.cue,
-      targetPosition: gate.coaching.targetPosition,
+      targetPosition: resolved.label ?? gate.coaching.targetPosition,
+      targetPositionId: resolved.id,
       qualityGatePassed: gate.passed,
     });
     if ('conflictOutput' in inserted) return inserted.conflictOutput;
@@ -418,7 +450,8 @@ Deno.serve(async (req: Request) => {
       sessionId: session.id,
       structuredSummary: buildSummary(extraction, sport.sessionUnit),
       coachingCue: gate.coaching.cue,
-      targetPosition: gate.coaching.targetPosition,
+      targetPosition: resolved.label ?? gate.coaching.targetPosition,
+      targetPositionId: resolved.id,
       sentiment: extraction.sentiment,
       qualityGatePassed: gate.passed,
       processingSteps: STEPS,
@@ -465,6 +498,7 @@ function outputFromRow(
     // honest empty state.
     coachingCue: row.coaching_cue ?? null,
     targetPosition: row.target_position ?? null,
+    targetPositionId: row.target_position_id ?? null,
     sentiment: row.sentiment ?? 'neutral',
     qualityGatePassed: row.quality_gate_passed ?? false,
     declined: row.coaching_cue == null,

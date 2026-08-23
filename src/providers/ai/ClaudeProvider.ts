@@ -69,6 +69,9 @@ export class ClaudeProvider implements IAIProvider {
       // ExtractionService's word-count backstop still applies either way.
       hasCoachableContent: parsed.hasCoachableContent !== false,
       insufficientReason: parsed.insufficientReason ?? '',
+      // Validated in ExtractionService — an unexpected value becomes 'unknown'
+      // there rather than being trusted through.
+      perspective: parsed.perspective ?? 'unknown',
     };
   }
 

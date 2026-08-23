@@ -1,4 +1,5 @@
 import type { ISportContext } from '@/sports/ISportContext';
+import type { Perspective } from '@/sports/positionTypes';
 import type { SportKey } from '@/types/sport';
 import type { SkillLevel } from '@/types/user';
 
@@ -40,6 +41,13 @@ export interface ExtractionOutput {
   hasCoachableContent: boolean;
   /** Short phrase describing what was missing. Empty when content is sufficient. */
   insufficientReason: string;
+  /**
+   * Which side of the position the practitioner was on, for the situation the
+   * key mistake happened in (issue #48). `'unknown'` when the transcript never
+   * says — never a guess, because a wrong side produces confident coaching
+   * aimed at the opposite situation.
+   */
+  perspective: Perspective | 'unknown';
 }
 
 // ── Coaching (Stage 2) ──────────────────────────────────────────────────────
@@ -134,6 +142,12 @@ export interface PipelineOutput {
    */
   coachingCue: string | null;
   targetPosition: string | null;
+  /**
+   * Canonical position id (issue #47/#48), e.g. `side-control-bottom`. Null
+   * when the position or the side could not be determined — callers key on
+   * this and abstain rather than falling back to the free-text label.
+   */
+  targetPositionId: string | null;
   sentiment: string;
   qualityGatePassed: boolean;
   processingSteps: ProcessingStep[];

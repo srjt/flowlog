@@ -44,11 +44,19 @@ export interface PositionMatch {
 }
 
 /**
- * Map free text onto a canonical position. `context` supplies extra text (the
- * key mistake, the transcript) to read the side from when the position phrase
- * alone is silent.
+ * Map free text onto a canonical position.
+ *
+ * `context` supplies extra text (the key mistake, the transcript) to read the
+ * side from when the position phrase alone is silent.
+ *
+ * `perspectiveHint` is an authoritative side reported by an earlier stage —
+ * extraction is asked directly which side the practitioner was on, which is far
+ * more reliable than inferring it from prose. It is consulted only when neither
+ * the position phrase nor the context states a side, so an explicit
+ * "(bottom)" in the text still wins.
  */
 export type PositionNormalizer = (
   input: string | null | undefined,
   context?: string,
+  perspectiveHint?: Perspective | 'unknown',
 ) => PositionMatch;

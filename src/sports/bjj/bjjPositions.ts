@@ -481,10 +481,13 @@ function findBase(text: string): PositionBase | null {
  *
  * `context` supplies extra text (the key mistake, the opponent's action, the
  * transcript) to read the side from when the position phrase alone is silent.
+ * `perspectiveHint` is a side reported directly by an earlier stage, used only
+ * when neither the phrase nor the context says.
  */
 export function normalizePosition(
   input: string | null | undefined,
   context = '',
+  perspectiveHint: Perspective | 'unknown' = 'unknown',
 ): PositionMatch {
   const raw = (input ?? '').toLowerCase().trim();
   if (!raw) return NO_MATCH;
@@ -501,10 +504,15 @@ export function normalizePosition(
     };
   }
 
-  // Prefer a side stated in the position phrase itself; fall back to context.
+  // Precedence: the position phrase itself, then the surrounding text, then
+  // whatever an earlier stage reported. A side written into the phrase is the
+  // most specific signal there is and must not be overridden by a hint.
   let perspective = detectPerspective(raw);
   if (perspective === 'unknown' && context) {
     perspective = detectPerspective(context.toLowerCase());
+  }
+  if (perspective === 'unknown' && perspectiveHint !== 'unknown') {
+    perspective = perspectiveHint;
   }
 
   if (perspective === 'unknown' || perspective === 'neutral') {

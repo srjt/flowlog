@@ -15,6 +15,7 @@ function session(overrides: Partial<Session>): Session {
     sentiment: null,
     coachingCue: null,
     targetPosition: null,
+    targetPositionId: null,
     qualityGatePassed: true,
     thumbsUp: null,
     pipelineVersion: 'test',
