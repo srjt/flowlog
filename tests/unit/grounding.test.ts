@@ -94,9 +94,13 @@ describe('rankRecords', () => {
     expect(ranked[0]).toBe(relevant);
   });
 
-  it('caps the number injected — dilution is the constraint, not cost', () => {
+  it('caps the number injected even when many are relevant', () => {
+    // Every one of these shares "crossface" and "frame" with the mistake, so
+    // all clear the relevance gate — the cap is what stops 145 reaching the model.
     const many = Array.from({ length: 145 }, () => rec());
-    expect(rankRecords(many, 'framing').length).toBe(20);
+    expect(
+      rankRecords(many, 'Could not frame before the crossface landed').length,
+    ).toBe(20);
   });
 
   it('is stable for tied scores, so the prompt does not churn', () => {
@@ -107,22 +111,31 @@ describe('rankRecords', () => {
     );
   });
 
-  it('still returns records when the mistake has no usable terms', () => {
-    expect(rankRecords([rec(), rec()], '').length).toBe(2);
+  it('grounds NOTHING when the mistake gives nothing to match on', () => {
+    // With no terms we cannot tell a relevant record from an irrelevant one,
+    // and injecting arbitrary records for the position is what made cues worse.
+    expect(rankRecords([rec(), rec()], '')).toEqual([]);
   });
 
   it('is not fooled by words common to every extracted mistake', () => {
-    // "practitioner" and "opponent" appear in almost every keyMistake; if they
-    // scored, ranking would be noise.
-    const generic = rec({ prescription: 'The practitioner and the opponent.' });
-    const real = rec({
-      prescription: 'Bridge to displace, never straight up.',
+    // "practitioner" and "opponent" appear in almost every keyMistake. If they
+    // scored, they alone would carry an unrelated record past the relevance
+    // gate — which is precisely how off-topic mechanics reached the model.
+    const generic = rec({
+      prescription: 'The practitioner and the opponent.',
+      why: '',
+      detail: '',
+    });
+    const onTopic = rec({
+      prescription: 'Bridge to displace them, never straight up.',
+      why: 'Bridging vertically does not move their centre of gravity.',
+      detail: '',
     });
     const ranked = rankRecords(
-      [generic, real],
-      'The practitioner could not bridge against the opponent',
+      [generic, onTopic],
+      'The practitioner could not bridge to displace the opponent',
     );
-    expect(ranked[0]).toBe(real);
+    expect(ranked).toEqual([onTopic]);
   });
 });
 
@@ -154,8 +167,15 @@ describe('groundingSection', () => {
   it('carries the usage guidance only when there are records to use', () => {
     // Keeping the guidance inside this block is what makes an ungrounded
     // prompt byte-identical to the one the 47% baseline was measured on.
-    expect(groundingSection([rec()])).toMatch(/USING THE REFERENCE MECHANICS/);
+    expect(groundingSection([rec()])).toMatch(/THE MISTAKE IS THE JOB/);
     expect(groundingSection([])).toBe('');
+  });
+
+  it('gives explicit permission to ignore the records', () => {
+    // Without this the model builds a confident cue around whichever mechanic
+    // it was handed, even when none address the mistake — the failure a blind
+    // trial caught, where the grounded cue lost two-to-one.
+    expect(groundingSection([rec()])).toMatch(/IGNORE THEM ALL/);
   });
 
   it('never names a source', () => {
@@ -195,5 +215,51 @@ describe('candidatePositions — the transcript is load-bearing', () => {
         perspective: 'bottom',
       }),
     ).toEqual(['half-guard-bottom']);
+  });
+});
+
+describe('rankRecords — the relevance gate', () => {
+  const about = (text: string): GroundableRecord => ({
+    prescription: text,
+    why: '',
+    detail: '',
+    counter: '',
+    gi: 'either',
+    level: 'any',
+    opponent: '',
+  });
+
+  it('drops records about the right position but the wrong problem', () => {
+    // A blind trial found injecting these made cues WORSE: the model builds a
+    // specific cue around a mechanic that answers a different question.
+    const relevant = about('Frame against the crossface before it settles.');
+    const offTopic = about('Attack the far armbar once you have mount.');
+    const out = rankRecords(
+      [offTopic, relevant],
+      'Could not frame against the crossface in time',
+    );
+    expect(out).toEqual([relevant]);
+  });
+
+  it('grounds nothing when no record clears the bar', () => {
+    // "Ungrounded" is a correct outcome, not a fallback failure.
+    const out = rankRecords(
+      [about('Attack the far armbar once you have mount.')],
+      'Could not frame against the crossface in time',
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('requires more than a single incidental word in common', () => {
+    const oneWord = about('Keep your frame strong in every position.');
+    expect(
+      rankRecords([oneWord], 'Could not frame against the crossface'),
+    ).toEqual([]);
+  });
+
+  it('honours an explicit threshold', () => {
+    const r = about('Frame against the crossface before it settles.');
+    expect(rankRecords([r], 'frame crossface', 20, 3)).toEqual([]);
+    expect(rankRecords([r], 'frame crossface', 20, 2)).toEqual([r]);
   });
 });

@@ -41,6 +41,15 @@ export const PIPELINE_CONFIG = {
    * names a position and a problem.
    */
   minTranscriptWords: 8,
+  /**
+   * Share of eligible sessions that receive grounded cues (#57).
+   *
+   * Only sessions that actually have matching records are eligible, so the
+   * remainder become the control arm — "had records, withheld them" — which is
+   * the counterfactual the comparison needs. Raise toward 1 once the experiment
+   * shows grounding wins; drop to 0 to disable grounding without a revert.
+   */
+  groundingRollout: 0.5,
 } as const;
 
 /**

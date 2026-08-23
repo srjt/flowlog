@@ -21,6 +21,7 @@ import {
   candidatePositions,
   rankRecords,
 } from '../../../src/sports/grounding.ts';
+import { assignGrounding } from '../../../src/sports/experiment.ts';
 import { extract, generateCoaching, transcribe } from '../_shared/ai.ts';
 import { enforce } from '../_shared/quality-gate.ts';
 import {
@@ -346,6 +347,9 @@ Deno.serve(async (req: Request) => {
       targetPosition: string | null;
       targetPositionId: string | null;
       qualityGatePassed: boolean;
+      grounding: string;
+      groundingRecords: number;
+      groundingAvailable: number;
     }): Promise<{ row: any } | { conflictOutput: Response }> => {
       try {
         const row = await dbInsert('sessions', {
@@ -362,6 +366,9 @@ Deno.serve(async (req: Request) => {
           target_position: analysis.targetPosition,
           target_position_id: analysis.targetPositionId,
           quality_gate_passed: analysis.qualityGatePassed,
+          grounding: analysis.grounding,
+          grounding_records: analysis.groundingRecords,
+          grounding_available: analysis.groundingAvailable,
           pipeline_version: PIPELINE_VERSION,
           client_session_id: clientSessionId,
         });
@@ -397,6 +404,9 @@ Deno.serve(async (req: Request) => {
         targetPosition: null,
         targetPositionId: null,
         qualityGatePassed: false,
+        grounding: 'declined',
+        groundingRecords: 0,
+        groundingAvailable: 0,
       });
       if ('conflictOutput' in declinedRow) return declinedRow.conflictOutput;
       await updateUserTrends(user.id, sportKey);
@@ -420,10 +430,20 @@ Deno.serve(async (req: Request) => {
     // stage's own targetPosition arrives too late to inform the cue it is part
     // of. Extraction already reports both the positions and the side.
     const groundingIds = candidatePositions(extraction);
-    const groundingRecords = rankRecords(
+    const relevantRecords = rankRecords(
       await loadGroundingRecords(sportKey, groundingIds),
       extraction.keyMistake,
     );
+    // Assigned only when records are actually available, so the control arm
+    // means "had records, withheld them" — the counterfactual the comparison
+    // needs. Keyed on the idempotency id so a retry cannot flip the arm.
+    const groundingArm = assignGrounding(
+      clientSessionId ?? `${user.id}:${sessionDate ?? ''}`,
+      relevantRecords.length,
+      { hasPosition: groundingIds.length > 0 },
+    );
+    const groundingRecords =
+      groundingArm.outcome === 'grounded' ? relevantRecords : [];
 
     // ── Stage 2b: coaching ──────────────────────────────────────────────────
     stage = 'coaching';
@@ -466,6 +486,9 @@ Deno.serve(async (req: Request) => {
       targetPosition: resolved.label ?? gate.coaching.targetPosition,
       targetPositionId: resolved.id,
       qualityGatePassed: gate.passed,
+      grounding: groundingArm.outcome,
+      groundingRecords: groundingArm.inject,
+      groundingAvailable: groundingArm.available,
     });
     if ('conflictOutput' in inserted) return inserted.conflictOutput;
     const session = inserted.row;

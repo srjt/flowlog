@@ -487,6 +487,8 @@ describe('FlowlogPipeline — grounded coaching', () => {
         coaching: new CoachingService(ai),
         qualityGate: new QualityGateService(),
         storage,
+        // Pin the grounded arm — this suite tests injection, not the experiment.
+        groundingRollout: 1,
       }),
     };
   }
@@ -579,11 +581,126 @@ describe('FlowlogPipeline — grounded coaching', () => {
       coaching: new CoachingService(ai),
       qualityGate: new QualityGateService(),
       storage,
+      groundingRollout: 1,
     });
 
     await pipeline.run(input);
 
     expect(ai.strictCallCount).toBeGreaterThan(0);
     expect(ai.lastCoachingInput?.groundingRecords).toHaveLength(1);
+  });
+});
+
+// ── Grounding experiment (per-session A/B) ──────────────────────────────────
+describe('FlowlogPipeline — grounded/withheld experiment', () => {
+  function rec(position: string) {
+    return {
+      id: `r-${position}`,
+      position,
+      prescription: 'Frame against the crossface before he settles his chest.',
+      why: 'Once the crossface lands the frame has nowhere to go.',
+      detail: 'Forearm across the hip.',
+      counter: '',
+      gi: 'either',
+      level: 'any',
+      opponent: '',
+      certified: false,
+      contested: false,
+    };
+  }
+  function build(records: ReturnType<typeof rec>[]) {
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Could not frame against the crossface before he settled.',
+        opponentAction: 'Held a strong crossface.',
+        perspective: 'bottom',
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    storage.coachingRecords = records;
+    const t = new MockTranscriptionProvider();
+    t.result = {
+      ...t.result,
+      transcript:
+        'He settled into side control on me and I could not frame against the crossface.',
+    };
+    return {
+      ai,
+      storage,
+      pipeline: new FlowlogPipeline({
+        transcription: new TranscriptionService(t),
+        extraction: new ExtractionService(ai),
+        coaching: new CoachingService(ai),
+        qualityGate: new QualityGateService(),
+        storage,
+      }),
+    };
+  }
+
+  it('records an outcome on every saved session', async () => {
+    const { storage, pipeline } = build([rec('side-control-bottom')]);
+    await pipeline.run({ ...input, clientSessionId: 'fixed-key-1' });
+    const saved = storage.saved[0];
+    expect(['grounded', 'withheld']).toContain(saved?.grounding);
+    expect(saved?.groundingAvailable).toBe(1);
+  });
+
+  it('puts the same session in the same arm across retries', async () => {
+    // A timeout-then-retry that reassigned the arm would corrupt the result
+    // and nothing downstream would notice.
+    const a = build([rec('side-control-bottom')]);
+    await a.pipeline.run({ ...input, clientSessionId: 'stable-key' });
+    const b = build([rec('side-control-bottom')]);
+    await b.pipeline.run({ ...input, clientSessionId: 'stable-key' });
+    expect(a.storage.saved[0]?.grounding).toBe(b.storage.saved[0]?.grounding);
+  });
+
+  it('withholds records without injecting them, but remembers it could have', async () => {
+    // The control arm has to be distinguishable from "never had records", or
+    // the two arms are not comparable.
+    const { ai, storage, pipeline } = build([rec('side-control-bottom')]);
+    await pipeline.run({ ...input, clientSessionId: 'k' });
+    const saved = storage.saved[0];
+    if (saved?.grounding === 'withheld') {
+      expect(saved.groundingRecords).toBe(0);
+      expect(saved.groundingAvailable).toBeGreaterThan(0);
+      expect(ai.lastCoachingInput?.groundingRecords).toEqual([]);
+    } else {
+      expect(saved?.groundingRecords).toBeGreaterThan(0);
+      expect(ai.lastCoachingInput?.groundingRecords?.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps sessions with no records out of the experiment', async () => {
+    const { storage, pipeline } = build([]);
+    await pipeline.run({ ...input, clientSessionId: 'no-records' });
+    expect(storage.saved[0]?.grounding).toBe('no_records');
+    expect(storage.saved[0]?.groundingAvailable).toBe(0);
+  });
+
+  it('marks a declined take as declined, not as an experiment arm', async () => {
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: [],
+        keyMistake: '',
+        opponentAction: '',
+        hasCoachableContent: false,
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    const t = new MockTranscriptionProvider();
+    t.result = { ...t.result, transcript: 'Yeah' };
+    const pipeline = new FlowlogPipeline({
+      transcription: new TranscriptionService(t),
+      extraction: new ExtractionService(ai),
+      coaching: new CoachingService(ai),
+      qualityGate: new QualityGateService(),
+      storage,
+    });
+    await pipeline.run(input);
+    expect(storage.saved[0]?.grounding).toBe('declined');
   });
 });

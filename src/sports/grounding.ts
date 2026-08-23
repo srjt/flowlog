@@ -12,8 +12,23 @@
 import { normalizePosition } from './bjj/bjjPositions.ts';
 import type { Perspective } from './positionTypes.ts';
 
-/** How many records reach the prompt. */
+/** Ceiling on how many records reach the prompt. */
 export const GROUNDING_RECORD_LIMIT = 20;
+
+/**
+ * Minimum overlap with the key mistake before a record is worth injecting.
+ *
+ * A blind trial found that injecting the top 20 records for a position made
+ * cues WORSE — the practitioner preferred the ungrounded cue two-to-one. The
+ * records were about the right position and the wrong problem, and the model
+ * dutifully built a specific cue around a mechanic that answered a different
+ * question. Specificity is worthless if it is aimed elsewhere.
+ *
+ * So a record must share at least this many meaningful terms with the mistake.
+ * Measured over the frozen baseline, a bar of 2 keeps 17 of 23 resolvable
+ * sessions grounded while cutting the median injected set from 25 to 4.
+ */
+export const GROUNDING_MIN_RELEVANCE = 2;
 
 /** The shape grounding needs. Structural so both sides can pass their own type. */
 export interface GroundableRecord {
@@ -114,25 +129,35 @@ export function rankRecords<T extends GroundableRecord>(
   records: T[],
   keyMistake: string,
   limit: number = GROUNDING_RECORD_LIMIT,
+  minRelevance: number = GROUNDING_MIN_RELEVANCE,
 ): T[] {
   const terms = new Set(
     (keyMistake.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter(
       (w) => !STOPWORDS.has(w),
     ),
   );
-  if (terms.size === 0) return records.slice(0, limit);
+  // Nothing to match against means we cannot tell relevance from irrelevance.
+  // Injecting arbitrary records for the position is exactly what made cues
+  // worse, so ground nothing instead.
+  if (terms.size === 0) return [];
 
-  return records
-    .map((record, index) => {
-      const haystack =
-        `${record.prescription} ${record.why} ${record.detail}`.toLowerCase();
-      let score = 0;
-      for (const term of terms) if (haystack.includes(term)) score++;
-      return { record, score, index };
-    })
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, limit)
-    .map((entry) => entry.record);
+  return (
+    records
+      .map((record, index) => {
+        const haystack =
+          `${record.prescription} ${record.why} ${record.detail}`.toLowerCase();
+        let score = 0;
+        for (const term of terms) if (haystack.includes(term)) score++;
+        return { record, score, index };
+      })
+      // The gate: a record about the right position but the wrong problem is
+      // worse than no record, because the model will build a confident, specific
+      // cue around it.
+      .filter((entry) => entry.score >= minRelevance)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, limit)
+      .map((entry) => entry.record)
+  );
 }
 
 /**
@@ -165,34 +190,25 @@ export function groundingSection(records: GroundableRecord[]): string {
     'REFERENCE MECHANICS for this position, as experienced instructors teach it:',
     lines.join('\n'),
     '',
-    'USING THE REFERENCE MECHANICS (when the input includes them):',
+    'REFERENCE MECHANICS — how experienced instructors teach this position:',
     '',
-    'These are how experienced instructors teach this exact position. They exist because',
-    'coaching written from general knowledge is frequently wrong, and almost always vague,',
-    'in ways that read perfectly well.',
+    'THE MISTAKE IS THE JOB. Your cue must address what went wrong in THIS session.',
+    'The mechanics below are offered as help, not as an assignment. They were selected',
+    'because they mention some of the same things the mistake does, which is a weak',
+    'signal — several of them will be about this position but not about this problem.',
     '',
-    'PICK ONE. Choose the single mechanic that best fits what went wrong, and build the cue',
-    'around its concrete detail. Do not summarise across several, and do not retreat to the',
-    'general principle they share — the specific detail IS the value.',
+    'For each one, ask: does this actually fix what went wrong? If yes, use its concrete',
+    'detail — the grip, the direction, the body part — rather than the general principle',
+    'behind it. If no, discard it.',
     '',
-    'The test: could this cue have been written WITHOUT the references? If yes, it is too',
-    'general and you have wasted them. "Secure an underhook and create an angle" is what',
-    'anyone would say about half guard. "Sweep them forward, away from their base, not to',
-    'the side" is a mechanic someone had to learn.',
+    'IF NONE OF THEM FIT, IGNORE THEM ALL and coach the mistake directly. That is a',
+    'correct outcome, not a failure. A cue that addresses the real mistake in ordinary',
+    'terms is far more useful than a precise cue aimed at a different problem — and',
+    'aiming elsewhere is the most common way these notes get misused.',
     '',
-    'Name the concrete thing: which grip, which hand, which direction, which body part.',
-    'A cue that names one specific action beats a cue that names a correct principle.',
-    '',
-    "- Prefer a mechanic that addresses THIS practitioner's key mistake over one that is",
-    '  merely about the same position. Relevance beats completeness.',
-    '- Use your own phrasing, but keep the mechanic itself intact. Rewording is fine;',
-    '  generalising it away is not.',
-    '- If a mechanic carries an "Applies when" line, honour it. A mechanic taught for',
-    '  beginners is not automatically right for an advanced practitioner, and one that',
-    '  depends on a grip only works when that grip is available.',
-    '- If NONE of the mechanics fit the mistake described, say what the mistake actually',
-    '  calls for instead. A cue that is relevant and unsupported beats a cue that is',
-    '  supported and beside the point.',
+    '- If a mechanic carries an "Applies when" line, honour it. One taught for beginners',
+    '  is not automatically right for an advanced practitioner, and one that depends on a',
+    '  grip only works when that grip is available.',
     '- Never mention these notes, where they came from, or that you were given references.',
   ].join('\n');
 }
