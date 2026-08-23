@@ -27,6 +27,7 @@ function extraction(
     keyMistake: 'Let him settle his chest before framing.',
     opponentAction: 'Held a strong crossface.',
     perspective: 'bottom',
+    rawTranscript: 'He passed and settled into side control on me.',
     ...over,
   };
 }
@@ -160,5 +161,39 @@ describe('groundingSection', () => {
   it('never names a source', () => {
     const out = groundingSection([rec()]);
     expect(out).not.toMatch(/danaher|instructional|volume|gff/i);
+  });
+});
+
+describe('candidatePositions — the transcript is load-bearing', () => {
+  // A real session resolved to half-guard-bottom for STORAGE and to nothing for
+  // GROUNDING, because grounding withheld the transcript. The cue shipped
+  // ungrounded while target_position_id looked correct.
+  const base = {
+    positionsVisited: ['Half Guard'],
+    keyMistake:
+      'The practitioner was unable to execute a sweep from half guard.',
+    opponentAction: "The opponent's defense prevented the sweep.",
+    rawTranscript:
+      'I was playing half guard from the bottom and kept trying to sweep him.',
+    perspective: 'unknown' as const,
+  };
+
+  it('recovers the side from the transcript when the summary drops it', () => {
+    expect(candidatePositions(base)).toEqual(['half-guard-bottom']);
+  });
+
+  it('finds nothing when there is no transcript and no reported side', () => {
+    expect(candidatePositions({ ...base, rawTranscript: '' })).toEqual([]);
+  });
+
+  it('still prefers the side extraction reported over the transcript', () => {
+    // The explicit signal wins; the transcript is the fallback.
+    expect(
+      candidatePositions({
+        ...base,
+        rawTranscript: 'I was on top passing his half guard.',
+        perspective: 'bottom',
+      }),
+    ).toEqual(['half-guard-bottom']);
   });
 });
