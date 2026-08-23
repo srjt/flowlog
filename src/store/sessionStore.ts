@@ -35,6 +35,11 @@ interface SessionState {
   history: Session[];
   errorMessage: string | null;
   /**
+   * False when retrying cannot possibly help (a provider spend cap, a rejected
+   * key). The processing screen demotes its retry control accordingly.
+   */
+  errorRetryable: boolean;
+  /**
    * Consecutive takes the pipeline has declined (issue #44). Drives the
    * reworded second decline — someone whose retry also failed needs an exit,
    * not the advice repeated. Survives `reset()` so a re-record keeps counting;
@@ -58,7 +63,7 @@ interface SessionState {
     reason?: string | null,
     note?: string | null,
   ) => void;
-  setError: (message: string | null) => void;
+  setError: (message: string | null, retryable?: boolean) => void;
   reset: () => void;
 }
 
@@ -71,6 +76,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   latestResult: null,
   history: [],
   errorMessage: null,
+  errorRetryable: true,
   declineStreak: 0,
 
   setStatus: (status) => set({ status }),
@@ -109,8 +115,12 @@ export const useSessionStore = create<SessionState>((set) => ({
           : s,
       ),
     })),
-  setError: (errorMessage) =>
-    set({ errorMessage, status: errorMessage ? 'error' : 'idle' }),
+  setError: (errorMessage, retryable = true) =>
+    set({
+      errorMessage,
+      errorRetryable: retryable,
+      status: errorMessage ? 'error' : 'idle',
+    }),
   reset: () =>
     set({
       status: 'idle',
@@ -120,5 +130,6 @@ export const useSessionStore = create<SessionState>((set) => ({
       steps: [],
       latestResult: null,
       errorMessage: null,
+      errorRetryable: true,
     }),
 }));

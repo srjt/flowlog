@@ -16,7 +16,8 @@ import type { ProcessingStep } from '@/types/pipeline';
  * without a recording it redirects to Record — no dead end.
  */
 export default function ProcessingScreen() {
-  const { audioUri, steps, status, errorMessage, reset } = useSessionStore();
+  const { audioUri, steps, status, errorMessage, errorRetryable, reset } =
+    useSessionStore();
   const { process } = usePipeline();
   const mounted = useRef(true);
 
@@ -73,18 +74,39 @@ export default function ProcessingScreen() {
               {errorMessage ??
                 'Something went wrong analyzing your session. Tap Try again.'}
             </Text>
+            {/* On a hard provider stop (spend cap, rejected key) retrying
+                cannot help, so Discard leads and the retry is demoted rather
+                than dangled as the obvious action. */}
             <View className="flex-row gap-3">
-              <Button
-                title="Try again"
-                className="flex-1"
-                onPress={() => void runPipeline()}
-              />
-              <Button
-                title="Discard"
-                variant="secondary"
-                className="flex-1"
-                onPress={onDiscard}
-              />
+              {errorRetryable ? (
+                <>
+                  <Button
+                    title="Try again"
+                    className="flex-1"
+                    onPress={() => void runPipeline()}
+                  />
+                  <Button
+                    title="Discard"
+                    variant="secondary"
+                    className="flex-1"
+                    onPress={onDiscard}
+                  />
+                </>
+              ) : (
+                <>
+                  <Button
+                    title="Discard"
+                    className="flex-1"
+                    onPress={onDiscard}
+                  />
+                  <Button
+                    title="Try anyway"
+                    variant="secondary"
+                    className="flex-1"
+                    onPress={() => void runPipeline()}
+                  />
+                </>
+              )}
             </View>
           </Card>
         ) : (
