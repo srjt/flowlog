@@ -32,6 +32,12 @@ export interface GroundableExtraction {
   keyMistake: string;
   opponentAction: string;
   perspective: Perspective | 'unknown';
+  /**
+   * The transcript. Load-bearing, not decorative: the practitioner states which
+   * side they were on far more often than the extracted summary does, and
+   * without it a session resolves for storage but not for grounding.
+   */
+  rawTranscript: string;
 }
 
 /**
@@ -43,7 +49,17 @@ export interface GroundableExtraction {
  * guessing wrong grounds the cue in the wrong situation entirely.
  */
 export function candidatePositions(extraction: GroundableExtraction): string[] {
-  const context = [extraction.keyMistake, extraction.opponentAction]
+  // Include the transcript. The extracted mistake is a tidy summary and
+  // routinely drops the side — "unable to sweep from half guard" says nothing
+  // about who was underneath, while the recording almost always does. Omitting
+  // it made grounding strictly weaker than the storage-side resolution, so a
+  // session could resolve to `half-guard-bottom` for the database and to
+  // nothing at all for the prompt.
+  const context = [
+    extraction.keyMistake,
+    extraction.opponentAction,
+    extraction.rawTranscript,
+  ]
     .filter(Boolean)
     .join(' ');
   const ids = new Set<string>();
@@ -151,14 +167,26 @@ export function groundingSection(records: GroundableRecord[]): string {
     '',
     'USING THE REFERENCE MECHANICS (when the input includes them):',
     '',
-    'The reference mechanics are how experienced instructors teach this exact position.',
-    'Ground your cue in them: they exist because coaching written from general knowledge is',
-    'frequently wrong in ways that read perfectly well.',
+    'These are how experienced instructors teach this exact position. They exist because',
+    'coaching written from general knowledge is frequently wrong, and almost always vague,',
+    'in ways that read perfectly well.',
+    '',
+    'PICK ONE. Choose the single mechanic that best fits what went wrong, and build the cue',
+    'around its concrete detail. Do not summarise across several, and do not retreat to the',
+    'general principle they share — the specific detail IS the value.',
+    '',
+    'The test: could this cue have been written WITHOUT the references? If yes, it is too',
+    'general and you have wasted them. "Secure an underhook and create an angle" is what',
+    'anyone would say about half guard. "Sweep them forward, away from their base, not to',
+    'the side" is a mechanic someone had to learn.',
+    '',
+    'Name the concrete thing: which grip, which hand, which direction, which body part.',
+    'A cue that names one specific action beats a cue that names a correct principle.',
     '',
     "- Prefer a mechanic that addresses THIS practitioner's key mistake over one that is",
     '  merely about the same position. Relevance beats completeness.',
-    '- Do NOT copy a mechanic verbatim, and do not stitch several together. Write one cue, in',
-    "  your own words, for this person's situation.",
+    '- Use your own phrasing, but keep the mechanic itself intact. Rewording is fine;',
+    '  generalising it away is not.',
     '- If a mechanic carries an "Applies when" line, honour it. A mechanic taught for',
     '  beginners is not automatically right for an advanced practitioner, and one that',
     '  depends on a grip only works when that grip is available.',

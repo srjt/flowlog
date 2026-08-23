@@ -504,15 +504,22 @@ export function normalizePosition(
     };
   }
 
-  // Precedence: the position phrase itself, then the surrounding text, then
-  // whatever an earlier stage reported. A side written into the phrase is the
-  // most specific signal there is and must not be overridden by a hint.
+  // Precedence: the position phrase itself, then a side an earlier stage
+  // REPORTED, then inference from surrounding prose.
+  //
+  // The reported side outranks prose inference deliberately. Extraction judges
+  // it by reading the whole recording and returns 'unknown' when unsure, so a
+  // reported side is a considered answer; the prose scan below is keyword
+  // matching that can be fooled by ordinary phrasing. (This reverses the
+  // original ordering from #48, which was set when "context" meant tidy
+  // extracted summaries — it now includes the raw transcript, which is far
+  // noisier.) A side written into the phrase itself still wins over both.
   let perspective = detectPerspective(raw);
-  if (perspective === 'unknown' && context) {
-    perspective = detectPerspective(context.toLowerCase());
-  }
   if (perspective === 'unknown' && perspectiveHint !== 'unknown') {
     perspective = perspectiveHint;
+  }
+  if (perspective === 'unknown' && context) {
+    perspective = detectPerspective(context.toLowerCase());
   }
 
   if (perspective === 'unknown' || perspective === 'neutral') {
