@@ -60,7 +60,10 @@ alter table public.coaching_records enable row level security;
 -- reference data read by the process-session function via the service role,
 -- which bypasses RLS. Clients must never read it directly: it is derived from
 -- third-party material and has no business reaching a device.
--- RLS enabled with no policy = no access for anon or authenticated.
+--
+-- Note: RLS with no policy denies every ROW, but the table stays queryable —
+-- an anon SELECT returns 200 with an empty array. Migration 009 revokes the
+-- table grant so access is refused outright rather than merely filtered.
 
 comment on table public.coaching_records is
   'Distilled coaching mechanics used to ground cues. No link to source material by design; full provenance stays on the authoring machine. Server-side only — read via service role, never exposed to clients.';
