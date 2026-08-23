@@ -1,4 +1,5 @@
 import type { ISportContext } from '@/sports/ISportContext';
+import { BJJ_POSITIONS, normalizePosition } from '@/sports/bjj/bjjPositions';
 import { BJJ_VOCABULARY_FLAT } from '@/sports/bjj/bjjVocabulary';
 import {
   BJJ_COACHING_PROMPT,
@@ -24,6 +25,8 @@ export const bjjContext: ISportContext = {
   sentimentLabels: BJJ_SENTIMENT_LABELS,
   skillLevels: BJJ_SKILL_LEVELS,
   qualityGatePhrases: BJJ_QUALITY_GATE_PHRASES,
+  positions: BJJ_POSITIONS,
+  normalizePosition,
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };

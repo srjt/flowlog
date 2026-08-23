@@ -29,7 +29,10 @@ const OUTPUT: PipelineOutput = {
   structuredSummary: 'summary',
   coachingCue: 'cue',
   targetPosition: 'Half Guard',
+  targetPositionId: null,
   sentiment: 'neutral',
+  declined: false,
+  declinedReason: '',
   qualityGatePassed: true,
   processingSteps: [],
 };

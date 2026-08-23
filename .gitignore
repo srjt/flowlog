@@ -41,3 +41,12 @@ yarn-error.*
 flowlog-baseline/
 *baseline.json
 *baseline.meta.json
+
+# Mined instructional records and mining artifacts (wayfinder #30).
+# These hold VERBATIM third-party instructional text and must never be
+# committed — only the derived mechanic ever ships. The miner writes outside
+# the repo by default; these patterns are the backstop if it is pointed inside.
+flowlog-records/
+*.records.json
+*.response.json
+*.prompt.txt

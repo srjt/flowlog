@@ -32,7 +32,9 @@ Migrations: `001_initial_schema.sql` (base schema), `002_auto_create_profile.sql
 (`profiles.onboarding_complete` — gates first-run onboarding; existing users
 backfilled to `true`), `005_launch_hardening.sql` (`sessions.client_session_id`
 + idempotency index, `client_events` table + RLS, own-audio delete policy),
-`006_feedback_note.sql` (`sessions.feedback_note`).
+`006_feedback_note.sql` (`sessions.feedback_note`), `007_target_position_id.sql` (`sessions.target_position_id` — the canonical
+position id from the BJJ taxonomy; nullable, and null is the normal case when
+the position or the side could not be determined).
 
 ## Key Design Decisions
 

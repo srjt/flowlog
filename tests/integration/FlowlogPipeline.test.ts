@@ -120,10 +120,10 @@ describe('FlowlogPipeline — quality gate', () => {
     const result = await pipeline.run(input);
 
     expect(result.qualityGatePassed).toBe(false);
-    expect(result.coachingCue.length).toBeGreaterThan(0);
-    expect(result.coachingCue.trim().split(/\s+/).length).toBeLessThanOrEqual(
-      25,
-    );
+    expect(result.declined).toBe(false);
+    const cue = result.coachingCue ?? '';
+    expect(cue.length).toBeGreaterThan(0);
+    expect(cue.trim().split(/\s+/).length).toBeLessThanOrEqual(25);
     // Session still persisted, flagged as not passing the gate.
     expect(storage.saved).toHaveLength(1);
     expect(storage.saved[0]?.qualityGatePassed).toBe(false);
@@ -205,5 +205,233 @@ describe('FlowlogPipeline — reanalyze', () => {
       }),
     ).rejects.toThrow(/empty/i);
     expect(storage.updated).toHaveLength(0);
+  });
+});
+
+// ── Decline path (issue #44) ─────────────────────────────────────────────────
+// A transcript with nothing coachable in it must NOT produce a cue. Before this,
+// coaching invented one from empty inputs and the quality gate passed it — 7 of
+// 41 real baseline sessions were fabricated that way.
+describe('FlowlogPipeline — declines an empty take', () => {
+  function declinedPipeline(transcript: string, modelSaysCoachable = false) {
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: [],
+        keyMistake: '',
+        opponentAction: '',
+        sentiment: 'neutral',
+        hasCoachableContent: modelSaysCoachable,
+        insufficientReason: modelSaysCoachable
+          ? ''
+          : 'no training was described',
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    const transcriptionMock = new MockTranscriptionProvider();
+    transcriptionMock.result = {
+      ...transcriptionMock.result,
+      transcript,
+    };
+    return {
+      ai,
+      storage,
+      pipeline: new FlowlogPipeline({
+        transcription: new TranscriptionService(transcriptionMock),
+        extraction: new ExtractionService(ai),
+        coaching: new CoachingService(ai),
+        qualityGate: new QualityGateService(),
+        storage,
+      }),
+    };
+  }
+
+  it('never calls coaching when there is nothing to coach', async () => {
+    const { ai, pipeline } = declinedPipeline(
+      'I trained today and it was fine, felt pretty good about everything overall.',
+    );
+
+    const result = await pipeline.run(input);
+
+    // The whole point: no cue was generated, so none could be invented.
+    expect(ai.coachingCalls).toBe(0);
+    expect(result.declined).toBe(true);
+    expect(result.coachingCue).toBeNull();
+    expect(result.targetPosition).toBeNull();
+    expect(result.qualityGatePassed).toBe(false);
+    expect(result.declinedReason).toBe('no training was described');
+  });
+
+  it('still saves the Session so the reflection and streak survive', async () => {
+    const { storage, pipeline } = declinedPipeline(
+      'Nothing much to report really, it was an alright sort of session today.',
+    );
+
+    const result = await pipeline.run(input);
+
+    expect(storage.saved).toHaveLength(1);
+    expect(storage.saved[0]?.coachingCue).toBeNull();
+    expect(storage.saved[0]?.targetPosition).toBeNull();
+    // The transcript is preserved — the reflection is not thrown away.
+    expect(storage.saved[0]?.rawTranscript).toContain('Nothing much to report');
+    expect(result.sessionId).toBeTruthy();
+  });
+
+  it('declines on the word-count backstop even when the model says otherwise', async () => {
+    // The model's judgement can be fooled; the floor cannot be talked out of it.
+    const { ai, pipeline } = declinedPipeline('Yeah', true);
+
+    const result = await pipeline.run(input);
+
+    expect(result.declined).toBe(true);
+    expect(ai.coachingCalls).toBe(0);
+    expect(result.declinedReason).toMatch(/too short/i);
+  });
+
+  it('does NOT decline a short but concrete reflection', async () => {
+    // The failure mode a high word floor would cause: 11 words, clearly coachable.
+    const { ai, pipeline } = declinedPipeline(
+      'I kept getting stuck in turtle and gave up my back.',
+      true,
+    );
+
+    const result = await pipeline.run(input);
+
+    expect(result.declined).toBe(false);
+    expect(ai.coachingCalls).toBeGreaterThan(0);
+    expect(result.coachingCue).toBe(goodCue().cue);
+  });
+
+  it('declines on re-analysis too, clearing the old cue in place', async () => {
+    const { ai, storage, pipeline } = declinedPipeline('unused');
+
+    const result = await pipeline.reanalyze({
+      sessionId: 'existing-1',
+      userId: 'user-1',
+      sportKey: 'bjj',
+      skillLevel: 'Blue Belt',
+      editedTranscript:
+        'Actually I did not really train at all today, just watched.',
+    });
+
+    expect(ai.coachingCalls).toBe(0);
+    expect(result.declined).toBe(true);
+    expect(result.coachingCue).toBeNull();
+    expect(storage.updated[0]?.update.coachingCue).toBeNull();
+    expect(storage.updated[0]?.update.targetPosition).toBeNull();
+  });
+});
+
+// ── Perspective and canonical position (issue #48) ──────────────────────────
+// A cue is only groundable against instructional material if we know WHICH SIDE
+// of the position it targets. Extraction reports it; the pipeline resolves the
+// coaching stage's free-text label onto the canonical vocabulary.
+describe('FlowlogPipeline — canonical target position', () => {
+  function pipelineFor(
+    perspective: 'top' | 'bottom' | 'unknown',
+    targetPosition: string,
+    transcript = 'He passed my guard and settled into side control on me for ages.',
+  ) {
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Let him settle his chest before framing.',
+        opponentAction: 'Held a strong crossface.',
+        sentiment: 'frustrated',
+        perspective,
+      },
+      [
+        {
+          cue: 'Frame on the far hip and shrimp before he consolidates the crossface.',
+          targetPosition,
+          confidenceScore: 0.85,
+          isGeneric: false,
+        },
+      ],
+    );
+    const storage = new MockStorageProvider();
+    const transcriptionMock = new MockTranscriptionProvider();
+    transcriptionMock.result = { ...transcriptionMock.result, transcript };
+    return {
+      ai,
+      storage,
+      pipeline: new FlowlogPipeline({
+        transcription: new TranscriptionService(transcriptionMock),
+        extraction: new ExtractionService(ai),
+        coaching: new CoachingService(ai),
+        qualityGate: new QualityGateService(),
+        storage,
+      }),
+    };
+  }
+
+  it('resolves a canonical id using the side extraction reported', async () => {
+    const { storage, pipeline } = pipelineFor('bottom', 'Side Control');
+
+    const result = await pipeline.run(input);
+
+    expect(result.targetPositionId).toBe('side-control-bottom');
+    expect(storage.saved[0]?.targetPositionId).toBe('side-control-bottom');
+  });
+
+  it('shows the user which side, not just the position', async () => {
+    const { result } = {
+      result: await pipelineFor('bottom', 'Side Control').pipeline.run(input),
+    };
+    expect(result.targetPosition).toBe('Side control (bottom)');
+  });
+
+  it('produces a different id for the same position on the other side', async () => {
+    const { result } = {
+      result: await pipelineFor(
+        'top',
+        'Side Control',
+        'I held side control for most of the round and kept the crossface tight throughout.',
+      ).pipeline.run(input),
+    };
+    expect(result.targetPositionId).toBe('side-control-top');
+  });
+
+  it('abstains rather than guessing when the side is unknown', async () => {
+    // Transcript deliberately free of any positional cue.
+    const { result } = {
+      result: await pipelineFor(
+        'unknown',
+        'Side Control',
+        'We drilled for a while and then did some situational rounds afterwards.',
+      ).pipeline.run(input),
+    };
+    // No id — but the free-text label survives for display.
+    expect(result.targetPositionId).toBeNull();
+    expect(result.targetPosition).toBe('Side Control');
+  });
+
+  it('lets a side written into the label beat the reported one', async () => {
+    // The label is the more specific signal; the hint must not override it.
+    const { result } = {
+      result: await pipelineFor('top', 'Side Control (bottom)').pipeline.run(
+        input,
+      ),
+    };
+    expect(result.targetPositionId).toBe('side-control-bottom');
+  });
+
+  it('stores no position id for a submission the model put in the field', async () => {
+    // Real baseline sessions produced target_position values like this.
+    const { result } = {
+      result: await pipelineFor('bottom', 'Kimura submission').pipeline.run(
+        input,
+      ),
+    };
+    expect(result.targetPositionId).toBeNull();
+    expect(result.targetPosition).toBe('Kimura submission');
+  });
+
+  it('clears the position id on a declined take', async () => {
+    const { storage, pipeline } = pipelineFor('bottom', 'Side Control', 'Yeah');
+    const result = await pipeline.run(input);
+    expect(result.declined).toBe(true);
+    expect(result.targetPositionId).toBeNull();
+    expect(storage.saved[0]?.targetPositionId).toBeNull();
   });
 });

@@ -141,6 +141,7 @@ export default function SessionDetailScreen() {
         rawTranscript: text,
         coachingCue: result.coachingCue,
         targetPosition: result.targetPosition,
+        targetPositionId: result.targetPositionId,
         sentiment: result.sentiment,
       };
       setSession(next);
@@ -217,17 +218,33 @@ export default function SessionDetailScreen() {
             {session.sportKey.toUpperCase()}
           </Text>
 
-          <Card className="border border-accent">
-            <Text variant="caption">COACHING CUE</Text>
-            <Text variant="cue" className="mt-1">
-              {session.coachingCue ?? '—'}
-            </Text>
-            {session.targetPosition ? (
-              <Text variant="caption" className="mt-3">
-                Target: {session.targetPosition}
+          {session.coachingCue ? (
+            <Card className="border border-accent">
+              <Text variant="caption">COACHING CUE</Text>
+              <Text variant="cue" className="mt-1">
+                {session.coachingCue}
               </Text>
-            ) : null}
-          </Card>
+              {session.targetPosition ? (
+                <Text variant="caption" className="mt-3">
+                  Target: {session.targetPosition}
+                </Text>
+              ) : null}
+            </Card>
+          ) : (
+            // Declined take (issue #44). Say plainly that there was nothing to
+            // work from rather than showing an empty cue card — the whole
+            // point is that we did not invent one.
+            <Card className="gap-2">
+              <Text variant="caption">NO CUE</Text>
+              <Text variant="body">
+                There wasn’t enough in this recording to pull a cue from.
+              </Text>
+              <Text variant="caption">
+                Correcting the transcript below and re-analyzing may produce
+                one.
+              </Text>
+            </Card>
+          )}
 
           <Card className="gap-3">
             <Text variant="heading">Breakdown</Text>

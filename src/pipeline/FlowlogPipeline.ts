@@ -8,6 +8,7 @@ import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
 import { getSportContext } from '@/sports';
 import type { ISportContext } from '@/sports/ISportContext';
+import type { Perspective } from '@/sports/positionTypes';
 import type {
   CoachingInput,
   PipelineInput,
@@ -105,6 +106,53 @@ export class FlowlogPipeline {
       );
       done('extraction', `${extraction.positionsVisited.length} positions`);
 
+      // ── Decline path (issue #44) ────────────────────────────────────────
+      // Nothing coachable in the recording. Skip coaching entirely rather than
+      // let the model invent a cue from empty inputs — it will, fluently, and
+      // the quality gate cannot tell. The Session is still saved (with a null
+      // cue) so the user's reflection and their streak survive; the UI offers
+      // re-record or keep.
+      if (!extraction.hasCoachableContent) {
+        done('coaching', 'skipped — nothing to coach');
+        done('quality_gate', 'skipped');
+
+        begin('persistence');
+        const declinedAudioPath = await this.safeUploadAudio(
+          input.userId,
+          input.audioUri,
+        );
+        const declinedSession = await this.storage.saveSession({
+          userId: input.userId,
+          sportKey: input.sportKey,
+          sessionDate: input.sessionDate.toISOString(),
+          audioStoragePath: declinedAudioPath,
+          rawTranscript: transcription.transcript,
+          positionsVisited: extraction.positionsVisited,
+          keyMistake: extraction.keyMistake,
+          opponentAction: extraction.opponentAction,
+          sentiment: extraction.sentiment,
+          coachingCue: null,
+          targetPosition: null,
+          targetPositionId: null,
+          qualityGatePassed: false,
+          pipelineVersion: PIPELINE_VERSION,
+        });
+        done('persistence');
+
+        return {
+          sessionId: declinedSession.id,
+          structuredSummary: this.buildSummary(extraction, sportContext),
+          coachingCue: null,
+          targetPosition: null,
+          targetPositionId: null,
+          sentiment: extraction.sentiment,
+          qualityGatePassed: false,
+          processingSteps: steps,
+          declined: true,
+          declinedReason: extraction.insufficientReason,
+        };
+      }
+
       // History for coaching context (best-effort — never block on it).
       const { recentMistakes, dominantWeakness } = await this.loadHistory(
         input.userId,
@@ -137,6 +185,14 @@ export class FlowlogPipeline {
           : 'fallback used',
       );
 
+      // Resolve the cue's target position onto the canonical vocabulary so
+      // later grounding has a stable key to join on, not a free-text label.
+      const resolved = this.resolvePositionId(
+        sportContext,
+        gate.coaching.targetPosition,
+        extraction,
+      );
+
       // ── Stage 4: persistence ────────────────────────────────────────────
       begin('persistence');
       const audioStoragePath = await this.safeUploadAudio(
@@ -154,7 +210,10 @@ export class FlowlogPipeline {
         opponentAction: extraction.opponentAction,
         sentiment: extraction.sentiment,
         coachingCue: gate.coaching.cue,
-        targetPosition: gate.coaching.targetPosition,
+        // Canonical label ("Side control (bottom)") when the position
+        // resolved; otherwise keep what the model wrote.
+        targetPosition: resolved.label ?? gate.coaching.targetPosition,
+        targetPositionId: resolved.id,
         qualityGatePassed: gate.passed,
         pipelineVersion: PIPELINE_VERSION,
       });
@@ -164,10 +223,13 @@ export class FlowlogPipeline {
         sessionId: session.id,
         structuredSummary: this.buildSummary(extraction, sportContext),
         coachingCue: gate.coaching.cue,
-        targetPosition: gate.coaching.targetPosition,
+        targetPosition: resolved.label ?? gate.coaching.targetPosition,
+        targetPositionId: resolved.id,
         sentiment: extraction.sentiment,
         qualityGatePassed: gate.passed,
         processingSteps: steps,
+        declined: false,
+        declinedReason: '',
       };
     } catch (err) {
       const running = steps.find((s) => s.status === 'running');
@@ -198,6 +260,38 @@ export class FlowlogPipeline {
       input.skillLevel,
     );
 
+    // A corrected transcript can still turn out to have nothing coachable in it
+    // (issue #44) — decline here too rather than inventing on re-analysis.
+    if (!extraction.hasCoachableContent) {
+      const declined = await this.storage.updateSessionAnalysis(
+        input.sessionId,
+        {
+          rawTranscript: transcript,
+          positionsVisited: extraction.positionsVisited,
+          keyMistake: extraction.keyMistake,
+          opponentAction: extraction.opponentAction,
+          sentiment: extraction.sentiment,
+          coachingCue: null,
+          targetPosition: null,
+          targetPositionId: null,
+          qualityGatePassed: false,
+          pipelineVersion: PIPELINE_VERSION,
+        },
+      );
+      return {
+        sessionId: declined.id,
+        structuredSummary: this.buildSummary(extraction, sportContext),
+        coachingCue: null,
+        targetPosition: null,
+        targetPositionId: null,
+        sentiment: extraction.sentiment,
+        qualityGatePassed: false,
+        processingSteps: this.reanalyzeSteps(),
+        declined: true,
+        declinedReason: extraction.insufficientReason,
+      };
+    }
+
     const { recentMistakes, dominantWeakness } = await this.loadHistory(
       input.userId,
       input.sportKey,
@@ -216,6 +310,12 @@ export class FlowlogPipeline {
       (strict) => this.coaching.generate(coachingInput, strict),
     );
 
+    const resolved = this.resolvePositionId(
+      sportContext,
+      gate.coaching.targetPosition,
+      extraction,
+    );
+
     const session = await this.storage.updateSessionAnalysis(input.sessionId, {
       rawTranscript: transcript,
       positionsVisited: extraction.positionsVisited,
@@ -223,7 +323,8 @@ export class FlowlogPipeline {
       opponentAction: extraction.opponentAction,
       sentiment: extraction.sentiment,
       coachingCue: gate.coaching.cue,
-      targetPosition: gate.coaching.targetPosition,
+      targetPosition: resolved.label ?? gate.coaching.targetPosition,
+      targetPositionId: resolved.id,
       qualityGatePassed: gate.passed,
       pipelineVersion: PIPELINE_VERSION,
     });
@@ -232,10 +333,13 @@ export class FlowlogPipeline {
       sessionId: session.id,
       structuredSummary: this.buildSummary(extraction, sportContext),
       coachingCue: gate.coaching.cue,
-      targetPosition: gate.coaching.targetPosition,
+      targetPosition: resolved.label ?? gate.coaching.targetPosition,
+      targetPositionId: resolved.id,
       sentiment: extraction.sentiment,
       qualityGatePassed: gate.passed,
       processingSteps: this.reanalyzeSteps(),
+      declined: false,
+      declinedReason: '',
     };
   }
 
@@ -305,6 +409,45 @@ export class FlowlogPipeline {
       logger.warn('audio upload failed; saving session without audio', err);
       return null;
     }
+  }
+
+  /**
+   * Resolve the coaching stage's free-text target position onto the sport's
+   * canonical vocabulary (issue #47/#48).
+   *
+   * The extraction's reported side is passed as a hint rather than as the
+   * answer: a side written into the position label itself ("Side Control
+   * (bottom)") is more specific and wins. Returns null whenever the position or
+   * the side is undetermined — there is no nearest-match fallback, because a
+   * wrong id makes every later lookup confidently wrong.
+   */
+  private resolvePositionId(
+    sportContext: ISportContext,
+    targetPosition: string | null,
+    extraction: {
+      keyMistake: string;
+      opponentAction: string;
+      rawTranscript: string;
+      perspective: Perspective | 'unknown';
+    },
+  ): { id: string | null; label: string | null } {
+    const context = [
+      extraction.keyMistake,
+      extraction.opponentAction,
+      extraction.rawTranscript,
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const match = sportContext.normalizePosition(
+      targetPosition,
+      context,
+      extraction.perspective,
+    );
+    // Only adopt the canonical label when the position FULLY resolved. A
+    // canonical-looking label must imply a canonical id, or the display and the
+    // stored key disagree — "Side control" shown while nothing was keyed.
+    return { id: match.id, label: match.id ? match.label : null };
   }
 
   private buildSummary(

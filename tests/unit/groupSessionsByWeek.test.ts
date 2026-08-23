@@ -15,6 +15,7 @@ function session(id: string, date: string): Session {
     sentiment: null,
     coachingCue: null,
     targetPosition: null,
+    targetPositionId: null,
     qualityGatePassed: true,
     thumbsUp: null,
     pipelineVersion: null,

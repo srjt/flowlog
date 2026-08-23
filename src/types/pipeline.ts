@@ -1,4 +1,5 @@
 import type { ISportContext } from '@/sports/ISportContext';
+import type { Perspective } from '@/sports/positionTypes';
 import type { SportKey } from '@/types/sport';
 import type { SkillLevel } from '@/types/user';
 
@@ -31,6 +32,22 @@ export interface ExtractionOutput {
   opponentAction: string;
   sentiment: string;
   rawTranscript: string;
+  /**
+   * Whether the transcript actually described something coachable (issue #44).
+   * The model judges this; `ExtractionService` additionally applies a word-count
+   * backstop, so a `false` here can come from either. When false the pipeline
+   * declines: coaching never runs and no cue is invented.
+   */
+  hasCoachableContent: boolean;
+  /** Short phrase describing what was missing. Empty when content is sufficient. */
+  insufficientReason: string;
+  /**
+   * Which side of the position the practitioner was on, for the situation the
+   * key mistake happened in (issue #48). `'unknown'` when the transcript never
+   * says — never a guess, because a wrong side produces confident coaching
+   * aimed at the opposite situation.
+   */
+  perspective: Perspective | 'unknown';
 }
 
 // ── Coaching (Stage 2) ──────────────────────────────────────────────────────
@@ -118,9 +135,24 @@ export interface ReanalyzeInput {
 export interface PipelineOutput {
   sessionId: string;
   structuredSummary: string;
-  coachingCue: string;
-  targetPosition: string;
+  /**
+   * Null when the pipeline declined (issue #44) — there was nothing coachable in
+   * the recording, so no cue was generated rather than one being invented.
+   * The Session is still saved; the UI renders an honest empty state.
+   */
+  coachingCue: string | null;
+  targetPosition: string | null;
+  /**
+   * Canonical position id (issue #47/#48), e.g. `side-control-bottom`. Null
+   * when the position or the side could not be determined — callers key on
+   * this and abstain rather than falling back to the free-text label.
+   */
+  targetPositionId: string | null;
   sentiment: string;
   qualityGatePassed: boolean;
   processingSteps: ProcessingStep[];
+  /** True when the pipeline declined to produce a cue. */
+  declined: boolean;
+  /** Why it declined — shown to the user as context. Empty unless `declined`. */
+  declinedReason: string;
 }

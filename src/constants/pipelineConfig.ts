@@ -19,9 +19,28 @@ export const PIPELINE_CONFIG = {
   maxRecordingSeconds: env.MAX_RECORDING_SECONDS,
   /** How many recent mistakes feed the coaching prompt. */
   recentMistakesWindow: 5,
-  /** Safe message returned when the quality gate exhausts all retries. */
+  /**
+   * Safe message returned when the quality gate exhausts all retries.
+   * Deliberately avoids every phrase in a sport's `qualityGatePhrases` — this
+   * text bypasses the gate, so it must not contain what the gate rejects.
+   */
   fallbackCoachingCue:
-    'Focus on one thing next session: stay calm and move deliberately. Review this roll with your coach.',
+    'Pick one detail from this session and drill it deliberately next time. Ask your coach to watch that specific moment.',
+  /**
+   * Backstop for the sufficiency check (issue #44). Extraction judges whether a
+   * transcript has anything to coach on; this word floor is insurance for when
+   * that judgement is fooled or the provider omits the field. It is a crude
+   * proxy on purpose — it cannot be talked out of its answer the way a model can.
+   *
+   * Deliberately LOW. The two checks have different jobs: the floor catches
+   * "there is almost nothing here", the model catches "there are words but no
+   * content" (feelings only, a plan rather than a session). A floor high enough
+   * to catch the second kind also throws away genuine terse reflections —
+   * "I kept getting stuck in turtle and gave up my back" is 11 words and
+   * perfectly coachable. 8 is under the length of any real reflection that
+   * names a position and a problem.
+   */
+  minTranscriptWords: 8,
 } as const;
 
 /**

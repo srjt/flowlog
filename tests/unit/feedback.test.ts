@@ -22,6 +22,7 @@ function newSession(userId: string): NewSession {
     sentiment: 'flat',
     coachingCue: 'cue',
     targetPosition: 'Guard',
+    targetPositionId: null,
     qualityGatePassed: true,
     pipelineVersion: 'test',
   };
@@ -41,6 +42,7 @@ function sampleSession(id: string): Session {
     sentiment: null,
     coachingCue: null,
     targetPosition: null,
+    targetPositionId: null,
     qualityGatePassed: true,
     thumbsUp: null,
     pipelineVersion: null,

@@ -1,3 +1,4 @@
+import { PIPELINE_CONFIG } from '@/constants/pipelineConfig';
 import { CoachingService } from '@/services/CoachingService';
 import { ExtractionService } from '@/services/ExtractionService';
 import {
@@ -105,5 +106,103 @@ describe('CoachingService word-cap helpers', () => {
       true,
     );
     expect(ai.lastStrict).toBe(true);
+  });
+});
+
+// ── Sufficiency (issue #44) ──────────────────────────────────────────────────
+describe('ExtractionService.judgeSufficiency', () => {
+  const long =
+    'I kept getting stuck under side control and could not frame properly';
+
+  it('accepts a transcript both checks agree on', () => {
+    expect(ExtractionService.judgeSufficiency(long, true, '')).toEqual({
+      hasCoachableContent: true,
+      insufficientReason: '',
+    });
+  });
+
+  it('declines when the model says there is nothing there', () => {
+    const out = ExtractionService.judgeSufficiency(long, false, 'only a plan');
+    expect(out.hasCoachableContent).toBe(false);
+    expect(out.insufficientReason).toBe('only a plan');
+  });
+
+  it('declines on the word floor even when the model says it is fine', () => {
+    // The backstop exists precisely because the model verdict can be wrong.
+    const out = ExtractionService.judgeSufficiency('Yeah', true, '');
+    expect(out.hasCoachableContent).toBe(false);
+    expect(out.insufficientReason).toMatch(/too short/i);
+  });
+
+  it('prefers the model reason when both checks decline', () => {
+    const out = ExtractionService.judgeSufficiency(
+      'Yeah ok',
+      false,
+      'no training described',
+    );
+    expect(out.insufficientReason).toBe('no training described');
+  });
+
+  it('treats a missing model verdict as sufficient — degrades, never over-declines', () => {
+    // A provider that has not been updated must not decline every session.
+    expect(
+      ExtractionService.judgeSufficiency(long, undefined, undefined)
+        .hasCoachableContent,
+    ).toBe(true);
+  });
+
+  it('does not veto a short but concrete reflection', () => {
+    const terse = 'Got mounted three times, could not bridge, he was heavy';
+    expect(
+      ExtractionService.judgeSufficiency(terse, true, '').hasCoachableContent,
+    ).toBe(true);
+  });
+
+  it('falls back to a mechanical reason when the model gives none', () => {
+    const out = ExtractionService.judgeSufficiency(long, false, '   ');
+    expect(out.insufficientReason).toBe('no training was described');
+  });
+});
+
+describe('fallback cue', () => {
+  it('does not contain any phrase the quality gate rejects', () => {
+    // The fallback bypasses the gate, so it must not say what the gate bans.
+    const cue = PIPELINE_CONFIG.fallbackCoachingCue.toLowerCase();
+    const hits = bjj.qualityGatePhrases.filter((p) =>
+      cue.includes(p.toLowerCase()),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it('is within the word cap', () => {
+    expect(
+      CoachingService.exceedsWordCap(PIPELINE_CONFIG.fallbackCoachingCue),
+    ).toBe(false);
+  });
+});
+
+// ── Perspective (issue #48) ─────────────────────────────────────────────────
+describe('ExtractionService.normalisePerspective', () => {
+  it('accepts the two real sides', () => {
+    expect(ExtractionService.normalisePerspective('top')).toBe('top');
+    expect(ExtractionService.normalisePerspective('bottom')).toBe('bottom');
+  });
+
+  it('turns anything else into unknown rather than trusting it through', () => {
+    // A bad value here produces coaching aimed at the wrong side of the
+    // position, so the only safe default is to abstain.
+    for (const bad of [
+      undefined,
+      null,
+      '',
+      'neutral',
+      'TOP',
+      'on top',
+      'both',
+      42,
+      {},
+    ]) {
+      expect(ExtractionService.normalisePerspective(bad)).toBe('unknown');
+    }
   });
 });

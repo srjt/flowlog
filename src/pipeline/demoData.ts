@@ -81,8 +81,13 @@ export function buildDemoOutput(sportKey: SportKey): PipelineOutput {
     structuredSummary: result.summary,
     coachingCue: result.coachingCue,
     targetPosition: result.targetPosition,
+    // Demo mode never resolves a canonical position — the point is canned
+    // output, not a real analysis.
+    targetPositionId: null,
     sentiment: result.sentiment,
     qualityGatePassed: true,
+    declined: false,
+    declinedReason: '',
     processingSteps: STEP_ORDER.map(
       (name): ProcessingStep => ({
         name,
@@ -113,6 +118,7 @@ export function demoSessionFromOutput(
     sentiment: output.sentiment,
     coachingCue: output.coachingCue,
     targetPosition: output.targetPosition,
+    targetPositionId: null,
     qualityGatePassed: output.qualityGatePassed,
     thumbsUp: null,
     pipelineVersion: 'demo',
@@ -164,6 +170,7 @@ export function buildDemoHistory(
     sentiment: s.sentiment ?? null,
     coachingCue: s.coachingCue ?? null,
     targetPosition: s.targetPosition ?? null,
+    targetPositionId: null,
     qualityGatePassed: true,
     thumbsUp: null,
     pipelineVersion: 'demo',

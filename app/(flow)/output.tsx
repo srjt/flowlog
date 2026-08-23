@@ -7,7 +7,11 @@ import { FeedbackControls } from '@/components/FeedbackControls';
 import { FirstResultCelebration } from '@/components/FirstResultCelebration';
 import { Button, Card, Text } from '@/components/ui';
 import { isDemoMode } from '@/config/featureFlags';
-import { loadSessions, saveSessionFeedback } from '@/services/sessionsSource';
+import {
+  deleteSession,
+  loadSessions,
+  saveSessionFeedback,
+} from '@/services/sessionsSource';
 import { computeTrends } from '@/services/TrendsService';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUserStore } from '@/store/userStore';
@@ -23,13 +27,17 @@ import { logger } from '@/utils/logger';
  * to Record — no dead end.
  */
 export default function OutputScreen() {
-  const { latestResult, reset, setFeedback } = useSessionStore();
+  const { latestResult, reset, setFeedback, removeSession, declineStreak } =
+    useSessionStore();
   const { authUser, activeSport } = useUserStore();
   const [thumb, setThumb] = useState<boolean | null>(null);
   const [reason, setReason] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
   const [celebrate, setCelebrate] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+
+  const declined = latestResult?.declined ?? false;
 
   // Count the user's sessions for this sport to drive the unlock progress, and
   // fire the one-time celebration on the very first result (persisted so it
@@ -43,6 +51,9 @@ export default function OutputScreen() {
           sessions.filter((s) => s.sportKey === activeSport),
         ).sessionCount;
         setSessionCount(count);
+        // Never celebrate an empty state — a declined first Session has no
+        // cue to celebrate, and the one-time flag would be spent on it.
+        if (declined) return;
         if (count === 1 && !(await hasCelebratedFirstResult())) {
           if (!active) return;
           setCelebrate(true);
@@ -53,7 +64,7 @@ export default function OutputScreen() {
     return () => {
       active = false;
     };
-  }, [authUser, activeSport]);
+  }, [authUser, activeSport, declined]);
 
   if (!latestResult) {
     return <Redirect href="/(tabs)/record" />;
@@ -96,6 +107,95 @@ export default function OutputScreen() {
     // Return the promise (uncaught) so the note field reflects success/failure.
     return persist(false, reason, value);
   };
+
+  // ── Declined take (issue #44) ──────────────────────────────────────────
+  // Nothing coachable in the recording, so no cue was generated rather than one
+  // being invented. The Session IS saved and counts toward the streak; "Record
+  // again" discards it and returns to Record. Both ways out are offered from the
+  // first decline — re-recording is never the only exit.
+  if (declined) {
+    const again = declineStreak > 1;
+
+    const onRecordAgain = async () => {
+      setDiscarding(true);
+      try {
+        await deleteSession(latestResult.sessionId);
+        removeSession(latestResult.sessionId);
+      } catch (err) {
+        // Losing the discard is survivable — the session simply stays in the
+        // log with no cue. Don't trap the user on this screen for it.
+        logger.warn('discarding declined session failed', err);
+      }
+      reset();
+      router.replace('/(tabs)/record');
+    };
+
+    return (
+      <SafeAreaView className="flex-1 bg-background">
+        <ScrollView contentContainerClassName="gap-5 px-6 py-6">
+          <Text variant="caption">NO CUE THIS TIME</Text>
+
+          <Card className="gap-3">
+            <Text variant="heading">
+              {again ? 'Still not enough to work from' : 'Nothing to work from'}
+            </Text>
+            <Text variant="body">
+              {again
+                ? 'That one came up short too. It’s saved either way — you can keep it and move on.'
+                : 'There wasn’t enough in this recording to pull a cue from, so we haven’t made one up.'}
+            </Text>
+            {latestResult.declinedReason ? (
+              <Text variant="caption">
+                What was missing: {latestResult.declinedReason}
+              </Text>
+            ) : null}
+            <Text variant="caption" className="mt-1">
+              Next time, try naming a position and one thing that didn’t go your
+              way — even a sentence is enough.
+            </Text>
+          </Card>
+
+          {again ? (
+            <>
+              <Button
+                title="Keep it and finish"
+                onPress={() => {
+                  reset();
+                  router.replace('/(tabs)/record');
+                }}
+              />
+              <Button
+                title="Record again"
+                variant="ghost"
+                disabled={discarding}
+                onPress={onRecordAgain}
+              />
+            </>
+          ) : (
+            <>
+              <Button
+                title="Record again"
+                disabled={discarding}
+                onPress={onRecordAgain}
+              />
+              <Button
+                title="Keep it anyway"
+                variant="ghost"
+                onPress={() => {
+                  reset();
+                  router.replace('/(tabs)/record');
+                }}
+              />
+            </>
+          )}
+
+          <Text variant="caption">
+            Either way this one is saved and your streak is safe.
+          </Text>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-background">
