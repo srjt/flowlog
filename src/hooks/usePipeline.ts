@@ -5,7 +5,7 @@ import { demoSessionFromOutput } from '@/pipeline/demoData';
 import { pipelineClient } from '@/pipeline/PipelineClient';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUserStore } from '@/store/userStore';
-import { toFriendlyMessage } from '@/utils/friendlyError';
+import { classifyError } from '@/utils/friendlyError';
 import { logger } from '@/utils/logger';
 
 /**
@@ -63,7 +63,8 @@ export function usePipeline() {
         return result;
       } catch (err) {
         logger.error('pipeline run failed', err); // raw stays in the logs only
-        setError(toFriendlyMessage(err));
+        const { message, retryable } = classifyError(err);
+        setError(message, retryable);
         return null;
       } finally {
         inFlight.current = false;
