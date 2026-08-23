@@ -46,7 +46,7 @@ import type {
   Perspective,
   PositionMatch,
   SportPosition,
-} from '../positionTypes';
+} from '../positionTypes.ts';
 
 export type { Perspective, PositionMatch };
 
