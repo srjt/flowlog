@@ -45,7 +45,7 @@ Return STRICT JSON matching:
 Skill level: {{SKILL_LEVEL}}
 Key mistake: {{KEY_MISTAKE}}
 Recent mistakes: {{RECENT_MISTAKES}}
-Dominant weakness: {{DOMINANT_WEAKNESS}}`;
+Dominant weakness: {{DOMINANT_WEAKNESS}}{{GROUNDING}}`;
 
 export const GOLF_COACHING_STRICT_RETRY = `
 

@@ -22,6 +22,21 @@ export interface ExtractionOutput {
   perspective: 'top' | 'bottom' | 'unknown';
 }
 
+/** A distilled mechanic from the serving store (#57). No source link by design. */
+export interface CoachingRecord {
+  id: string;
+  position: string;
+  prescription: string;
+  why: string;
+  detail: string;
+  counter: string;
+  gi: string;
+  level: string;
+  opponent: string;
+  certified: boolean;
+  contested: boolean;
+}
+
 export interface CoachingOutput {
   cue: string;
   targetPosition: string;

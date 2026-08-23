@@ -50,6 +50,34 @@ export interface ExtractionOutput {
   perspective: Perspective | 'unknown';
 }
 
+// ── Grounding (Stage 2a½) ───────────────────────────────────────────────────
+/**
+ * A distilled instructional mechanic from the serving store, used to ground a
+ * cue (issue #41/#57).
+ *
+ * Deliberately carries NO link to the material it was derived from — no
+ * instructor, title, volume, timestamp or verbatim quote. Provenance lives only
+ * on the authoring machine (see #37).
+ */
+export interface CoachingRecord {
+  id: string;
+  /** Canonical position id — perspective is part of the identity. */
+  position: string;
+  /** What to do, or not do. The mistake is its negative half. */
+  prescription: string;
+  /** Why it works, or why the alternative fails. Carries the depth. */
+  why: string;
+  detail: string;
+  counter: string;
+  /** Conditions under which the prescription holds. */
+  gi: string;
+  level: string;
+  opponent: string;
+  /** Human-review gates. Nothing is certified yet; see #41. */
+  certified: boolean;
+  contested: boolean;
+}
+
 // ── Coaching (Stage 2) ──────────────────────────────────────────────────────
 export interface CoachingInput {
   extraction: ExtractionOutput;
@@ -57,6 +85,12 @@ export interface CoachingInput {
   recentMistakes: string[];
   skillLevel: string;
   dominantWeakness: string | null;
+  /**
+   * Instructional records placed in front of the model as it writes (#57).
+   * Empty when the session could not be grounded — the cue is then produced
+   * exactly as it was before, with no user-visible difference.
+   */
+  groundingRecords?: CoachingRecord[];
   /**
    * When true, the provider appends a stricter instruction (shorter, more
    * specific, no generic filler). Set by CoachingService on a quality-gate

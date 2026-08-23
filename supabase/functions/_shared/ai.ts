@@ -6,8 +6,11 @@
 // client. Mirrors the client providers in `src/providers/`.
 
 import type { ServerSportContext } from './sports.ts';
+// Single-sourced with the client: the two must build the same prompt.
+import { groundingSection } from '../../../src/sports/grounding.ts';
 import type {
   CoachingOutput,
+  CoachingRecord,
   ExtractionOutput,
   TranscriptionResult,
 } from './types.ts';
@@ -256,6 +259,7 @@ export async function generateCoaching(
   dominantWeakness: string | null,
   maxWords: number,
   strict: boolean,
+  groundingRecords: CoachingRecord[] = [],
 ): Promise<CoachingOutput> {
   const base = fillTemplate(sport.coachingPrompt, {
     SKILL_LEVEL: skillLevel,

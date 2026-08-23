@@ -435,3 +435,155 @@ describe('FlowlogPipeline — canonical target position', () => {
     expect(storage.saved[0]?.targetPositionId).toBeNull();
   });
 });
+
+// ── Grounding (issue #57) ───────────────────────────────────────────────────
+// The repair: instructional records go in front of the model as it writes the
+// cue, rather than the cue being written from the model's own recall.
+describe('FlowlogPipeline — grounded coaching', () => {
+  function record(position: string, prescription: string) {
+    return {
+      id: `rec-${position}-${prescription.slice(0, 6)}`,
+      position,
+      prescription,
+      why: 'Because the frame has nowhere to go once the crossface lands.',
+      detail: 'Forearm across the hip.',
+      counter: '',
+      gi: 'either',
+      level: 'any',
+      opponent: '',
+      certified: false,
+      contested: false,
+    };
+  }
+
+  function build(
+    records: ReturnType<typeof record>[],
+    perspective: 'top' | 'bottom' | 'unknown' = 'bottom',
+  ) {
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Could not frame before the crossface landed.',
+        opponentAction: 'Held a strong crossface.',
+        sentiment: 'frustrated',
+        perspective,
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    storage.coachingRecords = records;
+    const transcriptionMock = new MockTranscriptionProvider();
+    transcriptionMock.result = {
+      ...transcriptionMock.result,
+      transcript:
+        'He passed and settled into side control on me, and I could not get my frame in before the crossface.',
+    };
+    return {
+      ai,
+      storage,
+      pipeline: new FlowlogPipeline({
+        transcription: new TranscriptionService(transcriptionMock),
+        extraction: new ExtractionService(ai),
+        coaching: new CoachingService(ai),
+        qualityGate: new QualityGateService(),
+        storage,
+      }),
+    };
+  }
+
+  it('puts records for the session position in front of the model', async () => {
+    const { ai, storage, pipeline } = build([
+      record('side-control-bottom', 'Frame on the far hip before he settles.'),
+    ]);
+
+    await pipeline.run(input);
+
+    expect(storage.coachingRecordQueries[0]?.positionIds).toEqual([
+      'side-control-bottom',
+    ]);
+    // The records reached the coaching call, not just the lookup.
+    expect(ai.lastCoachingInput?.groundingRecords).toHaveLength(1);
+  });
+
+  it('never sends top-side records to a bottom-side session', async () => {
+    const { storage, pipeline } = build([
+      record('side-control-bottom', 'Frame early.'),
+      record('side-control-top', 'Keep your chest heavy.'),
+    ]);
+
+    await pipeline.run(input);
+
+    const asked = storage.coachingRecordQueries[0]?.positionIds ?? [];
+    expect(asked).toContain('side-control-bottom');
+    expect(asked).not.toContain('side-control-top');
+  });
+
+  it('produces a cue exactly as before when nothing can be grounded', async () => {
+    // Out-of-corpus degradation must be invisible: no error, no difference.
+    const { ai, pipeline } = build([]);
+
+    const result = await pipeline.run(input);
+
+    expect(result.coachingCue).toBe(goodCue().cue);
+    expect(result.declined).toBe(false);
+    expect(ai.lastCoachingInput?.groundingRecords).toEqual([]);
+  });
+
+  it('still produces a cue when the record lookup fails outright', async () => {
+    // Grounding is enrichment. Failing a whole session over reference data
+    // would be a far worse outcome than an ungrounded cue.
+    const { ai, storage, pipeline } = build([
+      record('side-control-bottom', 'Frame early.'),
+    ]);
+    storage.getCoachingRecords = async () => {
+      throw new Error('serving store unreachable');
+    };
+
+    const result = await pipeline.run(input);
+
+    expect(result.coachingCue).toBe(goodCue().cue);
+    expect(ai.lastCoachingInput?.groundingRecords).toEqual([]);
+  });
+
+  it('does not look up records when the side is unknown', async () => {
+    const { storage, pipeline } = build(
+      [record('side-control-bottom', 'Frame early.')],
+      'unknown',
+    );
+
+    await pipeline.run(input);
+
+    // No canonical id means nothing to ask for — and no guessing.
+    expect(storage.coachingRecordQueries).toHaveLength(0);
+  });
+
+  it('grounds the strict retry too, not just the first attempt', async () => {
+    // A retry on an ungrounded prompt is the "wrong cue -> different wrong cue"
+    // loop the whole repair exists to break.
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Could not frame before the crossface landed.',
+        opponentAction: 'Held a strong crossface.',
+        perspective: 'bottom',
+      },
+      [badCue(), goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    storage.coachingRecords = [
+      record('side-control-bottom', 'Frame on the far hip before he settles.'),
+    ];
+    const pipeline = new FlowlogPipeline({
+      transcription: new TranscriptionService(new MockTranscriptionProvider()),
+      extraction: new ExtractionService(ai),
+      coaching: new CoachingService(ai),
+      qualityGate: new QualityGateService(),
+      storage,
+    });
+
+    await pipeline.run(input);
+
+    expect(ai.strictCallCount).toBeGreaterThan(0);
+    expect(ai.lastCoachingInput?.groundingRecords).toHaveLength(1);
+  });
+});

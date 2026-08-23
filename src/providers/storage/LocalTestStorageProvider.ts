@@ -1,3 +1,4 @@
+import type { CoachingRecord } from '@/types/pipeline';
 import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
 import { computeTrends } from '@/services/TrendsService';
 import type {
@@ -119,6 +120,11 @@ export class LocalTestStorageProvider implements IStorageProvider {
       row.feedbackReason = reason ?? null;
       row.feedbackNote = note ?? null;
     }
+  }
+
+  /** Local/demo mode has no serving store, so cues here are never grounded. */
+  async getCoachingRecords(): Promise<CoachingRecord[]> {
+    return [];
   }
 
   async deleteSession(sessionId: string): Promise<void> {

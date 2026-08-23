@@ -4,6 +4,7 @@ import { storageProvider } from '@/providers/storage';
 import type { IStorageProvider } from '@/providers/storage';
 import { CoachingService } from '@/services/CoachingService';
 import { ExtractionService } from '@/services/ExtractionService';
+import { candidatePositions, rankRecords } from '@/services/GroundingService';
 import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
 import { getSportContext } from '@/sports';
@@ -11,6 +12,8 @@ import type { ISportContext } from '@/sports/ISportContext';
 import type { Perspective } from '@/sports/positionTypes';
 import type {
   CoachingInput,
+  CoachingRecord,
+  ExtractionOutput,
   PipelineInput,
   PipelineOutput,
   ProcessingStep,
@@ -159,6 +162,14 @@ export class FlowlogPipeline {
         input.sportKey,
       );
 
+      // Grounding runs BEFORE coaching, from the extraction — the coaching
+      // stage's own targetPosition arrives too late to inform the cue it is
+      // part of. Best-effort: an ungrounded cue is a supported outcome.
+      const groundingRecords = await this.loadGrounding(
+        input.sportKey,
+        extraction,
+      );
+
       // ── Stage 2b: coaching ──────────────────────────────────────────────
       begin('coaching');
       const coachingInput: CoachingInput = {
@@ -167,6 +178,7 @@ export class FlowlogPipeline {
         recentMistakes,
         skillLevel: input.skillLevel,
         dominantWeakness,
+        groundingRecords,
       };
       const initialCoaching = await this.coaching.generate(coachingInput);
       done('coaching');
@@ -373,6 +385,38 @@ export class FlowlogPipeline {
       label: STEP_LABELS[name],
       status: 'done',
     }));
+  }
+
+  /**
+   * Records to ground this cue in, or none.
+   *
+   * Never throws: grounding is enrichment. A lookup failure degrades to the
+   * ungrounded cue the pipeline produced before this existed, which the user
+   * cannot distinguish — the alternative would be failing a whole session over
+   * reference data.
+   */
+  private async loadGrounding(
+    sportKey: string,
+    extraction: ExtractionOutput,
+  ): Promise<CoachingRecord[]> {
+    try {
+      const positionIds = candidatePositions(extraction);
+      if (positionIds.length === 0) return [];
+      const records = await this.storage.getCoachingRecords(
+        sportKey,
+        positionIds,
+      );
+      const ranked = rankRecords(records, extraction.keyMistake);
+      logger.debug('grounding', {
+        positions: positionIds.length,
+        found: records.length,
+        injected: ranked.length,
+      });
+      return ranked;
+    } catch (err) {
+      logger.warn('grounding lookup failed; cue will be ungrounded', err);
+      return [];
+    }
   }
 
   private async loadHistory(

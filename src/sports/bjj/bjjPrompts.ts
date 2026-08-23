@@ -131,7 +131,7 @@ INPUT:
 - Opponent action: {{OPPONENT_ACTION}}
 - Positions visited: {{POSITIONS_VISITED}}
 - Recent recurring mistakes (last sessions): {{RECENT_MISTAKES}}
-- Dominant weakness so far: {{DOMINANT_WEAKNESS}}
+- Dominant weakness so far: {{DOMINANT_WEAKNESS}}{{GROUNDING}}
 
 Produce ONE coaching cue and return STRICT JSON matching exactly:
 

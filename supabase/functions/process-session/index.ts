@@ -17,6 +17,10 @@
 
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts';
 import { getSportContext } from '../_shared/sports.ts';
+import {
+  candidatePositions,
+  rankRecords,
+} from '../../../src/sports/grounding.ts';
 import { extract, generateCoaching, transcribe } from '../_shared/ai.ts';
 import { enforce } from '../_shared/quality-gate.ts';
 import {
@@ -29,9 +33,10 @@ import {
 } from '../_shared/supabaseRest.ts';
 import { computeTrendUpdate } from '../_shared/trends.ts';
 import type {
+  CoachingRecord,
   PipelineOutput,
-  ProcessingStep,
   ProcessRequest,
+  ProcessingStep,
 } from '../_shared/types.ts';
 
 const PIPELINE_VERSION = '1.0.0';
@@ -150,6 +155,16 @@ Deno.serve(async (req: Request) => {
         user.id,
         existing.sport_key,
       );
+      // Re-analysis regenerates the cue, so it needs the same grounding the
+      // original run had — otherwise correcting a transcript would quietly
+      // downgrade the cue from grounded to not.
+      const reGrounding = rankRecords(
+        await loadGroundingRecords(
+          existing.sport_key,
+          candidatePositions(extraction),
+        ),
+        extraction.keyMistake,
+      );
       const initialCoaching = await generateCoaching(
         extraction,
         sport,
@@ -158,6 +173,7 @@ Deno.serve(async (req: Request) => {
         dominantWeakness,
         COACHING_CUE_MAX_WORDS,
         false,
+        reGrounding,
       );
       const gate = await enforce(
         initialCoaching,
@@ -173,6 +189,7 @@ Deno.serve(async (req: Request) => {
             dominantWeakness,
             COACHING_CUE_MAX_WORDS,
             strict,
+            reGrounding,
           ),
       );
 
@@ -399,6 +416,15 @@ Deno.serve(async (req: Request) => {
       sportKey,
     );
 
+    // Grounding runs BEFORE coaching, from the extraction — the coaching
+    // stage's own targetPosition arrives too late to inform the cue it is part
+    // of. Extraction already reports both the positions and the side.
+    const groundingIds = candidatePositions(extraction);
+    const groundingRecords = rankRecords(
+      await loadGroundingRecords(sportKey, groundingIds),
+      extraction.keyMistake,
+    );
+
     // ── Stage 2b: coaching ──────────────────────────────────────────────────
     stage = 'coaching';
     const initialCoaching = await generateCoaching(
@@ -409,6 +435,7 @@ Deno.serve(async (req: Request) => {
       dominantWeakness,
       COACHING_CUE_MAX_WORDS,
       false,
+      groundingRecords,
     );
 
     // ── Stage 3: quality gate (stricter retries, safe fallback) ─────────────
@@ -427,6 +454,7 @@ Deno.serve(async (req: Request) => {
           dominantWeakness,
           COACHING_CUE_MAX_WORDS,
           strict,
+          groundingRecords,
         ),
     );
 
@@ -478,6 +506,44 @@ Deno.serve(async (req: Request) => {
  * idempotent-replay path (retry of a take that already produced a session).
  */
 // deno-lint-ignore no-explicit-any
+/**
+ * Instructional records for the positions a session touched (#57).
+ *
+ * Read through the service role — the table's grants are revoked for clients
+ * by design (#37). Never throws: grounding is enrichment, and failing a whole
+ * session over reference data would be a far worse outcome than an ungrounded
+ * cue, which the user cannot distinguish anyway.
+ */
+async function loadGroundingRecords(
+  sportKey: string,
+  positionIds: string[],
+): Promise<CoachingRecord[]> {
+  if (positionIds.length === 0) return [];
+  try {
+    const list = positionIds.map((p) => `"${p}"`).join(',');
+    const rows = await dbSelect(
+      `coaching_records?select=*&sport_key=eq.${encodeURIComponent(sportKey)}` +
+        `&position=in.(${encodeURIComponent(list)})&limit=200`,
+    );
+    return (rows ?? []).map((r: any) => ({
+      id: r.id,
+      position: r.position,
+      prescription: r.prescription ?? '',
+      why: r.why ?? '',
+      detail: r.detail ?? '',
+      counter: r.counter ?? '',
+      gi: r.gi ?? 'either',
+      level: r.level ?? 'any',
+      opponent: r.opponent ?? '',
+      certified: r.certified === true,
+      contested: r.contested === true,
+    }));
+  } catch (err) {
+    console.error('[flowlog] grounding lookup failed', err);
+    return [];
+  }
+}
+
 function outputFromRow(
   row: any,
   sport: { sessionUnit: string },

@@ -1,3 +1,4 @@
+import type { CoachingRecord } from '@/types/pipeline';
 import type {
   NewSession,
   Session,
@@ -49,6 +50,19 @@ export interface IStorageProvider {
 
   /** Permanently delete a session (RLS-scoped to the owner). */
   deleteSession(sessionId: string): Promise<void>;
+
+  /**
+   * Instructional records for the given canonical positions (#57).
+   *
+   * Server-side reference data: the table's grants are revoked for clients, so
+   * only a service-role caller can read it. Client-side implementations
+   * legitimately return an empty array — the live pipeline runs in the edge
+   * function, and an ungrounded cue is a supported outcome, not an error.
+   */
+  getCoachingRecords(
+    sportKey: string,
+    positionIds: string[],
+  ): Promise<CoachingRecord[]>;
 
   isAvailable(): Promise<boolean>;
 }

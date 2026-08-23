@@ -33,6 +33,7 @@ export class MockAIProvider implements IAIProvider {
   extractCalls = 0;
   coachingCalls = 0;
   lastStrict = false;
+  lastCoachingInput: CoachingInput | null = null;
   strictCallCount = 0;
 
   public extraction: ExtractionOutput;
@@ -56,6 +57,7 @@ export class MockAIProvider implements IAIProvider {
 
   async generateCoachingCue(input: CoachingInput): Promise<CoachingOutput> {
     this.coachingCalls++;
+    this.lastCoachingInput = input;
     this.lastStrict = input.strict === true;
     if (input.strict) this.strictCallCount++;
     const next = this.coachingQueue.shift();
