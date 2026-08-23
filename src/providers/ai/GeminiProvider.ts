@@ -7,6 +7,7 @@ import type {
   ExtractionOutput,
   IAIProvider,
 } from '@/providers/ai/IAIProvider';
+import { groundingSection } from '@/services/GroundingService';
 import { logCost } from '@/utils/cost';
 import { logger } from '@/utils/logger';
 
@@ -81,6 +82,7 @@ export class GeminiProvider implements IAIProvider {
       OPPONENT_ACTION: input.extraction.opponentAction,
       POSITIONS_VISITED: input.extraction.positionsVisited.join(', ') || 'none',
       RECENT_MISTAKES: input.recentMistakes.join('; ') || 'none recorded',
+      GROUNDING: groundingSection(input.groundingRecords ?? []),
       DOMINANT_WEAKNESS: input.dominantWeakness ?? 'not yet established',
       MAX_WORDS: String(PIPELINE_CONFIG.coachingCueMaxWords),
     });

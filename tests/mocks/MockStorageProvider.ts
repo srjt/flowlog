@@ -1,3 +1,4 @@
+import type { CoachingRecord } from '@/types/pipeline';
 import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
 import type {
   NewSession,
@@ -101,6 +102,18 @@ export class MockStorageProvider implements IStorageProvider {
     reason?: string | null,
   ): Promise<void> {
     this.feedback.push({ sessionId, thumbsUp, reason: reason ?? null });
+  }
+
+  /** Records the pipeline may ground a cue with. Set per test. */
+  coachingRecords: CoachingRecord[] = [];
+  coachingRecordQueries: { sportKey: string; positionIds: string[] }[] = [];
+
+  async getCoachingRecords(
+    sportKey: string,
+    positionIds: string[],
+  ): Promise<CoachingRecord[]> {
+    this.coachingRecordQueries.push({ sportKey, positionIds });
+    return this.coachingRecords.filter((r) => positionIds.includes(r.position));
   }
 
   async deleteSession(sessionId: string): Promise<void> {

@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
+import type { CoachingRecord } from '@/types/pipeline';
 import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
 import type {
   NewSession,
@@ -233,6 +234,16 @@ export class SupabaseStorageProvider implements IStorageProvider {
         'Feedback was not saved — the session could not be found (you may be signed out).',
       );
     }
+  }
+
+  /**
+   * Client-side this returns nothing: the table's grants are revoked for anon
+   * and authenticated, by design (#37) — these records are derived from
+   * third-party material and have no business on a device. The live pipeline
+   * reads them server-side through the service role.
+   */
+  async getCoachingRecords(): Promise<CoachingRecord[]> {
+    return [];
   }
 
   async deleteSession(sessionId: string): Promise<void> {
