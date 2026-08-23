@@ -59,6 +59,12 @@ export interface NewSession {
   targetPositionId: string | null;
   qualityGatePassed: boolean;
   pipelineVersion: string;
+  /** Why the cue was or was not grounded, and which arm it landed in (#58). */
+  grounding?: string | null;
+  /** Records actually injected. */
+  groundingRecords?: number | null;
+  /** Records that matched and could have been injected — the control's counterfactual. */
+  groundingAvailable?: number | null;
 }
 
 /**
@@ -84,6 +90,12 @@ export interface SessionAnalysisUpdate {
   targetPositionId: string | null;
   qualityGatePassed: boolean;
   pipelineVersion: string;
+  /** Why the cue was or was not grounded, and which arm it landed in (#58). */
+  grounding?: string | null;
+  /** Records actually injected. */
+  groundingRecords?: number | null;
+  /** Records that matched and could have been injected — the control's counterfactual. */
+  groundingAvailable?: number | null;
 }
 
 /** Mirrors the `public.user_trends` table. */

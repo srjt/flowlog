@@ -5,6 +5,7 @@ import type { IStorageProvider } from '@/providers/storage';
 import { CoachingService } from '@/services/CoachingService';
 import { ExtractionService } from '@/services/ExtractionService';
 import { candidatePositions, rankRecords } from '@/services/GroundingService';
+import { assignGrounding, type GroundingAssignment } from '@/sports/experiment';
 import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
 import { getSportContext } from '@/sports';
@@ -31,6 +32,8 @@ export type { PipelineInput, PipelineOutput, ReanalyzeInput };
 export type PipelineProgress = (steps: ProcessingStep[]) => void;
 
 interface PipelineDeps {
+  /** Override the experiment rollout. Tests pin an arm; production uses config. */
+  groundingRollout?: number;
   transcription?: TranscriptionService;
   extraction?: ExtractionService;
   coaching?: CoachingService;
@@ -50,6 +53,7 @@ export class FlowlogPipeline {
   private readonly coaching: CoachingService;
   private readonly qualityGate: QualityGateService;
   private readonly storage: IStorageProvider;
+  private readonly groundingRollout: number;
 
   constructor(deps: PipelineDeps = {}) {
     this.transcription = deps.transcription ?? new TranscriptionService();
@@ -57,6 +61,8 @@ export class FlowlogPipeline {
     this.coaching = deps.coaching ?? new CoachingService();
     this.qualityGate = deps.qualityGate ?? new QualityGateService();
     this.storage = deps.storage ?? storageProvider;
+    this.groundingRollout =
+      deps.groundingRollout ?? PIPELINE_CONFIG.groundingRollout;
   }
 
   async run(
@@ -139,6 +145,9 @@ export class FlowlogPipeline {
           targetPositionId: null,
           qualityGatePassed: false,
           pipelineVersion: PIPELINE_VERSION,
+          grounding: 'declined',
+          groundingRecords: 0,
+          groundingAvailable: 0,
         });
         done('persistence');
 
@@ -165,10 +174,15 @@ export class FlowlogPipeline {
       // Grounding runs BEFORE coaching, from the extraction — the coaching
       // stage's own targetPosition arrives too late to inform the cue it is
       // part of. Best-effort: an ungrounded cue is a supported outcome.
-      const groundingRecords = await this.loadGrounding(
-        input.sportKey,
-        extraction,
-      );
+      // The session key must be stable across retries, or a timeout could flip
+      // a session between experiment arms.
+      const { records: groundingRecords, assignment } =
+        await this.loadGrounding(
+          input.sportKey,
+          extraction,
+          input.clientSessionId ??
+            `${input.userId}:${input.sessionDate.toISOString()}`,
+        );
 
       // ── Stage 2b: coaching ──────────────────────────────────────────────
       begin('coaching');
@@ -228,6 +242,9 @@ export class FlowlogPipeline {
         targetPositionId: resolved.id,
         qualityGatePassed: gate.passed,
         pipelineVersion: PIPELINE_VERSION,
+        grounding: assignment.outcome,
+        groundingRecords: assignment.inject,
+        groundingAvailable: assignment.available,
       });
       done('persistence');
 
@@ -398,24 +415,36 @@ export class FlowlogPipeline {
   private async loadGrounding(
     sportKey: string,
     extraction: ExtractionOutput,
-  ): Promise<CoachingRecord[]> {
+    sessionKey: string,
+  ): Promise<{ records: CoachingRecord[]; assignment: GroundingAssignment }> {
     try {
       const positionIds = candidatePositions(extraction);
-      if (positionIds.length === 0) return [];
-      const records = await this.storage.getCoachingRecords(
-        sportKey,
-        positionIds,
-      );
-      const ranked = rankRecords(records, extraction.keyMistake);
+      const records =
+        positionIds.length === 0
+          ? []
+          : await this.storage.getCoachingRecords(sportKey, positionIds);
+      const relevant = rankRecords(records, extraction.keyMistake);
+      const assignment = assignGrounding(sessionKey, relevant.length, {
+        hasPosition: positionIds.length > 0,
+        rollout: this.groundingRollout,
+      });
       logger.debug('grounding', {
         positions: positionIds.length,
         found: records.length,
-        injected: ranked.length,
+        relevant: relevant.length,
+        outcome: assignment.outcome,
       });
-      return ranked;
+      return {
+        records: assignment.outcome === 'grounded' ? relevant : [],
+        assignment,
+      };
     } catch (err) {
+      // Grounding is enrichment; a lookup failure must not cost a session.
       logger.warn('grounding lookup failed; cue will be ungrounded', err);
-      return [];
+      return {
+        records: [],
+        assignment: { outcome: 'no_records', inject: 0, available: 0 },
+      };
     }
   }
 
