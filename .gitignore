@@ -34,6 +34,14 @@ yarn-error.*
 .vscode/
 .idea/
 
+# Instructional corpus and the frozen cue baseline (wayfinder #30).
+# Both hold third-party instructional text or real session transcripts and
+# must never be committed. The tools live in scripts/; their OUTPUT does not.
+/baseline/
+flowlog-baseline/
+*baseline.json
+*baseline.meta.json
+
 # Mined instructional records and mining artifacts (wayfinder #30).
 # These hold VERBATIM third-party instructional text and must never be
 # committed — only the derived mechanic ever ships. The miner writes outside
