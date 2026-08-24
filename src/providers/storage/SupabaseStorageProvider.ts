@@ -123,6 +123,7 @@ export class SupabaseStorageProvider implements IStorageProvider {
         grounding: session.grounding ?? null,
         grounding_records: session.groundingRecords ?? null,
         grounding_available: session.groundingAvailable ?? null,
+        grounding_candidates: session.groundingCandidates ?? null,
         target_position: session.targetPosition,
         quality_gate_passed: session.qualityGatePassed,
         pipeline_version: session.pipelineVersion,

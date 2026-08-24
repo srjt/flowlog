@@ -197,14 +197,17 @@ export class FlowlogPipeline {
       // part of. Best-effort: an ungrounded cue is a supported outcome.
       // The session key must be stable across retries, or a timeout could flip
       // a session between experiment arms.
-      const { records: groundingRecords, assignment } =
-        await this.loadGrounding(
-          input.sportKey,
-          extraction,
-          input.clientSessionId ??
-            `${input.userId}:${input.sessionDate.toISOString()}`,
-          giResolution.gi,
-        );
+      const {
+        records: groundingRecords,
+        assignment,
+        candidates: groundingCandidates,
+      } = await this.loadGrounding(
+        input.sportKey,
+        extraction,
+        input.clientSessionId ??
+          `${input.userId}:${input.sessionDate.toISOString()}`,
+        giResolution.gi,
+      );
 
       // ── Stage 2b: coaching ──────────────────────────────────────────────
       begin('coaching');
@@ -268,6 +271,8 @@ export class FlowlogPipeline {
         giSource: giResolution.source,
         grounding: assignment.outcome,
         groundingRecords: assignment.inject,
+        groundingCandidates:
+          groundingCandidates < 0 ? null : groundingCandidates,
         groundingAvailable: assignment.available,
       });
       done('persistence');
@@ -441,7 +446,12 @@ export class FlowlogPipeline {
     extraction: ExtractionOutput,
     sessionKey: string,
     gi: GiContext | null,
-  ): Promise<{ records: CoachingRecord[]; assignment: GroundingAssignment }> {
+  ): Promise<{
+    records: CoachingRecord[];
+    assignment: GroundingAssignment;
+    /** Records for the position BEFORE gi + relevance filtering (#58). */
+    candidates: number;
+  }> {
     try {
       const positionIds = candidatePositions(extraction);
       const records =
@@ -467,6 +477,7 @@ export class FlowlogPipeline {
       return {
         records: assignment.outcome === 'grounded' ? relevant : [],
         assignment,
+        candidates: records.length,
       };
     } catch (err) {
       // Grounding is enrichment; a lookup failure must not cost a session.
@@ -474,6 +485,9 @@ export class FlowlogPipeline {
       return {
         records: [],
         assignment: { outcome: 'no_records', inject: 0, available: 0 },
+        // A lookup failure is not a corpus gap. Null keeps it out of the
+        // mining backlog rather than filing it as a position to mine.
+        candidates: -1,
       };
     }
   }
