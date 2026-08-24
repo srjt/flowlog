@@ -868,3 +868,78 @@ describe('FlowlogPipeline — gi filtering and override (#60)', () => {
     expect(storage.saved[0]?.giSource).toBe('none');
   });
 });
+
+describe('FlowlogPipeline — mining backlog signal (#58)', () => {
+  function build(records: { gi: string; prescription: string }[]) {
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Could not frame before the crossface landed.',
+        opponentAction: 'Held a strong crossface.',
+        sentiment: 'frustrated',
+        perspective: 'bottom',
+        statedGi: 'unknown',
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    storage.coachingRecords = records.map((r, i) => ({
+      id: `r${i}`,
+      position: 'side-control-bottom',
+      prescription: r.prescription,
+      why: '',
+      detail: '',
+      counter: '',
+      gi: r.gi,
+      level: 'any',
+      opponent: '',
+      certified: false,
+      contested: false,
+    }));
+    const t = new MockTranscriptionProvider();
+    t.result = {
+      ...t.result,
+      transcript:
+        'He passed and settled into side control on me, and I could not get my frame in before the crossface.',
+    };
+    return {
+      storage,
+      pipeline: new FlowlogPipeline({
+        transcription: new TranscriptionService(t),
+        extraction: new ExtractionService(ai),
+        coaching: new CoachingService(ai),
+        qualityGate: new QualityGateService(),
+        storage,
+        groundingRollout: 1,
+      }),
+    };
+  }
+
+  it('records zero candidates when the corpus is empty — a real mining gap', async () => {
+    const { storage, pipeline } = build([]);
+    await pipeline.run(input);
+    expect(storage.saved[0]?.grounding).toBe('no_records');
+    expect(storage.saved[0]?.groundingCandidates).toBe(0);
+  });
+
+  it('records the pre-filter count when records existed but were filtered out', async () => {
+    // Two gi-only records, a no-gi session: nothing survives, but the corpus
+    // is NOT empty. Filing this as a mining gap would send someone mining a
+    // position that already has records.
+    const { storage, pipeline } = build([
+      {
+        gi: 'gi',
+        prescription: 'Grip the collar and frame before the crossface.',
+      },
+      {
+        gi: 'gi',
+        prescription: 'Use the lapel to frame before the crossface lands.',
+      },
+    ]);
+
+    await pipeline.run({ ...input, gi: 'no-gi' });
+
+    expect(storage.saved[0]?.grounding).toBe('no_records');
+    expect(storage.saved[0]?.groundingCandidates).toBe(2);
+  });
+});

@@ -362,6 +362,8 @@ Deno.serve(async (req: Request) => {
       grounding: string;
       groundingRecords: number;
       groundingAvailable: number;
+      /** Records for the position before gi + relevance filtering (#58). */
+      groundingCandidates: number | null;
     }): Promise<{ row: any } | { conflictOutput: Response }> => {
       try {
         const row = await dbInsert('sessions', {
@@ -381,6 +383,7 @@ Deno.serve(async (req: Request) => {
           grounding: analysis.grounding,
           grounding_records: analysis.groundingRecords,
           grounding_available: analysis.groundingAvailable,
+          grounding_candidates: analysis.groundingCandidates,
           gi: giResolution.gi,
           gi_source: giResolution.source,
           pipeline_version: PIPELINE_VERSION,
@@ -421,6 +424,8 @@ Deno.serve(async (req: Request) => {
         grounding: 'declined',
         groundingRecords: 0,
         groundingAvailable: 0,
+        // Nothing was looked up, so this is not a corpus gap.
+        groundingCandidates: null,
       });
       if ('conflictOutput' in declinedRow) return declinedRow.conflictOutput;
       await updateUserTrends(user.id, sportKey);
@@ -458,11 +463,12 @@ Deno.serve(async (req: Request) => {
     }
     // Filtered BEFORE ranking, so a record that cannot apply never occupies
     // one of the 20 slots and crowds out one that can.
+    // Held separately from the filtered set: `no_records` must distinguish an
+    // empty corpus (mine it) from records that existed and were filtered out
+    // by gi context or the relevance gate (mining will not help) — #58.
+    const candidateRecords = await loadGroundingRecords(sportKey, groundingIds);
     const relevantRecords = rankRecords(
-      filterByGiContext(
-        await loadGroundingRecords(sportKey, groundingIds),
-        giResolution.gi,
-      ),
+      filterByGiContext(candidateRecords, giResolution.gi),
       extraction.keyMistake,
     );
     // Assigned only when records are actually available, so the control arm
@@ -520,6 +526,7 @@ Deno.serve(async (req: Request) => {
       grounding: groundingArm.outcome,
       groundingRecords: groundingArm.inject,
       groundingAvailable: groundingArm.available,
+      groundingCandidates: candidateRecords.length,
     });
     if ('conflictOutput' in inserted) return inserted.conflictOutput;
     const session = inserted.row;

@@ -78,6 +78,8 @@ export interface NewSession {
   groundingRecords?: number | null;
   /** Records that matched and could have been injected — the control's counterfactual. */
   groundingAvailable?: number | null;
+  /** Records found for the position BEFORE the gi filter and relevance gate (#58). */
+  groundingCandidates?: number | null;
 }
 
 /**
@@ -113,6 +115,8 @@ export interface SessionAnalysisUpdate {
   groundingRecords?: number | null;
   /** Records that matched and could have been injected — the control's counterfactual. */
   groundingAvailable?: number | null;
+  /** Records found for the position BEFORE the gi filter and relevance gate (#58). */
+  groundingCandidates?: number | null;
 }
 
 /** Mirrors the `public.user_trends` table. */
