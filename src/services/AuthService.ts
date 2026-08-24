@@ -4,7 +4,12 @@ import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
 import type { SportKey } from '@/types/sport';
-import type { AuthUser, SkillLevel, UserProfile } from '@/types/user';
+import type {
+  AuthUser,
+  GiPreference,
+  SkillLevel,
+  UserProfile,
+} from '@/types/user';
 
 /** OAuth providers we offer. Apple is required on iOS when any social login exists. */
 export type OAuthProvider = 'google' | 'apple';
@@ -179,6 +184,7 @@ export class AuthService {
         id: userId,
         active_sport: 'bjj',
         skill_level: 'White Belt',
+        gi_default: 'gi',
       });
     }
   }
@@ -195,6 +201,7 @@ export class AuthService {
       displayName: data.display_name ?? null,
       activeSport: (data.active_sport ?? 'bjj') as SportKey,
       skillLevel: data.skill_level ?? null,
+      giDefault: data.gi_default ?? null,
       onboardingComplete: data.onboarding_complete ?? false,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
@@ -212,12 +219,14 @@ export class AuthService {
     userId: string,
     activeSport: SportKey,
     skillLevel: SkillLevel,
+    giDefault: GiPreference,
   ): Promise<void> {
     const { error } = await supabase
       .from('profiles')
       .update({
         active_sport: activeSport,
         skill_level: skillLevel,
+        gi_default: giDefault,
         onboarding_complete: true,
       })
       .eq('id', userId);
@@ -244,7 +253,11 @@ export class AuthService {
    */
   async updateProfile(
     userId: string,
-    fields: { activeSport?: SportKey; skillLevel?: SkillLevel },
+    fields: {
+      activeSport?: SportKey;
+      skillLevel?: SkillLevel;
+      giDefault?: GiPreference;
+    },
   ): Promise<void> {
     const patch: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
@@ -253,6 +266,7 @@ export class AuthService {
       patch.active_sport = fields.activeSport;
     }
     if (fields.skillLevel !== undefined) patch.skill_level = fields.skillLevel;
+    if (fields.giDefault !== undefined) patch.gi_default = fields.giDefault;
     const { error } = await supabase
       .from('profiles')
       .update(patch)

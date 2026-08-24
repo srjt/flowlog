@@ -164,3 +164,27 @@ describe('PipelineClient.reanalyze', () => {
     ).rejects.toThrow(/not found/i);
   });
 });
+
+describe('PipelineClient — gi/no-gi (#59)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUploadAudio.mockResolvedValue('u1/123.m4a');
+    mockInvoke.mockResolvedValue({ data: OUTPUT, error: null });
+  });
+
+  it('sends the take attire to the edge function', async () => {
+    await new PipelineClient().run({ ...baseInput, gi: 'no-gi' });
+
+    expect(mockInvoke).toHaveBeenCalledWith('process-session', {
+      body: expect.objectContaining({ gi: 'no-gi' }),
+    });
+  });
+
+  it('sends null when the take carries no attire', async () => {
+    await new PipelineClient().run(baseInput);
+
+    expect(mockInvoke).toHaveBeenCalledWith('process-session', {
+      body: expect.objectContaining({ gi: null }),
+    });
+  });
+});

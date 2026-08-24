@@ -55,6 +55,12 @@ export interface ProcessRequest {
   sportKey: string;
   skillLevel: string;
   sessionDate: string;
+  /**
+   * Attire for this session (#43): 'gi' | 'no-gi', or absent/null when the
+   * client did not capture it. Never inferred from the transcript — 78% of
+   * baseline recordings never say which it was.
+   */
+  gi?: string | null;
   /** Client-generated idempotency key (uuid); one per accepted take. */
   clientSessionId?: string | null;
   /**

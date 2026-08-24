@@ -1,4 +1,5 @@
 import type { SportKey } from '@/types/sport';
+import type { GiPreference } from '@/types/user';
 
 /**
  * Mirrors the `public.sessions` table — the core persisted entity.
@@ -22,6 +23,11 @@ export interface Session {
    * is a display label, not a key.
    */
   targetPositionId: string | null;
+  /**
+   * Attire for this session (#43). Null on rows predating the column;
+   * grounding treats null as unknown and excludes gi-specific records.
+   */
+  gi: GiPreference | null;
   targetPosition: string | null;
   qualityGatePassed: boolean;
   thumbsUp: boolean | null;
@@ -60,6 +66,8 @@ export interface NewSession {
   qualityGatePassed: boolean;
   pipelineVersion: string;
   /** Why the cue was or was not grounded, and which arm it landed in (#58). */
+  /** Attire for this session (#43). */
+  gi?: GiPreference | null;
   grounding?: string | null;
   /** Records actually injected. */
   groundingRecords?: number | null;
@@ -91,6 +99,8 @@ export interface SessionAnalysisUpdate {
   qualityGatePassed: boolean;
   pipelineVersion: string;
   /** Why the cue was or was not grounded, and which arm it landed in (#58). */
+  /** Attire for this session (#43). */
+  gi?: GiPreference | null;
   grounding?: string | null;
   /** Records actually injected. */
   groundingRecords?: number | null;

@@ -86,6 +86,9 @@ Deno.serve(async (req: Request) => {
     stage = 'validate';
     const body = (await req.json()) as ProcessRequest;
     const { sportKey, skillLevel, sessionDate } = body;
+    // Attire is asked, never inferred: 78% of baseline transcripts never say
+    // which it was (#43).
+    const gi = body.gi === 'gi' || body.gi === 'no-gi' ? body.gi : null;
     if (!sportKey) {
       return jsonResponse({ error: 'sportKey is required' }, 400);
     }
@@ -369,6 +372,7 @@ Deno.serve(async (req: Request) => {
           grounding: analysis.grounding,
           grounding_records: analysis.groundingRecords,
           grounding_available: analysis.groundingAvailable,
+          gi,
           pipeline_version: PIPELINE_VERSION,
           client_session_id: clientSessionId,
         });

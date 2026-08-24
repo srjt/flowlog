@@ -1,7 +1,7 @@
 import type { ISportContext } from '@/sports/ISportContext';
 import type { Perspective } from '@/sports/positionTypes';
 import type { SportKey } from '@/types/sport';
-import type { SkillLevel } from '@/types/user';
+import type { GiPreference, SkillLevel } from '@/types/user';
 
 /**
  * Pipeline & AI contract types.
@@ -141,6 +141,8 @@ export interface PipelineInput {
   sportKey: SportKey;
   skillLevel: SkillLevel;
   sessionDate: Date;
+  /** Attire for this session (#43). Null means unknown. */
+  gi?: GiPreference | null;
   /**
    * Idempotency key generated once per accepted take. The server refuses to
    * create a second session for the same (user, key), so retries are safe.

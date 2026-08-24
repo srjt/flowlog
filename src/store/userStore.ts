@@ -6,7 +6,12 @@ import {
   type DigestPrefs,
   type ReminderPrefs,
 } from '@/types/notifications';
-import type { AuthUser, SkillLevel, UserProfile } from '@/types/user';
+import type {
+  AuthUser,
+  GiPreference,
+  SkillLevel,
+  UserProfile,
+} from '@/types/user';
 import type { SportKey } from '@/types/sport';
 
 /**
@@ -19,6 +24,8 @@ interface UserState {
   profile: UserProfile | null;
   activeSport: SportKey;
   skillLevel: SkillLevel;
+  /** Default attire, from the profile. The recorder can override per session. */
+  giDefault: GiPreference;
   /** Whether first-run onboarding (sport/skill pick, mic priming) is done. */
   onboardingComplete: boolean;
   /**
@@ -39,6 +46,7 @@ interface UserState {
   setProfile: (profile: UserProfile | null) => void;
   setActiveSport: (sport: SportKey) => void;
   setSkillLevel: (level: SkillLevel) => void;
+  setGiDefault: (gi: GiPreference) => void;
   setOnboardingComplete: (complete: boolean) => void;
   setAuthBootstrapped: (done: boolean) => void;
   setReminderPrefs: (prefs: ReminderPrefs) => void;
@@ -51,6 +59,7 @@ export const useUserStore = create<UserState>((set) => ({
   profile: null,
   activeSport: 'bjj',
   skillLevel: 'White Belt',
+  giDefault: 'gi',
   onboardingComplete: false,
   authBootstrapped: false,
   reminderPrefs: DEFAULT_REMINDER_PREFS,
@@ -62,10 +71,12 @@ export const useUserStore = create<UserState>((set) => ({
       profile,
       activeSport: profile?.activeSport ?? 'bjj',
       skillLevel: profile?.skillLevel ?? 'White Belt',
+      giDefault: profile?.giDefault ?? 'gi',
       onboardingComplete: profile?.onboardingComplete ?? false,
     }),
   setActiveSport: (activeSport) => set({ activeSport }),
   setSkillLevel: (skillLevel) => set({ skillLevel }),
+  setGiDefault: (giDefault) => set({ giDefault }),
   setOnboardingComplete: (onboardingComplete) => set({ onboardingComplete }),
   setAuthBootstrapped: (authBootstrapped) => set({ authBootstrapped }),
   setReminderPrefs: (reminderPrefs) => set({ reminderPrefs }),
@@ -76,6 +87,7 @@ export const useUserStore = create<UserState>((set) => ({
       profile: null,
       activeSport: 'bjj',
       skillLevel: 'White Belt',
+      giDefault: 'gi',
       onboardingComplete: false,
       reminderPrefs: DEFAULT_REMINDER_PREFS,
       digestPrefs: DEFAULT_DIGEST_PREFS,

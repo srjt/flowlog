@@ -7,12 +7,22 @@ import type { SportKey } from '@/types/sport';
  */
 export type SkillLevel = string;
 
+/**
+ * Whether training happens in the gi or without it.
+ *
+ * Load-bearing for grounding: a mechanic that depends on a lapel or sleeve
+ * grip is not merely less useful without a jacket, it is impossible.
+ */
+export type GiPreference = 'gi' | 'no-gi';
+
 /** Mirrors the `public.profiles` table. */
 export interface UserProfile {
   id: string;
   displayName: string | null;
   activeSport: SportKey;
   skillLevel: SkillLevel | null;
+  /** Default attire, asked once at onboarding. Existing users backfilled to 'gi'. */
+  giDefault: GiPreference | null;
   onboardingComplete: boolean;
   createdAt: string;
   updatedAt: string;

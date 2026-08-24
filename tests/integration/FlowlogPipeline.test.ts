@@ -704,3 +704,31 @@ describe('FlowlogPipeline — grounded/withheld experiment', () => {
     expect(storage.saved[0]?.grounding).toBe('declined');
   });
 });
+
+describe('FlowlogPipeline — gi/no-gi (#59)', () => {
+  it('persists the attire captured on the take', async () => {
+    const storage = new MockStorageProvider();
+    const { pipeline } = buildPipeline(
+      new MockAIProvider(undefined, [goodCue()]),
+      storage,
+    );
+
+    await pipeline.run({ ...input, gi: 'no-gi' });
+
+    expect(storage.saved[0]?.gi).toBe('no-gi');
+  });
+
+  it('stores null rather than guessing when the take carries no attire', async () => {
+    const storage = new MockStorageProvider();
+    const { pipeline } = buildPipeline(
+      new MockAIProvider(undefined, [goodCue()]),
+      storage,
+    );
+
+    await pipeline.run(input);
+
+    // 78% of baseline transcripts never say which it was — inferring would be
+    // a guess, and a wrong guess is worse than an absent one (#43).
+    expect(storage.saved[0]?.gi).toBeNull();
+  });
+});
