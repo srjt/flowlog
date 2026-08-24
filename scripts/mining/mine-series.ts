@@ -18,6 +18,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
+import { volumeNumber } from './volumes.ts';
+
 function die(msg: string): never {
   console.error(`error: ${msg}`);
   process.exit(1);
@@ -52,27 +54,37 @@ interface Volume {
   volume: number;
 }
 
+/** Transcripts carry `[h:mm:ss -> ...]` lines; chapter indexes do not. */
+function looksLikeTranscript(path: string): boolean {
+  return /^\[\d+:\d{2}:\d{2}/m.test(readFileSync(path, 'utf8').slice(0, 4000));
+}
+
 /**
  * Volumes in a series directory, in order.
  *
- * Every naming convention in the library ends a volume with its number —
- * "… Guard Retention 4", "DynamicPins04", "Vol 4". Chapter indexes
- * (Contents.txt and friends) carry no trailing number, so requiring one
- * excludes them without a special case.
+ * Anything that reads as a transcript but yields no volume number is REPORTED,
+ * not skipped in silence. That silence is what turned a naming quirk into an
+ * invisible hole in the corpus: a volume that never appears is indistinguishable
+ * from one already mined.
  */
 function findVolumes(dir: string): Volume[] {
   const out: Volume[] = [];
   for (const entry of readdirSync(dir)) {
     if (!entry.toLowerCase().endsWith('.txt') || entry.startsWith('._'))
       continue;
-    const stem = entry.replace(/\.txt$/i, '');
-    const m = /(\d+)\s*$/.exec(stem);
-    if (!m) continue; // no trailing number: an index, not a volume
     const path = join(dir, entry);
-    // A volume is a transcript; transcripts carry [h:mm:ss -> ...] lines.
-    const head = readFileSync(path, 'utf8').slice(0, 4000);
-    if (!/^\[\d+:\d{2}:\d{2}/m.test(head)) continue;
-    out.push({ path, volume: Number(m[1]) });
+    const volume = volumeNumber(entry.replace(/\.txt$/i, ''));
+    if (volume === null) {
+      // Index files carry no timestamps and are correctly excluded in silence.
+      if (looksLikeTranscript(path)) {
+        console.error(
+          `  ⚠️  no volume number in "${entry}" — SKIPPED, though it reads as a transcript`,
+        );
+      }
+      continue;
+    }
+    if (!looksLikeTranscript(path)) continue;
+    out.push({ path, volume });
   }
   return out.sort((a, b) => a.volume - b.volume);
 }
@@ -117,9 +129,14 @@ function main() {
 
   const planned: { dir: string; series: string; vol: Volume }[] = [];
   let skipped = 0;
+  // Reconciled per series, so a directory that yields nothing is visible
+  // instead of being absorbed into an aggregate that reads as success (#75).
+  const perSeries: { series: string; found: number; queued: number }[] = [];
   for (const dir of dirs) {
     const series = seriesName(dir);
-    for (const vol of findVolumes(dir)) {
+    const found = findVolumes(dir);
+    const before = planned.length;
+    for (const vol of found) {
       const outFile = join(
         outDir,
         `${slugify(series)}-v${vol.volume}.records.json`,
@@ -130,6 +147,11 @@ function main() {
       }
       planned.push({ dir, series, vol });
     }
+    perSeries.push({
+      series,
+      found: found.length,
+      queued: planned.length - before,
+    });
   }
 
   console.error(
@@ -137,6 +159,17 @@ function main() {
       (skipped ? `, ${skipped} already mined (skipped)` : '') +
       (force ? '  [--force: re-mining]' : ''),
   );
+  for (const r of perSeries) {
+    const note =
+      r.found === 0
+        ? '  ⚠️  NO VOLUMES FOUND — check the filenames'
+        : r.queued === 0
+          ? '  (all already mined)'
+          : '';
+    console.error(
+      `   ${r.series}: ${r.found} volume(s) found, ${r.queued} queued${note}`,
+    );
+  }
   for (const p of planned) {
     console.error(`   ${p.series} vol ${p.vol.volume}`);
   }
