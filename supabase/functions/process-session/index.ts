@@ -21,6 +21,10 @@ import {
   candidatePositions,
   rankRecords,
 } from '../../../src/sports/grounding.ts';
+import {
+  filterByGiContext,
+  resolveGiContext,
+} from '../../../src/sports/giContext.ts';
 import { assignGrounding } from '../../../src/sports/experiment.ts';
 import { extract, generateCoaching, transcribe } from '../_shared/ai.ts';
 import { enforce } from '../_shared/quality-gate.ts';
@@ -163,9 +167,14 @@ Deno.serve(async (req: Request) => {
       // original run had — otherwise correcting a transcript would quietly
       // downgrade the cue from grounded to not.
       const reGrounding = rankRecords(
-        await loadGroundingRecords(
-          existing.sport_key,
-          candidatePositions(extraction),
+        filterByGiContext(
+          await loadGroundingRecords(
+            existing.sport_key,
+            candidatePositions(extraction),
+          ),
+          // The context settled at capture time; re-analysis must not
+          // re-decide it, or correcting a typo could swap the record set.
+          existing.gi === 'gi' || existing.gi === 'no-gi' ? existing.gi : null,
         ),
         extraction.keyMistake,
       );
@@ -372,7 +381,8 @@ Deno.serve(async (req: Request) => {
           grounding: analysis.grounding,
           grounding_records: analysis.groundingRecords,
           grounding_available: analysis.groundingAvailable,
-          gi,
+          gi: giResolution.gi,
+          gi_source: giResolution.source,
           pipeline_version: PIPELINE_VERSION,
           client_session_id: clientSessionId,
         });
@@ -434,8 +444,25 @@ Deno.serve(async (req: Request) => {
     // stage's own targetPosition arrives too late to inform the cue it is part
     // of. Extraction already reports both the positions and the side.
     const groundingIds = candidatePositions(extraction);
+    // Settle gi/no-gi first — it decides which records can apply at all. An
+    // explicit statement in the recording beats a stale toggle (#60).
+    const giResolution = resolveGiContext({
+      toggle: gi,
+      stated: extraction.statedGi === 'unknown' ? null : extraction.statedGi,
+      transcript: extraction.rawTranscript,
+    });
+    if (giResolution.overrode) {
+      console.log(
+        `[flowlog] gi overridden by recording: toggle=${gi} -> ${giResolution.gi}`,
+      );
+    }
+    // Filtered BEFORE ranking, so a record that cannot apply never occupies
+    // one of the 20 slots and crowds out one that can.
     const relevantRecords = rankRecords(
-      await loadGroundingRecords(sportKey, groundingIds),
+      filterByGiContext(
+        await loadGroundingRecords(sportKey, groundingIds),
+        giResolution.gi,
+      ),
       extraction.keyMistake,
     );
     // Assigned only when records are actually available, so the control arm

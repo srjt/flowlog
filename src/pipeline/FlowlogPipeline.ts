@@ -6,6 +6,11 @@ import { CoachingService } from '@/services/CoachingService';
 import { ExtractionService } from '@/services/ExtractionService';
 import { candidatePositions, rankRecords } from '@/services/GroundingService';
 import { assignGrounding, type GroundingAssignment } from '@/sports/experiment';
+import {
+  filterByGiContext,
+  resolveGiContext,
+  type GiContext,
+} from '@/sports/giContext';
 import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
 import { getSportContext } from '@/sports';
@@ -115,6 +120,20 @@ export class FlowlogPipeline {
       );
       done('extraction', `${extraction.positionsVisited.length} positions`);
 
+      // Settle gi/no-gi before grounding: it decides which records apply, and
+      // an explicit statement in the recording outranks a stale toggle (#60).
+      const giResolution = resolveGiContext({
+        toggle: input.gi ?? null,
+        stated: extraction.statedGi === 'unknown' ? null : extraction.statedGi,
+        transcript: extraction.rawTranscript,
+      });
+      if (giResolution.overrode) {
+        logger.info('gi context overridden by the recording', {
+          toggle: input.gi,
+          resolved: giResolution.gi,
+        });
+      }
+
       // ── Decline path (issue #44) ────────────────────────────────────────
       // Nothing coachable in the recording. Skip coaching entirely rather than
       // let the model invent a cue from empty inputs — it will, fluently, and
@@ -145,7 +164,8 @@ export class FlowlogPipeline {
           targetPositionId: null,
           qualityGatePassed: false,
           pipelineVersion: PIPELINE_VERSION,
-          gi: input.gi ?? null,
+          gi: giResolution.gi,
+          giSource: giResolution.source,
           grounding: 'declined',
           groundingRecords: 0,
           groundingAvailable: 0,
@@ -183,6 +203,7 @@ export class FlowlogPipeline {
           extraction,
           input.clientSessionId ??
             `${input.userId}:${input.sessionDate.toISOString()}`,
+          giResolution.gi,
         );
 
       // ── Stage 2b: coaching ──────────────────────────────────────────────
@@ -243,7 +264,8 @@ export class FlowlogPipeline {
         targetPositionId: resolved.id,
         qualityGatePassed: gate.passed,
         pipelineVersion: PIPELINE_VERSION,
-        gi: input.gi ?? null,
+        gi: giResolution.gi,
+        giSource: giResolution.source,
         grounding: assignment.outcome,
         groundingRecords: assignment.inject,
         groundingAvailable: assignment.available,
@@ -418,6 +440,7 @@ export class FlowlogPipeline {
     sportKey: string,
     extraction: ExtractionOutput,
     sessionKey: string,
+    gi: GiContext | null,
   ): Promise<{ records: CoachingRecord[]; assignment: GroundingAssignment }> {
     try {
       const positionIds = candidatePositions(extraction);
@@ -425,7 +448,10 @@ export class FlowlogPipeline {
         positionIds.length === 0
           ? []
           : await this.storage.getCoachingRecords(sportKey, positionIds);
-      const relevant = rankRecords(records, extraction.keyMistake);
+      // Before ranking, not after: a gi-only record must not occupy one of the
+      // 20 slots and crowd out a mechanic that actually applies.
+      const applicable = filterByGiContext(records, gi);
+      const relevant = rankRecords(applicable, extraction.keyMistake);
       const assignment = assignGrounding(sessionKey, relevant.length, {
         hasPosition: positionIds.length > 0,
         rollout: this.groundingRollout,
@@ -433,7 +459,9 @@ export class FlowlogPipeline {
       logger.debug('grounding', {
         positions: positionIds.length,
         found: records.length,
+        applicable: applicable.length,
         relevant: relevant.length,
+        gi: gi ?? 'unknown',
         outcome: assignment.outcome,
       });
       return {

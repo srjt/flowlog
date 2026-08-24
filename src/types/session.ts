@@ -1,4 +1,5 @@
 import type { SportKey } from '@/types/sport';
+import type { GiSource } from '@/sports/giContext';
 import type { GiPreference } from '@/types/user';
 
 /**
@@ -28,6 +29,8 @@ export interface Session {
    * grounding treats null as unknown and excludes gi-specific records.
    */
   gi: GiPreference | null;
+  /** Where `gi` came from: the toggle, an explicit statement, or nothing (#60). */
+  giSource: GiSource | null;
   targetPosition: string | null;
   qualityGatePassed: boolean;
   thumbsUp: boolean | null;
@@ -68,6 +71,8 @@ export interface NewSession {
   /** Why the cue was or was not grounded, and which arm it landed in (#58). */
   /** Attire for this session (#43). */
   gi?: GiPreference | null;
+  /** Where `gi` came from (#60). */
+  giSource?: GiSource | null;
   grounding?: string | null;
   /** Records actually injected. */
   groundingRecords?: number | null;
@@ -101,6 +106,8 @@ export interface SessionAnalysisUpdate {
   /** Why the cue was or was not grounded, and which arm it landed in (#58). */
   /** Attire for this session (#43). */
   gi?: GiPreference | null;
+  /** Where `gi` came from (#60). */
+  giSource?: GiSource | null;
   grounding?: string | null;
   /** Records actually injected. */
   groundingRecords?: number | null;
