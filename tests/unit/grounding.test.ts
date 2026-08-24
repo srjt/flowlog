@@ -318,3 +318,104 @@ describe('groundingSection structure (#71)', () => {
     expect(groundingSection([])).toBe('');
   });
 });
+
+describe('rankRecords honours human review (#77)', () => {
+  const rec = (
+    prescription: string,
+    flags: Partial<{
+      certified: boolean;
+      contested: boolean;
+      rejected: boolean;
+    }> = {},
+  ) => ({
+    prescription,
+    why: '',
+    detail: '',
+    counter: '',
+    gi: 'either',
+    level: 'any',
+    opponent: '',
+    ...flags,
+  });
+
+  const mistake = 'Could not frame before the crossface landed.';
+
+  it('never grounds a cue on a record reviewers agreed is wrong', () => {
+    // Matching well is a weak signal; being wrong is not. Overlap must not
+    // rescue a record two black belts rejected.
+    const out = rankRecords(
+      [
+        rec('Frame before the crossface lands, crossface crossface.', {
+          rejected: true,
+        }),
+        rec('Turn to your side before the crossface arrives and frame.'),
+      ],
+      mistake,
+    );
+    expect(out.map((r) => r.rejected ?? false)).toEqual([false]);
+  });
+
+  it('excludes contested records, as migration 008 always said it should', () => {
+    const out = rankRecords(
+      [
+        rec('Frame on the hip before the crossface lands.', {
+          contested: true,
+        }),
+        rec('Turn to your side before the crossface lands and frame.'),
+      ],
+      mistake,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.contested ?? false).toBe(false);
+  });
+
+  it('puts a certified record ahead of a better-matching uncertified one', () => {
+    // A tiebreak, not a gate — certification reorders, it does not filter.
+    const out = rankRecords(
+      [
+        rec('Frame before the crossface lands, crossface, landed, frame.'),
+        rec('Frame before the crossface lands.', { certified: true }),
+      ],
+      mistake,
+    );
+    expect(out[0]?.certified).toBe(true);
+  });
+
+  it('still grounds when nothing is certified — 0 of 1,322 is the current state', () => {
+    // Requiring certification would ground nothing at all today.
+    const out = rankRecords(
+      [rec('Frame on the hip before the crossface lands and settles.')],
+      mistake,
+    );
+    expect(out).toHaveLength(1);
+  });
+
+  it('treats missing review flags as unreviewed, not as rejected', () => {
+    const out = rankRecords(
+      [
+        {
+          prescription: 'Frame before the crossface lands.',
+          why: '',
+          detail: '',
+          counter: '',
+          gi: 'either',
+          level: 'any',
+          opponent: '',
+        },
+      ],
+      mistake,
+    );
+    expect(out).toHaveLength(1);
+  });
+
+  it('keeps relevance ranking intact among equally-reviewed records', () => {
+    const out = rankRecords(
+      [
+        rec('Frame before the crossface.'),
+        rec('Frame before the crossface lands, crossface, landed.'),
+      ],
+      mistake,
+    );
+    expect(out[0]?.prescription).toMatch(/landed/);
+  });
+});

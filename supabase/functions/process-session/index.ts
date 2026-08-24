@@ -598,6 +598,7 @@ async function loadGroundingRecords(
       opponent: r.opponent ?? '',
       certified: r.certified === true,
       contested: r.contested === true,
+      rejected: r.rejected === true,
     }));
   } catch (err) {
     console.error('[flowlog] grounding lookup failed', err);
