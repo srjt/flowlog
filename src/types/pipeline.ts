@@ -81,9 +81,11 @@ export interface CoachingRecord {
   gi: string;
   level: string;
   opponent: string;
-  /** Human-review gates. Nothing is certified yet; see #41. */
+  /** Human-review gates, derived from reviewer votes (#77). */
   certified: boolean;
   contested: boolean;
+  /** Two or more reviewers agree it is wrong. Never grounds a cue. */
+  rejected: boolean;
 }
 
 // ── Coaching (Stage 2) ──────────────────────────────────────────────────────

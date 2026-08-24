@@ -39,6 +39,12 @@ export interface GroundableRecord {
   gi: string;
   level: string;
   opponent: string;
+  /** Two or more reviewers called it sound (#77). Optional: absent = false. */
+  certified?: boolean;
+  /** Reviewers disagree (#77). Never grounds a cue unaided. */
+  contested?: boolean;
+  /** Two or more reviewers agree it is wrong (#77). Never grounds a cue. */
+  rejected?: boolean;
 }
 
 /** The extraction fields grounding reads. */
@@ -143,6 +149,15 @@ export function rankRecords<T extends GroundableRecord>(
 
   return (
     records
+      // Human review outranks keyword overlap. A record reviewers called wrong
+      // must never ground a cue however well it matches the mistake — matching
+      // is a weak signal and being wrong is not.
+      //
+      // `contested` is excluded too: migration 008 said a contested position
+      // should not ground a cue unaided, and nothing had honoured that. Two
+      // black belts disagreeing is a finding about the mechanic, and building
+      // a confident cue on it is exactly the failure grounding keeps producing.
+      .filter((record) => !record.rejected && !record.contested)
       .map((record, index) => {
         const haystack =
           `${record.prescription} ${record.why} ${record.detail}`.toLowerCase();
@@ -154,7 +169,17 @@ export function rankRecords<T extends GroundableRecord>(
       // worse than no record, because the model will build a confident, specific
       // cue around it.
       .filter((entry) => entry.score >= minRelevance)
-      .sort((a, b) => b.score - a.score || a.index - b.index)
+      // Certified first, then overlap, then input order. A tiebreak rather
+      // than a gate: with 0 of 1,322 records certified, requiring
+      // certification would ground nothing at all, so review improves ranking
+      // smoothly instead of switching grounding off until the queue is done.
+      .sort(
+        (a, b) =>
+          Number(b.record.certified ?? false) -
+            Number(a.record.certified ?? false) ||
+          b.score - a.score ||
+          a.index - b.index,
+      )
       .slice(0, limit)
       .map((entry) => entry.record)
   );

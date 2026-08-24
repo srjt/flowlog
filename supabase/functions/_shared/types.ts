@@ -37,6 +37,8 @@ export interface CoachingRecord {
   opponent: string;
   certified: boolean;
   contested: boolean;
+  /** Two or more reviewers agree it is wrong (#77). */
+  rejected: boolean;
 }
 
 export interface CoachingOutput {
