@@ -184,13 +184,23 @@ export function groundingSection(records: GroundableRecord[]): string {
     if (when) parts.push(`  Applies when: ${when}`);
     return parts.join('\n');
   });
+  // Guidance FIRST, records LAST (issue #71).
+  //
+  // A duplicate header used to sit between the two, so the records appeared
+  // under the first header and the guidance then referred to "the mechanics
+  // below" and "for each one" with nothing below it. The orphaned block was
+  // the discard guidance — the part that tells the model several records will
+  // be about the right position and the wrong problem, and that ignoring them
+  // all is a correct outcome. That is exactly the instruction the blind trials
+  // said was needed, attached to an empty list.
+  //
+  // The wording is unchanged on purpose. This is a structural fix, and it
+  // lands as the A/B cohort opens; smuggling in a content rewrite would make
+  // the first cohort measure two changes at once.
   return [
     '',
     '',
-    'REFERENCE MECHANICS for this position, as experienced instructors teach it:',
-    lines.join('\n'),
-    '',
-    'REFERENCE MECHANICS — how experienced instructors teach this position:',
+    'REFERENCE MECHANICS — how experienced instructors teach this position.',
     '',
     'THE MISTAKE IS THE JOB. Your cue must address what went wrong in THIS session.',
     'The mechanics below are offered as help, not as an assignment. They were selected',
@@ -210,5 +220,13 @@ export function groundingSection(records: GroundableRecord[]): string {
     '  is not automatically right for an advanced practitioner, and one that depends on a',
     '  grip only works when that grip is available.',
     '- Never mention these notes, where they came from, or that you were given references.',
+    '',
+    // Labelled, because the guidance above ends in bullets and each record
+    // also starts with one — without a boundary the two read as a single list
+    // and the records become more instructions to follow rather than notes to
+    // weigh and discard.
+    'THE MECHANICS:',
+    '',
+    lines.join('\n'),
   ].join('\n');
 }
