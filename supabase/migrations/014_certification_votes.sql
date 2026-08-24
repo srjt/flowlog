@@ -24,7 +24,10 @@ create table if not exists public.reviewers (
 -- rather than stacking a second opinion from the same person.
 -- ─────────────────────────────────────────────────────────────────────────────
 create table if not exists public.record_votes (
-  record_id text not null
+  -- uuid, not text: the SERVING store uses opaque uuids. The slug-shaped ids
+  -- ("…-v3-0144") belong to the local review store, and publish.ts maps between
+  -- them — that mapping is what keeps certification alive across a re-mine.
+  record_id uuid not null
     references public.coaching_records(id) on delete cascade,
   reviewer_id uuid not null references public.reviewers(id) on delete cascade,
   -- 'certify' = sound as written. 'reject' = wrong, or wrong for this position.
@@ -61,7 +64,7 @@ alter table public.coaching_records
 -- kept rather than averaged away — two black belts disagreeing about a
 -- mechanic is a finding about the mechanic.
 -- ─────────────────────────────────────────────────────────────────────────────
-create or replace function public.recompute_record_review(target text)
+create or replace function public.recompute_record_review(target uuid)
 returns void
 language plpgsql
 security definer
