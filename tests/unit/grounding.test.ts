@@ -263,3 +263,58 @@ describe('rankRecords — the relevance gate', () => {
     expect(rankRecords([r], 'frame crossface', 20, 2)).toEqual([r]);
   });
 });
+
+describe('groundingSection structure (#71)', () => {
+  const record = (prescription: string) => ({
+    prescription,
+    why: 'Because the frame has nowhere to go once the crossface lands.',
+    detail: 'Forearm across the hip.',
+    counter: '',
+    gi: 'either',
+    level: 'any',
+    opponent: '',
+  });
+
+  const section = groundingSection([
+    record('Frame on the far hip before he settles.'),
+    record('Turn to your side early.'),
+  ]);
+
+  it('emits the REFERENCE MECHANICS header exactly once', () => {
+    // It used to appear twice, with the records under the first and the
+    // guidance under the second — heading an empty section.
+    expect(section.match(/REFERENCE MECHANICS/g)).toHaveLength(1);
+  });
+
+  it('puts the discard guidance BEFORE the records it refers to', () => {
+    // The guidance says "the mechanics below" and "for each one". Those were
+    // false while the records sat above it, which orphaned the single most
+    // important instruction in the block.
+    const guidance = section.indexOf('THE MISTAKE IS THE JOB');
+    const records = section.indexOf('Frame on the far hip');
+    expect(guidance).toBeGreaterThanOrEqual(0);
+    expect(records).toBeGreaterThan(guidance);
+  });
+
+  it('keeps the discard instruction attached to a non-empty list', () => {
+    const ignore = section.indexOf('IF NONE OF THEM FIT');
+    expect(ignore).toBeGreaterThanOrEqual(0);
+    expect(section.indexOf('Turn to your side early.')).toBeGreaterThan(ignore);
+  });
+
+  it('separates the guidance bullets from the record bullets', () => {
+    // Both are bullet lists; without a boundary the records read as more
+    // instructions to follow rather than notes to weigh and discard.
+    const boundary = section.indexOf('THE MECHANICS:');
+    expect(boundary).toBeGreaterThan(
+      section.indexOf('Never mention these notes'),
+    );
+    expect(section.indexOf('Frame on the far hip')).toBeGreaterThan(boundary);
+  });
+
+  it('still collapses to nothing when ungrounded', () => {
+    // An ungrounded cue must be indistinguishable from one produced before
+    // grounding existed.
+    expect(groundingSection([])).toBe('');
+  });
+});
