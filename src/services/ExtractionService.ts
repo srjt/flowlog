@@ -1,6 +1,7 @@
 import { PIPELINE_CONFIG } from '@/constants/pipelineConfig';
 import { aiProvider } from '@/providers/ai';
 import type { IAIProvider } from '@/providers/ai';
+import type { GiContext } from '@/sports/giContext';
 import type { ISportContext } from '@/sports/ISportContext';
 import type { Perspective } from '@/sports/positionTypes';
 import type { ExtractionOutput } from '@/types/pipeline';
@@ -49,6 +50,8 @@ export class ExtractionService {
       extraction.perspective,
     );
 
+    const statedGi = ExtractionService.normaliseStatedGi(extraction.statedGi);
+
     const sufficiency = ExtractionService.judgeSufficiency(
       transcript,
       extraction.hasCoachableContent,
@@ -59,6 +62,7 @@ export class ExtractionService {
       positions: extraction.positionsVisited.length,
       sentiment,
       perspective,
+      statedGi,
       hasCoachableContent: sufficiency.hasCoachableContent,
     });
 
@@ -66,9 +70,22 @@ export class ExtractionService {
       ...extraction,
       sentiment,
       perspective,
+      statedGi,
       rawTranscript: transcript,
       ...sufficiency,
     };
+  }
+
+  /**
+   * Constrain the model's reported gi context to what we accept (issue #60).
+   *
+   * Anything unexpected becomes `'unknown'`, which means the recorder's toggle
+   * stands. This field can only ever REMOVE reference records, so a bad value
+   * cannot widen what the model sees — but it could flip the context out from
+   * under the athlete, and that is the surprise the feature exists to avoid.
+   */
+  static normaliseStatedGi(value: unknown): GiContext | 'unknown' {
+    return value === 'gi' || value === 'no-gi' ? value : 'unknown';
   }
 
   /**

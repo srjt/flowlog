@@ -732,3 +732,139 @@ describe('FlowlogPipeline — gi/no-gi (#59)', () => {
     expect(storage.saved[0]?.gi).toBeNull();
   });
 });
+
+describe('FlowlogPipeline — gi filtering and override (#60)', () => {
+  function giRecord(gi: string, prescription: string) {
+    return {
+      id: `rec-${gi}-${prescription.slice(0, 6)}`,
+      position: 'side-control-bottom',
+      prescription,
+      why: 'Because the frame has nowhere to go once the crossface lands.',
+      detail: 'Forearm across the hip.',
+      counter: '',
+      gi,
+      level: 'any',
+      opponent: '',
+      certified: false,
+      contested: false,
+    };
+  }
+
+  function build(
+    records: ReturnType<typeof giRecord>[],
+    transcript: string,
+    statedGi: 'gi' | 'no-gi' | 'unknown' = 'unknown',
+  ) {
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Could not frame before the crossface landed.',
+        opponentAction: 'Held a strong crossface.',
+        sentiment: 'frustrated',
+        perspective: 'bottom',
+        statedGi,
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    storage.coachingRecords = records;
+    const transcriptionMock = new MockTranscriptionProvider();
+    transcriptionMock.result = { ...transcriptionMock.result, transcript };
+    return {
+      ai,
+      storage,
+      pipeline: new FlowlogPipeline({
+        transcription: new TranscriptionService(transcriptionMock),
+        extraction: new ExtractionService(ai),
+        coaching: new CoachingService(ai),
+        qualityGate: new QualityGateService(),
+        storage,
+        groundingRollout: 1,
+      }),
+    };
+  }
+
+  const NEUTRAL =
+    'He passed and settled into side control on me, and I could not get my frame in before the crossface.';
+
+  it('keeps a gi record out of a no-gi session', async () => {
+    const { ai, pipeline } = build(
+      [
+        giRecord('gi', 'Grip the collar and frame off it before he settles.'),
+        giRecord('either', 'Frame on the far hip before he settles.'),
+      ],
+      NEUTRAL,
+    );
+
+    await pipeline.run({ ...input, gi: 'no-gi' });
+
+    const sent = ai.lastCoachingInput?.groundingRecords ?? [];
+    expect(sent.map((r) => r.gi)).toEqual(['either']);
+  });
+
+  it('lets a gi record through for a gi session', async () => {
+    const { ai, pipeline } = build(
+      [giRecord('gi', 'Grip the collar and frame off it before he settles.')],
+      NEUTRAL,
+    );
+
+    await pipeline.run({ ...input, gi: 'gi' });
+
+    expect(ai.lastCoachingInput?.groundingRecords).toHaveLength(1);
+  });
+
+  it('excludes gi-specific records when nothing states the context', async () => {
+    const { ai, pipeline } = build(
+      [giRecord('gi', 'Grip the collar and frame off it before he settles.')],
+      NEUTRAL,
+    );
+
+    await pipeline.run(input); // no toggle, no statement
+
+    expect(ai.lastCoachingInput?.groundingRecords).toEqual([]);
+  });
+
+  it('an explicit statement overrides a stale toggle and is recorded as such', async () => {
+    const { ai, storage, pipeline } = build(
+      [
+        giRecord('gi', 'Grip the collar and frame off it before he settles.'),
+        giRecord('either', 'Frame on the far hip before he settles.'),
+      ],
+      `No-gi class today. ${NEUTRAL}`,
+      'no-gi',
+    );
+
+    await pipeline.run({ ...input, gi: 'gi' });
+
+    expect(ai.lastCoachingInput?.groundingRecords?.map((r) => r.gi)).toEqual([
+      'either',
+    ]);
+    expect(storage.saved[0]?.gi).toBe('no-gi');
+    expect(storage.saved[0]?.giSource).toBe('transcript');
+  });
+
+  it('an incidental grip word does not flip the context', async () => {
+    // The model over-reports; the transcript never states the context. The
+    // toggle must stand.
+    const { ai, storage, pipeline } = build(
+      [giRecord('gi', 'Grip the collar and frame off it before he settles.')],
+      'He got a deep collar grip on me and I could not frame before the crossface.',
+      'no-gi',
+    );
+
+    await pipeline.run({ ...input, gi: 'gi' });
+
+    expect(ai.lastCoachingInput?.groundingRecords).toHaveLength(1);
+    expect(storage.saved[0]?.gi).toBe('gi');
+    expect(storage.saved[0]?.giSource).toBe('toggle');
+  });
+
+  it('records that there was no signal at all', async () => {
+    const { storage, pipeline } = build([], NEUTRAL);
+
+    await pipeline.run(input);
+
+    expect(storage.saved[0]?.gi).toBeNull();
+    expect(storage.saved[0]?.giSource).toBe('none');
+  });
+});

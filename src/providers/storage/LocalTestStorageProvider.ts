@@ -42,6 +42,7 @@ export class LocalTestStorageProvider implements IStorageProvider {
       coachingCue: session.coachingCue,
       targetPositionId: session.targetPositionId,
       gi: session.gi ?? null,
+      giSource: session.giSource ?? null,
       targetPosition: session.targetPosition,
       qualityGatePassed: session.qualityGatePassed,
       thumbsUp: null,

@@ -2,6 +2,7 @@ import type { ISportContext } from '@/sports/ISportContext';
 import type { Perspective } from '@/sports/positionTypes';
 import type { SportKey } from '@/types/sport';
 import type { GiPreference, SkillLevel } from '@/types/user';
+import type { GiContext } from '@/sports/giContext';
 
 /**
  * Pipeline & AI contract types.
@@ -48,6 +49,13 @@ export interface ExtractionOutput {
    * aimed at the opposite situation.
    */
   perspective: Perspective | 'unknown';
+  /**
+   * An explicit statement of gi/no-gi context, or `'unknown'` (issue #60).
+   * Only ever narrows which reference records apply — never widens them — and
+   * a claim here is confirmed against the transcript before it can override
+   * the recorder's toggle.
+   */
+  statedGi: GiContext | 'unknown';
 }
 
 // ── Grounding (Stage 2a½) ───────────────────────────────────────────────────

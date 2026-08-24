@@ -72,6 +72,8 @@ export class GeminiProvider implements IAIProvider {
       // Validated in ExtractionService — an unexpected value becomes 'unknown'
       // there rather than being trusted through.
       perspective: parsed.perspective ?? 'unknown',
+      // Same contract as perspective: validated downstream, never trusted here.
+      statedGi: parsed.statedGi ?? 'unknown',
     };
   }
 

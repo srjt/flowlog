@@ -20,6 +20,8 @@ export interface ExtractionOutput {
   insufficientReason: string;
   /** Issue #48 — which side of the position the practitioner was on. */
   perspective: 'top' | 'bottom' | 'unknown';
+  /** Explicit gi/no-gi statement, or 'unknown' (#60). */
+  statedGi: 'gi' | 'no-gi' | 'unknown';
 }
 
 /** A distilled mechanic from the serving store (#57). No source link by design. */

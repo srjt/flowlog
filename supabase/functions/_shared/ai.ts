@@ -206,6 +206,12 @@ export async function extract(
       parsed.perspective === 'top' || parsed.perspective === 'bottom'
         ? parsed.perspective
         : 'unknown',
+    // Same contract (issue #60). A claim here is additionally confirmed
+    // against the transcript before it can override the recorder's toggle.
+    statedGi:
+      parsed.statedGi === 'gi' || parsed.statedGi === 'no-gi'
+        ? parsed.statedGi
+        : 'unknown',
     ...judgeSufficiency(
       transcript,
       parsed.hasCoachableContent,

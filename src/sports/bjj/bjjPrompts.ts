@@ -66,6 +66,7 @@ Read the transcript and return STRICT JSON matching exactly this schema — no m
   "perspective": string,          // exactly one of: "top", "bottom", "unknown". See PERSPECTIVE below.
   "keyMistake": string,           // the single most important mistake the practitioner describes or implies. One sentence. If none is clear, the most notable struggle.
   "opponentAction": string,       // what the opponent/training partner was doing that mattered most. One sentence.
+  "statedGi": string,             // exactly one of: "gi", "no-gi", "unknown". See GI CONTEXT below.
   "sentiment": string,            // exactly one of: {{SENTIMENT_LABELS}}
   "rawTranscript": string         // echo the transcript back verbatim
 }
@@ -108,6 +109,21 @@ guard is "bottom"; passing one is "top".
 
 **Return "unknown" rather than guessing.** A wrong side produces confident coaching aimed at
 the opposite situation, which is worse than no side at all.
+
+GI CONTEXT — whether they say what they were wearing:
+
+Report "gi" or "no-gi" ONLY when the practitioner states the context of the session
+outright: "no-gi class today", "we were in the gi", "rash guard rounds", "kimono".
+
+Return "unknown" for everything else, and in particular:
+- Technique talk is NOT a statement of context. "He got my collar", "I had a sleeve
+  grip", "lapel guard" describe what happened, not what the session was. Someone can
+  discuss a collar choke without telling you what they wore.
+- A guess from the style of the description is not a statement either.
+
+This field is only ever used to REMOVE reference material that cannot apply. Saying
+"unknown" costs a little depth; saying the wrong one produces confident advice about a
+grip that does not exist in the room. Return "unknown" rather than guessing.
 
 Rules:
 - Use canonical BJJ terminology where the speaker uses slang (e.g. "they took my back" -> Back Control).
