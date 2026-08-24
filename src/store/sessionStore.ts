@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import type { PipelineOutput, ProcessingStep } from '@/types/pipeline';
 import type { Session } from '@/types/session';
+import type { GiPreference } from '@/types/user';
 
 export type RecordingStatus =
   | 'idle'
@@ -18,6 +19,8 @@ export type RecordingStatus =
 interface SessionState {
   status: RecordingStatus;
   audioUri: string | null;
+  /** Attire for the in-flight take (#43), defaulting from the profile. */
+  gi: GiPreference | null;
   /**
    * Idempotency key for the in-flight take: generated once per accepted
    * recording (submitReview), sent with every pipeline invoke so a
@@ -49,6 +52,7 @@ interface SessionState {
 
   setStatus: (status: RecordingStatus) => void;
   setAudioUri: (uri: string | null) => void;
+  setGi: (gi: GiPreference | null) => void;
   setClientSessionId: (id: string | null) => void;
   setUploadedAudioPath: (path: string | null) => void;
   setSteps: (steps: ProcessingStep[]) => void;
@@ -70,6 +74,7 @@ interface SessionState {
 export const useSessionStore = create<SessionState>((set) => ({
   status: 'idle',
   audioUri: null,
+  gi: null,
   clientSessionId: null,
   uploadedAudioPath: null,
   steps: [],
@@ -81,6 +86,7 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   setStatus: (status) => set({ status }),
   setAudioUri: (audioUri) => set({ audioUri }),
+  setGi: (gi) => set({ gi }),
   setClientSessionId: (clientSessionId) => set({ clientSessionId }),
   setUploadedAudioPath: (uploadedAudioPath) => set({ uploadedAudioPath }),
   setSteps: (steps) => set({ steps }),
@@ -125,6 +131,7 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({
       status: 'idle',
       audioUri: null,
+      gi: null,
       clientSessionId: null,
       uploadedAudioPath: null,
       steps: [],

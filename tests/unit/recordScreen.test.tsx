@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { AppState } from 'react-native';
 
 import { useSessionStore } from '@/store/sessionStore';
+import { useUserStore } from '@/store/userStore';
 
 // Demo mode keeps begin/finish synchronous (no real microphone).
 jest.mock('@/config/featureFlags', () => ({
@@ -211,5 +212,41 @@ describe('RecordScreen', () => {
       expect(queryByText('Submit')).toBeNull(); // still recording, no review
       spy.mockRestore();
     });
+  });
+});
+
+describe('RecordScreen gi/no-gi (#59)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    useSessionStore.setState({ gi: null });
+    useUserStore.setState({ giDefault: 'gi' });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.clearAllMocks();
+  });
+
+  it('seeds the take from the profile default', () => {
+    useUserStore.setState({ giDefault: 'no-gi' });
+    render(<RecordScreen />);
+    expect(useSessionStore.getState().gi).toBe('no-gi');
+  });
+
+  it('an override sticks to the take, not the profile default', () => {
+    const { getByTestId } = render(<RecordScreen />);
+    expect(useSessionStore.getState().gi).toBe('gi');
+
+    act(() => fireEvent.press(getByTestId('record-attire-no-gi')));
+
+    expect(useSessionStore.getState().gi).toBe('no-gi');
+    // The profile default is untouched — this was a one-session override.
+    expect(useUserStore.getState().giDefault).toBe('gi');
+  });
+
+  it('the toggle is hidden once recording starts', () => {
+    const { getByTestId, queryByTestId } = render(<RecordScreen />);
+    expect(queryByTestId('record-attire-gi')).toBeTruthy();
+    act(() => fireEvent.press(getByTestId('record-toggle')));
+    expect(queryByTestId('record-attire-gi')).toBeNull();
   });
 });

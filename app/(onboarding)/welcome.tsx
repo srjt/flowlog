@@ -14,9 +14,10 @@ import {
 } from '@/sports';
 import { useUserStore } from '@/store/userStore';
 import type { SportKey } from '@/types/sport';
+import type { GiPreference } from '@/types/user';
 import { logger } from '@/utils/logger';
 
-type Step = 'welcome' | 'sport' | 'skill' | 'mic';
+type Step = 'welcome' | 'sport' | 'skill' | 'attire' | 'mic';
 
 const VALUE_CARDS = [
   {
@@ -40,14 +41,20 @@ const VALUE_CARDS = [
  * complete, then drops the user on the recorder.
  */
 export default function Welcome() {
-  const { authUser, setActiveSport, setSkillLevel, setOnboardingComplete } =
-    useUserStore();
+  const {
+    authUser,
+    setActiveSport,
+    setSkillLevel,
+    setGiDefault,
+    setOnboardingComplete,
+  } = useUserStore();
 
   const [step, setStep] = useState<Step>('welcome');
   const [sport, setSport] = useState<SportKey>('bjj');
   const [skill, setSkill] = useState<string>(
     getSportContext('bjj').skillLevels[0] ?? '',
   );
+  const [gi, setGi] = useState<GiPreference>('gi');
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState(false);
 
@@ -73,10 +80,11 @@ export default function Welcome() {
     setFinishing(true);
     setFinishError(false);
     setActiveSport(sport);
+    setGiDefault(gi);
     setSkillLevel(skill);
     if (authUser && !isDemoMode && !isLocalPipeline) {
       try {
-        await authService.completeOnboarding(authUser.id, sport, skill);
+        await authService.completeOnboarding(authUser.id, sport, skill, gi);
       } catch (err) {
         // Do NOT mark complete or navigate: the profile row still says
         // onboarding_complete=false, so the next cold launch would bounce the
@@ -212,6 +220,47 @@ export default function Welcome() {
             </View>
             <Button
               testID="onboarding-skill-next"
+              title="Continue"
+              onPress={() => setStep('attire')}
+            />
+          </View>
+        ) : null}
+
+        {step === 'attire' ? (
+          <View className="gap-6">
+            <View className="gap-2">
+              <Text variant="title">Gi or no-gi?</Text>
+              <Text variant="caption">
+                Some techniques rely on grips that only exist with a jacket. You
+                can switch this for any single session.
+              </Text>
+            </View>
+            <View className="gap-3">
+              {(['gi', 'no-gi'] as const).map((option) => {
+                const selected = option === gi;
+                return (
+                  <Pressable
+                    key={option}
+                    testID={`onboarding-attire-${option}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={option === 'gi' ? 'Gi' : 'No-gi'}
+                    accessibilityState={{ selected }}
+                    onPress={() => setGi(option)}
+                    className={`rounded-xl border px-4 py-4 ${
+                      selected
+                        ? 'border-primary bg-primary/20'
+                        : 'border-muted bg-surface'
+                    }`}
+                  >
+                    <Text variant="body">
+                      {option === 'gi' ? 'Gi' : 'No-gi'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Button
+              testID="onboarding-attire-next"
               title="Continue"
               onPress={() => setStep('mic')}
             />

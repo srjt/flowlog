@@ -133,6 +133,7 @@ export class PipelineClient {
             sportKey: input.sportKey,
             skillLevel: input.skillLevel,
             sessionDate: input.sessionDate.toISOString(),
+            gi: input.gi ?? null,
             clientSessionId: input.clientSessionId ?? null,
           },
         },

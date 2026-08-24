@@ -50,7 +50,16 @@ export default function RecordScreen() {
   const elapsedRef = useRef(0);
 
   const { setStatus } = useSessionStore();
-  const { activeSport, skillLevel } = useUserStore();
+  const { activeSport, skillLevel, giDefault } = useUserStore();
+  // Lives on the take (not local state) so usePipeline can read it at submit.
+  // Seeded from the profile but overridable per session — people train both,
+  // and a stale default sends lapel advice to someone in a rash guard (#43).
+  const takeGi = useSessionStore((state) => state.gi);
+  const setTakeGi = useSessionStore((state) => state.setGi);
+  const gi = takeGi ?? giDefault;
+  useEffect(() => {
+    if (takeGi === null) setTakeGi(giDefault);
+  }, [takeGi, giDefault, setTakeGi]);
   const { trends, loading: trendsLoading } = useSessionTrends();
   const dominantWeakness = trends?.focusArea ?? null;
   const { minRecordingSeconds, maxRecordingSeconds } = PIPELINE_CONFIG;
@@ -398,6 +407,38 @@ export default function RecordScreen() {
         <View className="items-center gap-1">
           <Text variant="heading">{activeSport.toUpperCase()}</Text>
           <Text variant="caption">{skillLevel}</Text>
+          {idle ? (
+            <View className="mt-2 flex-row gap-2">
+              {(['gi', 'no-gi'] as const).map((option) => {
+                const selected = option === gi;
+                return (
+                  <Pressable
+                    key={option}
+                    testID={`record-attire-${option}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      option === 'gi' ? 'Training in the gi' : 'Training no-gi'
+                    }
+                    accessibilityState={{ selected }}
+                    hitSlop={8}
+                    onPress={() => setTakeGi(option)}
+                    className={`min-h-[44px] justify-center rounded-full border px-4 ${
+                      selected
+                        ? 'border-primary bg-primary/20'
+                        : 'border-muted bg-surface'
+                    }`}
+                  >
+                    <Text
+                      variant="caption"
+                      className={selected ? 'text-primary' : ''}
+                    >
+                      {option === 'gi' ? 'Gi' : 'No-gi'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           {dominantWeakness && idle ? (
             <View className="mt-2 rounded-full bg-accent/20 px-4 py-1">
               <Text variant="caption" className="text-accent">

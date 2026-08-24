@@ -47,6 +47,7 @@ describe('Onboarding flow', () => {
     expect(getByText(/coming soon/i)).toBeTruthy();
     fireEvent.press(getByTestId('onboarding-sport-next'));
     fireEvent.press(getByTestId('onboarding-skill-next'));
+    fireEvent.press(getByTestId('onboarding-attire-next'));
 
     await act(async () => {
       fireEvent.press(getByTestId('onboarding-finish'));
@@ -56,6 +57,7 @@ describe('Onboarding flow', () => {
       'u1',
       'bjj',
       expect.any(String),
+      'gi',
     );
     expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
     expect(useUserStore.getState().onboardingComplete).toBe(true);
@@ -66,6 +68,7 @@ describe('Onboarding flow', () => {
     fireEvent.press(getByTestId('onboarding-start'));
     fireEvent.press(getByTestId('onboarding-sport-next'));
     fireEvent.press(getByTestId('onboarding-skill-next'));
+    fireEvent.press(getByTestId('onboarding-attire-next'));
 
     await act(async () => {
       fireEvent.press(getByTestId('onboarding-skip-mic'));
@@ -85,6 +88,7 @@ describe('Onboarding flow', () => {
     fireEvent.press(getByTestId('onboarding-start'));
     fireEvent.press(getByTestId('onboarding-sport-next'));
     fireEvent.press(getByTestId('onboarding-skill-next'));
+    fireEvent.press(getByTestId('onboarding-attire-next'));
 
     await act(async () => {
       fireEvent.press(getByTestId('onboarding-finish'));
@@ -107,6 +111,7 @@ describe('Onboarding flow', () => {
     fireEvent.press(getByTestId('onboarding-start'));
     fireEvent.press(getByTestId('onboarding-sport-next'));
     fireEvent.press(getByTestId('onboarding-skill-next'));
+    fireEvent.press(getByTestId('onboarding-attire-next'));
     await act(async () => {
       fireEvent.press(getByTestId('onboarding-finish')); // fails
     });
@@ -127,6 +132,7 @@ describe('Onboarding flow', () => {
     fireEvent.press(getByTestId('onboarding-start'));
     fireEvent.press(getByTestId('onboarding-sport-next'));
     fireEvent.press(getByTestId('onboarding-skill-next'));
+    fireEvent.press(getByTestId('onboarding-attire-next'));
     await act(async () => {
       fireEvent.press(getByTestId('onboarding-finish')); // fails
     });
@@ -135,5 +141,30 @@ describe('Onboarding flow', () => {
 
     expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
     expect(useUserStore.getState().onboardingComplete).toBe(true);
+  });
+});
+
+describe('onboarding attire step (#59)', () => {
+  it('persists a no-gi pick to the profile row, not just the local store', async () => {
+    const { getByTestId } = render(<Welcome />);
+
+    fireEvent.press(getByTestId('onboarding-start'));
+    fireEvent.press(getByTestId('onboarding-sport-next'));
+    fireEvent.press(getByTestId('onboarding-skill-next'));
+    fireEvent.press(getByTestId('onboarding-attire-no-gi'));
+    fireEvent.press(getByTestId('onboarding-attire-next'));
+
+    await act(async () => {
+      fireEvent.press(getByTestId('onboarding-finish'));
+    });
+
+    // Server-side, so a reinstall does not silently revert to the gi default.
+    expect(authService.completeOnboarding).toHaveBeenCalledWith(
+      'u1',
+      'bjj',
+      expect.any(String),
+      'no-gi',
+    );
+    expect(useUserStore.getState().giDefault).toBe('no-gi');
   });
 });
