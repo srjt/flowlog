@@ -100,6 +100,9 @@ export default function RootLayout() {
           <Stack.Screen name="digest/index" />
           <Stack.Screen name="digest/[weekId]" />
           <Stack.Screen name="digest/history" />
+          {/* Invite-only certification bench (#77). Not a tab: reviewers are
+              black belts doing a favour, not Flowlog users. */}
+          <Stack.Screen name="review/index" />
         </Stack>
       </RootErrorBoundary>
     </SafeAreaProvider>
