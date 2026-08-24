@@ -1,0 +1,4 @@
+{
+  "//": "Scopes ESM to the mining scripts only. Node's TypeScript type-stripping needs to know these are ES modules; without this it re-parses each run and warns. Declaring it here rather than at the repo root keeps the Expo app, jest.config.js, babel.config.js and .eslintrc.js on CommonJS.",
+  "type": "module"
+}
