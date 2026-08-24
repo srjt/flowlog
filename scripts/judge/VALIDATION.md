@@ -96,7 +96,13 @@ self-preference tracks perplexity rather than authorship. It is still a weaker
 check than cross-family. The harness prints this caveat in its own output so it
 cannot quietly go unmentioned.
 
-A cross-family run needs `ANTHROPIC_API_KEY` in `.env`:
+A cross-family run needs `ANTHROPIC_API_KEY` in `.env` **with credit on the
+account**. Attempted 2026-08-24: the key authenticated, but the Anthropic
+balance was zero (`400 invalid_request_error: credit balance is too low`), so
+the cross-family reading is still outstanding.
+
+Each judge model writes its own cache file, so a cross-family run cannot
+overwrite the same-family results it exists to be compared against.
 
 ```bash
 JUDGE_MODEL=claude-sonnet-4-6 scripts/judge/judge.sh --fresh
