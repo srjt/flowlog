@@ -1,0 +1,11 @@
+# SPA fallback for Cloudflare Pages (#77).
+#
+# app.json sets web.output = "single", so the whole app is ONE index.html and
+# every path is resolved client-side by Expo Router. Without this, Cloudflare
+# looks for a file at /review, finds none, and serves a 404 — which is exactly
+# the URL reviewers are given, so the bench would appear broken to everyone
+# except whoever tested it by clicking through from the home page.
+#
+# 200 rather than 301: rewrite, do not redirect. The browser must keep the
+# original path so the router can read it.
+/*    /index.html   200
