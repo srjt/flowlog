@@ -134,11 +134,14 @@ export default function LoginScreen() {
           }}
         />
 
+        {/* Invite-only: promising "create an account" and then explaining
+            there is nothing to create wastes the tap and reads as a bug. */}
         <View className="mt-2 items-center gap-2">
-          <Text variant="caption">New to Flowlog?</Text>
+          <Text variant="caption">Don&apos;t have an account?</Text>
           <Button
-            title="Create an account"
-            variant="secondary"
+            testID="login-invite-only"
+            title="Flowlog is invite-only"
+            variant="ghost"
             className="w-full"
             disabled={busy}
             onPress={() => router.push('/(auth)/signup')}

@@ -11,7 +11,7 @@
       ]
     }
   },
-  "description": "Flowlog — a voice reflection tool for serious hobbyists. Talk. Reflect. Improve.",
+  "description": "Flowlog \u2014 a voice reflection tool for serious hobbyists. Talk. Reflect. Improve.",
   "scripts": {
     "start": "expo start",
     "ios": "expo start --ios",
@@ -24,7 +24,8 @@
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
     "typecheck": "tsc --noEmit",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "deploy:web": "expo export --platform web && node scripts/web/after-export.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
