@@ -75,6 +75,17 @@ export function orderQueue(
   tallies: Map<string, VoteTally>,
   myVotes: Set<string>,
   positionPriority: string[] = [],
+  /**
+   * Passed over in this sitting. Deliberately NOT persisted: a skip is "not
+   * me, not now", not a judgement about the record, and writing it would mean
+   * inventing a third verdict that no reviewer actually cast.
+   *
+   * The cost is that skipped cards return on the next load. That is the right
+   * trade — a reviewer who skipped a K-guard card today may be exactly the
+   * person to judge it next month, and a permanent skip would quietly shrink
+   * the pool of eyes on the thinnest positions.
+   */
+  skipped: Set<string> = new Set(),
 ): ReviewableRecord[] {
   const rank = new Map(positionPriority.map((p, i) => [p, i]));
   const priorityOf = (p: string) => rank.get(p) ?? Number.MAX_SAFE_INTEGER;
@@ -84,6 +95,7 @@ export function orderQueue(
       // Already voted on by this reviewer: their opinion is recorded and a
       // second look adds nothing.
       if (myVotes.has(r.id)) return false;
+      if (skipped.has(r.id)) return false;
       // Already settled by others. Contested stays IN the queue — a third
       // opinion is exactly what a disagreement needs.
       if (r.certified || r.rejected) return false;
