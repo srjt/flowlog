@@ -28,6 +28,24 @@ export interface VoteTally {
 }
 
 /**
+ * A vote someone else already cast, with the reasoning attached (#84).
+ *
+ * The note is the most valuable thing the bench produces. A reject without one
+ * is a boolean; a reject WITH one is an argument the next reviewer can engage
+ * with, and engaging beats re-deriving — a second reviewer judging blind is far
+ * likelier to land on the opposite verdict, which marks the record contested
+ * and takes it out of grounding entirely.
+ */
+export interface PriorVote {
+  reviewerId: string;
+  /** Falls back to a neutral label if the roster is unreadable. */
+  reviewerName: string;
+  credential: string | null;
+  verdict: 'certify' | 'reject';
+  note: string | null;
+}
+
+/**
  * How many agreeing votes settle a record. Mirrors migration 014's trigger —
  * if one changes the other must too, or the queue will keep offering cards
  * that are already decided.
