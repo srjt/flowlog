@@ -11,13 +11,14 @@ import {
 import {
   orderQueue,
   queueProgress,
+  type PriorVote,
   type ReviewableRecord,
   type VoteTally,
 } from '@/utils/reviewQueue';
 import { logger } from '@/utils/logger';
 
 /**
- * The certification bench (#77).
+ * The certification bench (#77, notes added in #84).
  *
  * A separate route rather than a tab: reviewers are black belts doing a favour,
  * not Flowlog users. Reaching /review directly skips the onboarding gate in
@@ -26,8 +27,7 @@ import { logger } from '@/utils/logger';
  *
  * Reviewers see the SERVING record only — never the source quote. That is what
  * lets this page be shared with people outside the project: it holds no
- * verbatim instructional text. Measured before deciding: 99% of records carry a
- * `why` and 91% a `detail`, so the distilled text is judgeable on its own.
+ * verbatim instructional text.
  */
 export default function ReviewScreen() {
   const [reviewer, setReviewer] = useState<ReviewerIdentity | null | undefined>(
@@ -36,7 +36,22 @@ export default function ReviewScreen() {
   const [records, setRecords] = useState<ReviewableRecord[]>([]);
   const [tallies, setTallies] = useState<Map<string, VoteTally>>(new Map());
   const [myVotes, setMyVotes] = useState<Set<string>>(new Set());
+  const [priorVotes, setPriorVotes] = useState<Map<string, PriorVote[]>>(
+    new Map(),
+  );
+  const [myVoteFor, setMyVoteFor] = useState<Map<string, PriorVote>>(new Map());
   const [note, setNote] = useState('');
+  const [revealed, setRevealed] = useState(false);
+  const [editing, setEditing] = useState<ReviewableRecord | null>(null);
+  /**
+   * The record just voted on. A voted card leaves the queue at once, so an
+   * edit control attached to the card itself could never be reached — the
+   * only moment a reviewer realises they mistyped is straight after sending.
+   */
+  const [justVoted, setJustVoted] = useState<{
+    record: ReviewableRecord;
+    verdict: Verdict;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +64,8 @@ export default function ReviewScreen() {
       setRecords(data.records);
       setTallies(data.tallies);
       setMyVotes(data.myVotes);
+      setPriorVotes(data.priorVotes);
+      setMyVoteFor(data.myVoteFor);
       setError(null);
     } catch (err) {
       logger.error('review queue failed', err);
@@ -68,26 +85,54 @@ export default function ReviewScreen() {
     () => queueProgress(records, queue),
     [records, queue],
   );
-  const card = queue[0];
+  const card = editing ?? queue[0];
+  const others = card ? (priorVotes.get(card.id) ?? []) : [];
+  const withNotes = others.filter((v) => v.note);
+
+  // A reject with no reasoning is a boolean. It cannot be acted on: nobody can
+  // re-mine, correct, or argue with "wrong". The bench asks for black-belt
+  // attention, and this is the part of it worth keeping.
+  const rejectBlocked = note.trim().length === 0;
+
+  const startEditing = (record: ReviewableRecord) => {
+    setEditing(record);
+    setJustVoted(null);
+    setNote(myVoteFor.get(record.id)?.note ?? '');
+    setRevealed(false);
+  };
 
   const submit = async (verdict: Verdict) => {
     if (!card || !reviewer || saving) return;
+    if (verdict === 'reject' && rejectBlocked) return;
     setSaving(true);
     try {
       await reviewService.vote(card.id, reviewer.id, verdict, note);
+      const mine: PriorVote = {
+        reviewerId: reviewer.id,
+        reviewerName: reviewer.displayName,
+        credential: reviewer.credential,
+        verdict,
+        note: note.trim() || null,
+      };
+      setMyVoteFor((prev) => new Map(prev).set(card.id, mine));
       // Advance locally rather than refetching: a full reload between every
       // card would make the bench feel like paperwork.
-      setMyVotes((prev) => new Set(prev).add(card.id));
-      setTallies((prev) => {
-        const next = new Map(prev);
-        const t = next.get(card.id) ?? { certify: 0, reject: 0 };
-        next.set(card.id, {
-          certify: t.certify + (verdict === 'certify' ? 1 : 0),
-          reject: t.reject + (verdict === 'reject' ? 1 : 0),
+      if (!editing) {
+        setMyVotes((prev) => new Set(prev).add(card.id));
+        setTallies((prev) => {
+          const next = new Map(prev);
+          const t = next.get(card.id) ?? { certify: 0, reject: 0 };
+          next.set(card.id, {
+            certify: t.certify + (verdict === 'certify' ? 1 : 0),
+            reject: t.reject + (verdict === 'reject' ? 1 : 0),
+          });
+          return next;
         });
-        return next;
-      });
+      }
+      setJustVoted(editing ? null : { record: card, verdict });
+      setEditing(null);
       setNote('');
+      setRevealed(false);
       setError(null);
     } catch {
       setError('That vote did not save. Try again.');
@@ -151,6 +196,32 @@ export default function ReviewScreen() {
           </Card>
         ) : (
           <>
+            {justVoted ? (
+              <Card testID="review-just-voted">
+                <View className="gap-2">
+                  <Text variant="caption" className="text-muted">
+                    Recorded &ldquo;
+                    {justVoted.verdict === 'certify' ? 'sound' : 'wrong'}&rdquo;
+                    on the previous card.
+                  </Text>
+                  <Button
+                    testID="review-edit-mine"
+                    title="Change that"
+                    variant="ghost"
+                    onPress={() => startEditing(justVoted.record)}
+                  />
+                </View>
+              </Card>
+            ) : null}
+
+            {editing ? (
+              <Card testID="review-editing-banner">
+                <Text variant="caption" className="text-primary">
+                  Changing your earlier verdict on this record.
+                </Text>
+              </Card>
+            ) : null}
+
             <Card testID="review-card">
               <View className="gap-4">
                 <View className="flex-row items-center justify-between">
@@ -201,10 +272,58 @@ export default function ReviewScreen() {
               </View>
             </Card>
 
+            {/*
+              Anchoring, handled deliberately (#84).
+
+              Showing another reviewer's reasoning up front would tell you what
+              to think before you have thought. Hiding it entirely makes you
+              re-derive an argument someone already made, which is how two
+              competent people reach opposite verdicts and mark a record
+              contested — and contested records ground no cues at all.
+
+              So: the fact of disagreement is always visible, the argument is
+              one tap away. Form a view, then read theirs.
+            */}
+            {others.length > 0 ? (
+              <Card testID="review-prior">
+                <View className="gap-3">
+                  <Text variant="caption" className="text-muted">
+                    {others.filter((v) => v.verdict === 'certify').length} sound
+                    · {others.filter((v) => v.verdict === 'reject').length}{' '}
+                    wrong , from other reviewers
+                  </Text>
+                  {revealed ? (
+                    others.map((v) => (
+                      <View key={v.reviewerId} className="gap-1">
+                        <Text variant="caption" className="text-primary">
+                          {v.reviewerName}
+                          {v.credential ? `, ${v.credential}` : ''} ·{' '}
+                          {v.verdict === 'certify' ? 'sound' : 'wrong'}
+                        </Text>
+                        <Text variant="body">
+                          {v.note ?? 'No reason given.'}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Button
+                      testID="review-reveal"
+                      title={
+                        withNotes.length > 0
+                          ? `Read ${withNotes.length === 1 ? 'their reasoning' : 'their reasoning'}`
+                          : 'See who voted'
+                      }
+                      variant="ghost"
+                      onPress={() => setRevealed(true)}
+                    />
+                  )}
+                </View>
+              </Card>
+            ) : null}
+
             <View className="gap-2">
               <Text variant="caption" className="text-muted">
-                NOTE — required in spirit on a reject: &ldquo;wrong&rdquo;
-                without a reason cannot be acted on.
+                WHY — required to mark something wrong
               </Text>
               <TextInput
                 testID="review-note"
@@ -223,6 +342,7 @@ export default function ReviewScreen() {
                   testID="review-reject"
                   title={saving ? '…' : 'Wrong'}
                   variant="secondary"
+                  disabled={saving || rejectBlocked}
                   onPress={() => void submit('reject')}
                 />
               </View>
@@ -230,10 +350,23 @@ export default function ReviewScreen() {
                 <Button
                   testID="review-certify"
                   title={saving ? '…' : 'Sound'}
+                  disabled={saving}
                   onPress={() => void submit('certify')}
                 />
               </View>
             </View>
+
+            {rejectBlocked ? (
+              <Text
+                variant="caption"
+                className="text-muted"
+                testID="review-reject-hint"
+              >
+                To mark this wrong, say why. &ldquo;Wrong&rdquo; on its own
+                cannot be re-mined, corrected, or argued with — the reason is
+                the part worth having.
+              </Text>
+            ) : null}
 
             <Text variant="caption" className="text-muted">
               Two reviewers agreeing settles a record. Judge only whether this

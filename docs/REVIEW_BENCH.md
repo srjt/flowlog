@@ -66,6 +66,46 @@ off until the queue is done.
 Contested records stay IN the queue. A disagreement is exactly what needs a
 third opinion; dropping them would freeze every dispute permanently.
 
+## Notes, and why they are shown the way they are
+
+A reject without a reason is a boolean. It cannot be re-mined, corrected, or
+argued with, so **the bench refuses a reject with no note.** Certify does not
+require one — agreement needs no defence.
+
+**Prior votes: the fact is free, the argument costs a tap.**
+
+Showing another reviewer's reasoning up front tells you what to think before
+you have thought. Hiding it entirely makes you re-derive an argument someone
+already made — which is how two competent people reach opposite verdicts and
+mark a record `contested`, and contested records ground no cues at all. So the
+card shows how many said sound and how many said wrong, and puts the reasoning
+behind one tap.
+
+Notes are **attributed**, with the credential. "Someone rejected this" invites
+dismissal; "Ana, black belt, rejected this because the hook goes outside the
+lead leg" is an argument you have to engage with.
+
+A reviewer can change the verdict they **just** sent — a voted card leaves the
+queue at once, so that is the only moment anyone notices a mistyped reason.
+
+### Reading them in bulk
+
+```bash
+scripts/review/notes.sh          # rejected + contested, with reasons
+scripts/review/notes.sh --all    # every note
+```
+
+A rejected record is not fixed by being rejected. It is fixed by someone
+reading why and either re-mining that position, correcting the record, or
+concluding the corpus is wrong about something.
+
+> **Notes are reviewer-authored free text and may name a source** — "Danaher
+> teaches this differently". They live in `record_votes` and are NEVER copied
+> into `coaching_records`, the table `publish.ts` writes. The leak guard in
+> #37 covers mined text, not reviewer text. If anyone later builds "apply
+> reviewer corrections", the scrub must be extended BEFORE that text can reach
+> a published record.
+
 ## Queue order
 
 1. **Records one vote short of settling.** One more review decides them, where

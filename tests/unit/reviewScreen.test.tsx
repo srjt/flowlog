@@ -35,10 +35,13 @@ const record = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const queue = (records: unknown[]) => ({
+const queue = (records: unknown[], extra: Record<string, unknown> = {}) => ({
   records,
   tallies: new Map(),
   myVotes: new Set<string>(),
+  priorVotes: new Map(),
+  myVoteFor: new Map(),
+  ...extra,
 });
 
 describe('ReviewScreen (#77)', () => {
@@ -162,5 +165,133 @@ describe('ReviewScreen (#77)', () => {
 
     const { findByText } = render(<ReviewScreen />);
     expect(await findByText('Queue clear')).toBeTruthy();
+  });
+});
+
+describe('ReviewScreen — reviewer notes (#84)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  const asReviewer = () =>
+    mockWhoAmI.mockResolvedValue({
+      id: 'r1',
+      displayName: 'Ana',
+      credential: 'black belt',
+    });
+
+  const priorReject = () =>
+    new Map([
+      [
+        'a',
+        [
+          {
+            reviewerId: 'r2',
+            reviewerName: 'Bruno',
+            credential: 'black belt',
+            verdict: 'reject' as const,
+            note: 'the De La Riva hook goes outside the lead leg',
+          },
+        ],
+      ],
+    ]);
+
+  it('shows that others disagreed without showing the argument yet', async () => {
+    // Anchoring: the FACT of disagreement is free, the reasoning costs a tap.
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(
+      queue([record('a')], { priorVotes: priorReject() }),
+    );
+
+    const { findByTestId, queryByText } = render(<ReviewScreen />);
+    await findByTestId('review-prior');
+
+    expect(queryByText(/goes outside the lead leg/)).toBeNull();
+  });
+
+  it('reveals the reasoning, attributed, on request', async () => {
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(
+      queue([record('a')], { priorVotes: priorReject() }),
+    );
+
+    const { findByTestId, findByText } = render(<ReviewScreen />);
+    fireEvent.press(await findByTestId('review-reveal'));
+
+    expect(await findByText(/goes outside the lead leg/)).toBeTruthy();
+    // Unattributed dissent is weaker evidence — the credential travels with it.
+    expect(await findByText(/Bruno, black belt/)).toBeTruthy();
+  });
+
+  it('refuses a reject with no reason, and says why', async () => {
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(queue([record('a')]));
+
+    const { findByTestId, getByTestId } = render(<ReviewScreen />);
+    await findByTestId('review-card');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('review-reject'));
+    });
+
+    expect(mockVote).not.toHaveBeenCalled();
+    expect(getByTestId('review-reject-hint')).toBeTruthy();
+  });
+
+  it('allows a reject once a reason is given', async () => {
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(queue([record('a')]));
+    mockVote.mockResolvedValue(undefined);
+
+    const { findByTestId, getByTestId } = render(<ReviewScreen />);
+    await findByTestId('review-card');
+
+    fireEvent.changeText(getByTestId('review-note'), 'wrong entanglement');
+    await act(async () => {
+      fireEvent.press(getByTestId('review-reject'));
+    });
+
+    expect(mockVote).toHaveBeenCalledWith(
+      'a',
+      'r1',
+      'reject',
+      'wrong entanglement',
+    );
+  });
+
+  it('still allows certify without a note — agreement needs no defence', async () => {
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(queue([record('a')]));
+    mockVote.mockResolvedValue(undefined);
+
+    const { findByTestId, getByTestId } = render(<ReviewScreen />);
+    await findByTestId('review-card');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('review-certify'));
+    });
+
+    expect(mockVote).toHaveBeenCalledWith('a', 'r1', 'certify', '');
+  });
+
+  it('lets a reviewer change the verdict they just sent', async () => {
+    // A voted card leaves the queue immediately, so the only moment anyone can
+    // fix a mistyped reason is straight after sending it.
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(queue([record('a'), record('b')]));
+    mockVote.mockResolvedValue(undefined);
+
+    const { findByTestId, getByTestId } = render(<ReviewScreen />);
+    await findByTestId('review-card');
+
+    fireEvent.changeText(getByTestId('review-note'), 'my earlier reason');
+    await act(async () => {
+      fireEvent.press(getByTestId('review-reject'));
+    });
+
+    expect(getByTestId('review-just-voted')).toBeTruthy();
+    fireEvent.press(getByTestId('review-edit-mine'));
+
+    expect(getByTestId('review-editing-banner')).toBeTruthy();
+    // The earlier reasoning comes back so it can be amended, not retyped.
+    expect(getByTestId('review-note').props.value).toBe('my earlier reason');
   });
 });
