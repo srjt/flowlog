@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Card, Text } from '@/components/ui';
 import {
   reviewService,
-  type ReviewerIdentity,
+  type ReviewerAccess,
   type Verdict,
 } from '@/services/ReviewService';
 import {
@@ -30,9 +30,8 @@ import { logger } from '@/utils/logger';
  * verbatim instructional text.
  */
 export default function ReviewScreen() {
-  const [reviewer, setReviewer] = useState<ReviewerIdentity | null | undefined>(
-    undefined,
-  );
+  const [access, setAccess] = useState<ReviewerAccess | undefined>(undefined);
+  const reviewer = access?.state === 'reviewer' ? access.identity : null;
   const [records, setRecords] = useState<ReviewableRecord[]>([]);
   const [tallies, setTallies] = useState<Map<string, VoteTally>>(new Map());
   const [myVotes, setMyVotes] = useState<Set<string>>(new Set());
@@ -57,10 +56,10 @@ export default function ReviewScreen() {
 
   const load = useCallback(async () => {
     const me = await reviewService.whoAmI();
-    setReviewer(me);
-    if (!me) return;
+    setAccess(me);
+    if (me.state !== 'reviewer') return;
     try {
-      const data = await reviewService.loadQueue(me.id);
+      const data = await reviewService.loadQueue(me.identity.id);
       setRecords(data.records);
       setTallies(data.tallies);
       setMyVotes(data.myVotes);
@@ -141,7 +140,7 @@ export default function ReviewScreen() {
     }
   };
 
-  if (reviewer === undefined) {
+  if (access === undefined) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-background">
         <ActivityIndicator color="#FFFFFF" />
@@ -149,17 +148,33 @@ export default function ReviewScreen() {
     );
   }
 
-  // RLS makes a non-reviewer's queue look exactly like a finished one, so say
-  // which it is rather than congratulating someone on work they cannot see.
-  if (reviewer === null) {
+  // Three distinct reasons the bench might be shut, said distinctly. Collapsing
+  // them is how a backend 500 spent an afternoon impersonating a permissions
+  // decision.
+  if (access.state !== 'reviewer') {
+    const copy =
+      access.state === 'signed-out'
+        ? {
+            testID: 'review-signed-out',
+            heading: 'Sign in first',
+            body: 'Log in with the account you were invited on, then come back to this page.',
+          }
+        : access.state === 'not-a-reviewer'
+          ? {
+              testID: 'review-not-reviewer',
+              heading: 'Not a reviewer',
+              body: 'This bench is invite-only. You are signed in, but this account is not on the reviewer list yet — ask to be added.',
+            }
+          : {
+              testID: 'review-error',
+              heading: 'Could not check your access',
+              body: `Something went wrong reaching the server, so we cannot tell whether you are a reviewer. This is a fault on our side, not a permissions decision. ${access.message}`,
+            };
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-background px-8">
-        <View className="gap-3">
-          <Text variant="heading">Not a reviewer</Text>
-          <Text variant="caption">
-            This bench is invite-only. If you were expecting access, sign in
-            with the account you were invited on and ask to be added.
-          </Text>
+        <View className="gap-3" testID={copy.testID}>
+          <Text variant="heading">{copy.heading}</Text>
+          <Text variant="caption">{copy.body}</Text>
         </View>
       </SafeAreaView>
     );
@@ -171,7 +186,7 @@ export default function ReviewScreen() {
         <View className="gap-1">
           <Text variant="heading">Certification bench</Text>
           <Text variant="caption" testID="review-progress">
-            {reviewer.displayName} · {progress.remaining} to review ·{' '}
+            {access.identity.displayName} · {progress.remaining} to review ·{' '}
             {progress.settled} settled · {progress.contested} contested
           </Text>
         </View>
