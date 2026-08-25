@@ -23,6 +23,16 @@ export interface ReviewerIdentity {
   credential: string | null;
 }
 
+/**
+ * Why the bench is or is not open to you. Distinguishing these is the
+ * difference between a diagnosable failure and a mystery.
+ */
+export type ReviewerAccess =
+  | { state: 'reviewer'; identity: ReviewerIdentity }
+  | { state: 'signed-out' }
+  | { state: 'not-a-reviewer' }
+  | { state: 'error'; message: string };
+
 export interface ReviewQueueData {
   records: ReviewableRecord[];
   tallies: Map<string, VoteTally>;
@@ -35,25 +45,37 @@ export interface ReviewQueueData {
 
 export class ReviewService {
   /**
-   * Is the signed-in user an active reviewer?
+   * Who is asking, and may they review?
    *
-   * Asked explicitly because RLS makes a non-reviewer's queue look identical
-   * to a finished one, and telling someone "all done!" when they simply have
-   * no access would be a confusing lie.
+   * Four outcomes, not two. An earlier version collapsed everything into
+   * `null`, so a signed-out visitor, a genuine non-reviewer, and a failing
+   * query all rendered the same "Not a reviewer" message.
+   *
+   * That cost an afternoon: a recursive RLS policy was returning HTTP 500 and
+   * the bench reported it as a permissions answer. A backend fault wearing the
+   * costume of a policy decision is close to undiagnosable from the UI, which
+   * is where it will be seen first.
    */
-  async whoAmI(): Promise<ReviewerIdentity | null> {
+  async whoAmI(): Promise<ReviewerAccess> {
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return null;
+    if (!auth?.user) return { state: 'signed-out' };
     const { data, error } = await supabase
       .from('reviewers')
       .select('id, display_name, credential, active')
       .eq('id', auth.user.id)
       .maybeSingle();
-    if (error || !data || data.active !== true) return null;
+    if (error) {
+      logger.error('reviewer lookup failed', error);
+      return { state: 'error', message: error.message };
+    }
+    if (!data || data.active !== true) return { state: 'not-a-reviewer' };
     return {
-      id: data.id,
-      displayName: data.display_name,
-      credential: data.credential ?? null,
+      state: 'reviewer',
+      identity: {
+        id: data.id,
+        displayName: data.display_name,
+        credential: data.credential ?? null,
+      },
     };
   }
 
@@ -65,18 +87,21 @@ export class ReviewService {
    * another migration to keep in step with the trigger.
    */
   async loadQueue(reviewerId: string): Promise<ReviewQueueData> {
+    // Through an RPC, not the table. `coaching_records` has no grant for
+    // `authenticated` (migration 009, deliberately) — a policy alone could
+    // never have worked, because RLS filters rows only after the privilege
+    // check. `review_queue` is SECURITY DEFINER and returns nothing to a
+    // non-reviewer.
     const records: ReviewableRecord[] = [];
     for (let offset = 0; ; offset += 1000) {
       const { data, error } = await supabase
-        .from('coaching_records')
-        .select(
-          'id, position, prescription, why, detail, counter, gi, level, opponent, certified, contested, rejected',
-        )
+        .rpc('review_queue')
         .order('id')
         .range(offset, offset + 999);
       if (error) throw new Error(error.message);
-      records.push(...((data ?? []) as ReviewableRecord[]));
-      if (!data || data.length < 1000) break;
+      const page = (data ?? []) as ReviewableRecord[];
+      records.push(...page);
+      if (page.length < 1000) break;
     }
 
     const { data: votes, error: voteError } = await supabase

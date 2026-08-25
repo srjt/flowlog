@@ -133,6 +133,28 @@ URL real reviewers are using.
 `public/_redirects` rewrites every path to `index.html`. Without it Cloudflare
 404s on `/review` — the one URL reviewers are actually given.
 
+## How reviewers reach the records
+
+`coaching_records` has **no table grant for `authenticated`** — migration 009
+revoked it deliberately, so access requires the service role "by construction
+rather than by the continued absence of a policy".
+
+That means an RLS policy on the table can never work: RLS filters rows only
+*after* the role passes the privilege check. A policy added in 014 was inert
+from the day it was written, failing every reviewer read with `42501`.
+
+Reviewers therefore read through `public.review_queue()`, a SECURITY DEFINER
+function that carries its own check and returns nothing to a non-reviewer. The
+table stays shut; the function is the only client-reachable door.
+
+**Do not "fix" a reviewer read failure by granting SELECT on the table.** That
+undoes 009 and puts the table's safety back on a policy being correct — and a
+policy bug is exactly what broke this feature once already.
+
+Membership checks go through `public.is_active_reviewer()`, also SECURITY
+DEFINER, for the same reason: a policy on `reviewers` that queries `reviewers`
+recurses (`42P17`) and takes every dependent policy down with it.
+
 ### Supabase configuration this depends on
 
 Both are dashboard settings, not code:

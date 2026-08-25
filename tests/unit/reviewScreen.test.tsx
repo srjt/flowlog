@@ -47,18 +47,37 @@ const queue = (records: unknown[], extra: Record<string, unknown> = {}) => ({
 describe('ReviewScreen (#77)', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('tells a non-reviewer they lack access, not that the queue is finished', async () => {
-    // RLS makes a non-reviewer's queue look identical to a completed one.
-    mockWhoAmI.mockResolvedValue(null);
-    const { findByText } = render(<ReviewScreen />);
-    expect(await findByText('Not a reviewer')).toBeTruthy();
+  it('tells a signed-out visitor to sign in, not that they lack access', async () => {
+    mockWhoAmI.mockResolvedValue({ state: 'signed-out' });
+    const { findByTestId } = render(<ReviewScreen />);
+    expect(await findByTestId('review-signed-out')).toBeTruthy();
+  });
+
+  it('tells a signed-in non-reviewer they are not on the list', async () => {
+    // RLS makes a non-reviewer's queue look identical to a completed one, so
+    // say which it is rather than congratulating them on invisible work.
+    mockWhoAmI.mockResolvedValue({ state: 'not-a-reviewer' });
+    const { findByTestId } = render(<ReviewScreen />);
+    expect(await findByTestId('review-not-reviewer')).toBeTruthy();
+  });
+
+  it('reports a lookup failure as OUR fault, not a permissions answer', async () => {
+    // A recursive RLS policy returned HTTP 500 and the bench rendered it as
+    // "Not a reviewer". A backend fault wearing the costume of a policy
+    // decision is close to undiagnosable from the UI.
+    mockWhoAmI.mockResolvedValue({
+      state: 'error',
+      message: 'infinite recursion detected in policy for relation "reviewers"',
+    });
+    const { findByTestId, findByText } = render(<ReviewScreen />);
+    expect(await findByTestId('review-error')).toBeTruthy();
+    expect(await findByText(/fault on our side/i)).toBeTruthy();
   });
 
   it('shows the first card with its distilled text', async () => {
     mockWhoAmI.mockResolvedValue({
-      id: 'r1',
-      displayName: 'Ana',
-      credential: 'black belt',
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: 'black belt' },
     });
     mockLoadQueue.mockResolvedValue(queue([record('a')]));
 
@@ -72,9 +91,8 @@ describe('ReviewScreen (#77)', () => {
 
   it('never renders a source quote — the field is not even fetched', async () => {
     mockWhoAmI.mockResolvedValue({
-      id: 'r1',
-      displayName: 'Ana',
-      credential: null,
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: null },
     });
     mockLoadQueue.mockResolvedValue(queue([record('a')]));
 
@@ -88,9 +106,8 @@ describe('ReviewScreen (#77)', () => {
 
   it('records a verdict and advances to the next card', async () => {
     mockWhoAmI.mockResolvedValue({
-      id: 'r1',
-      displayName: 'Ana',
-      credential: null,
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: null },
     });
     mockLoadQueue.mockResolvedValue(queue([record('a'), record('b')]));
     mockVote.mockResolvedValue(undefined);
@@ -109,9 +126,8 @@ describe('ReviewScreen (#77)', () => {
 
   it('passes the note along with a reject', async () => {
     mockWhoAmI.mockResolvedValue({
-      id: 'r1',
-      displayName: 'Ana',
-      credential: null,
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: null },
     });
     mockLoadQueue.mockResolvedValue(queue([record('a')]));
     mockVote.mockResolvedValue(undefined);
@@ -137,9 +153,8 @@ describe('ReviewScreen (#77)', () => {
 
   it('keeps the card and explains when a vote fails to save', async () => {
     mockWhoAmI.mockResolvedValue({
-      id: 'r1',
-      displayName: 'Ana',
-      credential: null,
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: null },
     });
     mockLoadQueue.mockResolvedValue(queue([record('a')]));
     mockVote.mockRejectedValue(new Error('offline'));
@@ -157,9 +172,8 @@ describe('ReviewScreen (#77)', () => {
 
   it('says the queue is clear when there is genuinely nothing left', async () => {
     mockWhoAmI.mockResolvedValue({
-      id: 'r1',
-      displayName: 'Ana',
-      credential: null,
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: null },
     });
     mockLoadQueue.mockResolvedValue(queue([]));
 
@@ -173,9 +187,8 @@ describe('ReviewScreen — reviewer notes (#84)', () => {
 
   const asReviewer = () =>
     mockWhoAmI.mockResolvedValue({
-      id: 'r1',
-      displayName: 'Ana',
-      credential: 'black belt',
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: 'black belt' },
     });
 
   const priorReject = () =>
