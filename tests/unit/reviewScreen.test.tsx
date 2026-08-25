@@ -285,6 +285,47 @@ describe('ReviewScreen — reviewer notes (#84)', () => {
     expect(mockVote).toHaveBeenCalledWith('a', 'r1', 'certify', '');
   });
 
+  it('skips without writing anything to the database', async () => {
+    // A reviewer who does not know a position needs an exit that is not a
+    // guess. A guessed "sound" is worse than no vote: two of them certify a
+    // record nobody actually vouched for.
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(queue([record('a'), record('b')]));
+
+    const { findByTestId, getByTestId, findByText } = render(<ReviewScreen />);
+    await findByTestId('review-card');
+
+    fireEvent.press(getByTestId('review-skip'));
+
+    expect(mockVote).not.toHaveBeenCalled();
+    expect(await findByText('prescription b')).toBeTruthy();
+  });
+
+  it('clears a half-typed note when skipping, so it cannot leak onto the next card', async () => {
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(queue([record('a'), record('b')]));
+
+    const { findByTestId, getByTestId } = render(<ReviewScreen />);
+    await findByTestId('review-card');
+
+    fireEvent.changeText(getByTestId('review-note'), 'half a thought');
+    fireEvent.press(getByTestId('review-skip'));
+
+    expect(getByTestId('review-note').props.value).toBe('');
+  });
+
+  it('says skipped cards will return, rather than implying they are done', async () => {
+    asReviewer();
+    mockLoadQueue.mockResolvedValue(queue([record('a')]));
+
+    const { findByTestId, getByTestId, findByText } = render(<ReviewScreen />);
+    await findByTestId('review-card');
+    fireEvent.press(getByTestId('review-skip'));
+
+    expect(await findByText(/skipped card/i)).toBeTruthy();
+    expect(await findByText(/not recorded as a verdict/i)).toBeTruthy();
+  });
+
   it('lets a reviewer change the verdict they just sent', async () => {
     // A voted card leaves the queue immediately, so the only moment anyone can
     // fix a mistyped reason is straight after sending it.

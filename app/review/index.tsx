@@ -51,6 +51,7 @@ export default function ReviewScreen() {
     record: ReviewableRecord;
     verdict: Verdict;
   } | null>(null);
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,8 +78,8 @@ export default function ReviewScreen() {
   }, [load]);
 
   const queue = useMemo(
-    () => orderQueue(records, tallies, myVotes),
-    [records, tallies, myVotes],
+    () => orderQueue(records, tallies, myVotes, [], skipped),
+    [records, tallies, myVotes, skipped],
   );
   const progress = useMemo(
     () => queueProgress(records, queue),
@@ -92,6 +93,22 @@ export default function ReviewScreen() {
   // re-mine, correct, or argue with "wrong". The bench asks for black-belt
   // attention, and this is the part of it worth keeping.
   const rejectBlocked = note.trim().length === 0;
+
+  /**
+   * Pass on this card. Writes NOTHING.
+   *
+   * A reviewer who does not know a position must have an exit that is not a
+   * guess — a guessed "sound" is worse than no vote, because two of them
+   * certify a record nobody actually vouched for.
+   */
+  const skip = () => {
+    if (!card) return;
+    setSkipped((prev) => new Set(prev).add(card.id));
+    setEditing(null);
+    setJustVoted(null);
+    setNote('');
+    setRevealed(false);
+  };
 
   const startEditing = (record: ReviewableRecord) => {
     setEditing(record);
@@ -204,8 +221,9 @@ export default function ReviewScreen() {
             <View className="gap-2">
               <Text variant="title">Queue clear</Text>
               <Text variant="caption">
-                Nothing left that you have not already voted on. Records where
-                reviewers disagree stay in the queue for a third opinion.
+                {skipped.size > 0
+                  ? `Nothing left in this sitting. ${skipped.size} skipped card${skipped.size === 1 ? '' : 's'} will come back next time you open the bench — a skip is not recorded as a verdict.`
+                  : 'Nothing left that you have not already voted on. Records where reviewers disagree stay in the queue for a third opinion.'}
               </Text>
             </View>
           </Card>
@@ -370,6 +388,14 @@ export default function ReviewScreen() {
                 />
               </View>
             </View>
+
+            <Button
+              testID="review-skip"
+              title="Skip — I can't judge this one"
+              variant="ghost"
+              disabled={saving}
+              onPress={skip}
+            />
 
             {rejectBlocked ? (
               <Text

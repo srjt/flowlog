@@ -88,6 +88,20 @@ lead leg" is an argument you have to engage with.
 A reviewer can change the verdict they **just** sent — a voted card leaves the
 queue at once, so that is the only moment anyone notices a mistyped reason.
 
+### Skipping
+
+A reviewer who does not recognise a position can **skip**. Nothing is written.
+
+That matters for the integrity of the corpus, not just comfort: without an
+exit, someone who cannot judge a card has to guess, and a guessed `certify` is
+worse than no vote at all — two of them certify a record nobody actually
+vouched for.
+
+A skip is **not persisted**, so skipped cards return next time the bench is
+opened. Deliberate: a skip means "not me, not now", and the reviewer who passed
+on a K-guard card today may be exactly the right person for it next month.
+Persisting it would quietly shrink the pool of eyes on the thinnest positions.
+
 ### Reading them in bulk
 
 ```bash
