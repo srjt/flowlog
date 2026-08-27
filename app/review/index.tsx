@@ -16,6 +16,7 @@ import {
   type VoteTally,
 } from '@/utils/reviewQueue';
 import { logger } from '@/utils/logger';
+import { frameApplicability, framePosition } from '@/utils/positionFraming';
 
 /**
  * The certification bench (#77, notes added in #84).
@@ -87,6 +88,10 @@ export default function ReviewScreen() {
   );
   const card = editing ?? queue[0];
   const others = card ? (priorVotes.get(card.id) ?? []) : [];
+  const framing = card
+    ? framePosition(card.position)
+    : { title: '', side: '', situation: '' };
+  const applicability = card ? frameApplicability(card) : [];
   const withNotes = others.filter((v) => v.note);
 
   // A reject with no reasoning is a boolean. It cannot be acted on: nobody can
@@ -255,11 +260,19 @@ export default function ReviewScreen() {
               </Card>
             ) : null}
 
-            <Card testID="review-card">
-              <View className="gap-4">
+            {/*
+              Situation first, instruction second.
+
+              A reviewer cannot judge "sit over the knee, get your elbow down"
+              until they know whose knee and whose elbow. The position slug
+              carried that, but only to someone willing to decode it — and
+              "bottom" means opposite things in a guard and in a pin.
+            */}
+            <Card testID="review-situation">
+              <View className="gap-2">
                 <View className="flex-row items-center justify-between">
-                  <Text variant="caption" className="text-primary">
-                    {card.position}
+                  <Text variant="caption" className="text-muted">
+                    THE SITUATION
                   </Text>
                   {card.contested ? (
                     <Text variant="caption" className="text-accent">
@@ -267,13 +280,36 @@ export default function ReviewScreen() {
                     </Text>
                   ) : null}
                 </View>
+                <Text variant="title">{framing.title}</Text>
+                {framing.side ? (
+                  <Text variant="body" className="text-primary">
+                    {framing.side}
+                  </Text>
+                ) : null}
+                {framing.situation ? (
+                  <Text variant="body">{framing.situation}</Text>
+                ) : null}
+                {card.opponent ? (
+                  <Text variant="caption" className="text-muted">
+                    Specifically: {card.opponent}
+                  </Text>
+                ) : null}
+              </View>
+            </Card>
 
-                <Text variant="title">{card.prescription}</Text>
+            <Card testID="review-card">
+              <View className="gap-4">
+                <View className="gap-1">
+                  <Text variant="caption" className="text-muted">
+                    THE ADVICE — is this correct, here?
+                  </Text>
+                  <Text variant="title">{card.prescription}</Text>
+                </View>
 
                 {card.why ? (
                   <View className="gap-1">
                     <Text variant="caption" className="text-muted">
-                      WHY
+                      WHY IT WORKS
                     </Text>
                     <Text variant="body">{card.why}</Text>
                   </View>
@@ -282,7 +318,7 @@ export default function ReviewScreen() {
                 {card.detail ? (
                   <View className="gap-1">
                     <Text variant="caption" className="text-muted">
-                      DETAIL
+                      KEY DETAIL
                     </Text>
                     <Text variant="body">{card.detail}</Text>
                   </View>
@@ -298,9 +334,7 @@ export default function ReviewScreen() {
                 ) : null}
 
                 <Text variant="caption" className="text-muted">
-                  Applies when: {card.gi}
-                  {card.level !== 'any' ? `, ${card.level}` : ''}
-                  {card.opponent ? `, ${card.opponent}` : ''}
+                  {applicability.join(' · ')}
                 </Text>
               </View>
             </Card>

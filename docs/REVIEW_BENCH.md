@@ -88,6 +88,39 @@ lead leg" is an argument you have to engage with.
 A reviewer can change the verdict they **just** sent — a voted card leaves the
 queue at once, so that is the only moment anyone notices a mistyped reason.
 
+### Card layout
+
+The card leads with **the situation**, then the advice:
+
+```
+THE SITUATION
+Back control
+You are underneath
+They have your back. You are the one escaping.
+
+THE ADVICE — is this correct, here?
+Control the strangle hand with your thumb and four fingers inside...
+```
+
+A reviewer cannot judge "sit over the knee, get your elbow down" until they
+know whose knee and whose elbow. The position id carried that, but only to
+someone willing to decode `back-mount-bottom` first.
+
+**"Bottom" is the trap.** In a guard it means you are *playing* guard, with the
+initiative. In a pin it means you are *contained*. Same suffix, opposite
+situations — so `src/utils/positionFraming.ts` derives the wording per family,
+with overrides for back control, turtle, crucifix, truck and knee-on-belly,
+where the generic "you are pinned" would put the wrong picture in a reviewer's
+head.
+
+That module is **bench-only**. The taxonomy in `src/sports/` is imported by the
+edge function and decides what gets grounded; adding a field there to solve a
+UI copy problem would risk the pipeline for no gain. A test asserts every base
+in the taxonomy has framing, so a new position cannot arrive unlabelled.
+
+Preconditions are rendered in words too — `gi: either` reads as "Gi and no-gi",
+not as a database value in a human's face.
+
 ### Skipping
 
 A reviewer who does not recognise a position can **skip**. Nothing is written.

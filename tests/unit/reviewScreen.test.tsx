@@ -74,6 +74,37 @@ describe('ReviewScreen (#77)', () => {
     expect(await findByText(/fault on our side/i)).toBeTruthy();
   });
 
+  it('leads with the situation, in words, before the advice', async () => {
+    // The card that prompted this said only `back-mount-bottom`, and a
+    // reviewer had to decode it before they could judge anything.
+    mockWhoAmI.mockResolvedValue({
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: 'black belt' },
+    });
+    mockLoadQueue.mockResolvedValue(
+      queue([record('a', { position: 'back-mount-bottom' })]),
+    );
+
+    const { findByTestId, findByText } = render(<ReviewScreen />);
+    await findByTestId('review-situation');
+
+    expect(await findByText('Back control')).toBeTruthy();
+    expect(await findByText('You are underneath')).toBeTruthy();
+    expect(await findByText(/they have your back/i)).toBeTruthy();
+  });
+
+  it('never shows a raw enum value like "either" to a reviewer', async () => {
+    mockWhoAmI.mockResolvedValue({
+      state: 'reviewer',
+      identity: { id: 'r1', displayName: 'Ana', credential: null },
+    });
+    mockLoadQueue.mockResolvedValue(queue([record('a')]));
+
+    const { findByText, queryByText } = render(<ReviewScreen />);
+    expect(await findByText('Gi and no-gi')).toBeTruthy();
+    expect(queryByText(/Applies when: either/)).toBeNull();
+  });
+
   it('shows the first card with its distilled text', async () => {
     mockWhoAmI.mockResolvedValue({
       state: 'reviewer',
