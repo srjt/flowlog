@@ -178,6 +178,25 @@ Issues live in GitHub Issues for `srjt/flowlog`. See `docs/agents/issue-tracker.
 
 Default five canonical labels (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
 
+### Instructional pipeline
+
+Two skills wrap the mining pipeline so it stays idempotent and does not spend
+money twice:
+
+- **`flowlog-transcribe`** — video → timestamped `.txt`. Local, free, slow.
+  Always passes `--timestamps`; without them the miner silently skips the
+  volume.
+- **`flowlog-mine`** — transcripts → coaching records. Costs Gemini credit, so
+  it dry-runs first and reports what coverage actually improved rather than raw
+  counts.
+- **`flowlog-publish`** — records → serving store, stripping every link back to
+  the source instructional and verifying it independently. The repo is public
+  and the review store holds verbatim text, so this step is the one that must
+  not be done carelessly.
+
+Say "use flowlog-transcribe on <title>", then "use flowlog-mine on <title>",
+then "use flowlog-publish".
+
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
