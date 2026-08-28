@@ -131,6 +131,18 @@ export interface ValidationResult {
 const ABSOLUTE = /\b(always|never|do not|don't|must|avoid|no need to)\b/i;
 
 /**
+ * "do not" is not always an instruction.
+ *
+ * "movements that ... do not REQUIRE you to invert" is describing a property,
+ * not telling anyone to do anything. Counting it produced a false collision
+ * between two records that agree perfectly ("build a straight-spine game" and
+ * "do not bridge"), which is worse than missing one: a metric that cries wolf
+ * gets ignored.
+ */
+const DESCRIPTIVE =
+  /\b(do not|don't|must)\s+(require|need|have to|want|involve|mean|imply)\b/i;
+
+/**
  * Does this prescription state an absolute without saying when it applies?
  *
  * Deliberately NOT a rejection and deliberately not auto-repaired. The scope is
@@ -143,10 +155,12 @@ export function isUnscopedAbsolute(record: {
   prescription: string;
   preconditions: { opponent: string };
 }): boolean {
-  return (
-    ABSOLUTE.test(record.prescription) &&
-    record.preconditions.opponent.trim() === ''
-  );
+  if (record.preconditions.opponent.trim() !== '') return false;
+  if (!ABSOLUTE.test(record.prescription)) return false;
+  // A descriptive "do not require" is the only match: nothing is being
+  // instructed, so there is nothing to contradict.
+  const stripped = record.prescription.replace(DESCRIPTIVE, ' ');
+  return ABSOLUTE.test(stripped);
 }
 
 const GI_VALUES = new Set(['gi', 'no-gi', 'either']);

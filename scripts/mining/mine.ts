@@ -33,6 +33,7 @@ import {
   type MinedRecord,
 } from './records.ts';
 import { buildMiningPrompt } from './prompt.ts';
+import { BJJ_POSITIONS } from '../../src/sports/bjj/bjjPositions.ts';
 import {
   chapterAt,
   chaptersForVolume,
@@ -55,6 +56,13 @@ const DEFAULT_MODEL = {
   // `--list-models` asks the API what this key can actually use.
   gemini: 'gemini-3.1-pro-preview',
   claude: 'claude-opus-4-6',
+  // Local, via Ollama. Free and private, but it must earn its place on quality
+  // before it mines anything for real — see
+  // `scripts/experiments/record-quality.sh`. A MoE (3B active of 30B) because
+  // this job is long-context extraction rather than reasoning: the whole
+  // transcript has to fit and be read, and a dense model of the same footprint
+  // spends its budget on depth this task does not need.
+  ollama: 'qwen3:30b-a3b-instruct-2507-q4_K_M',
 } as const;
 const MAX_TOKENS = 32000;
 
@@ -177,6 +185,11 @@ async function listGeminiModels(): Promise<void> {
 function resolveProvider(): Provider {
   const explicit = arg('--provider');
   if (explicit === 'gemini' || explicit === 'claude') return explicit;
+  if (explicit === 'ollama') return 'ollama';
+  // Ollama is never auto-selected. It costs nothing, which is exactly why
+  // falling back to it silently would be wrong: a volume mined locally by
+  // accident looks identical on disk to one mined by Gemini, and the records
+  // carry no note of which model made them.
   if (process.env.GEMINI_API_KEY) return 'gemini';
   if (process.env.ANTHROPIC_API_KEY) return 'claude';
   die(
@@ -266,13 +279,228 @@ async function callClaude(prompt: string, model: string): Promise<string> {
     .join('');
 }
 
+/**
+ * The record schema, as a constraint rather than a request.
+ *
+ * Ollama compiles this into a decoding grammar, so the shape is not something
+ * the model is asked for and then checked against — it is the only thing the
+ * sampler can produce. That closes two failure modes the hosted providers can
+ * only be asked nicely about:
+ *
+ *   - "JSON mode" alone got a single OBJECT back, not an array of records. One
+ *     record for a 9,000-word volume, and it looked like a well-formed answer.
+ *   - `position` becomes an enum of the real taxonomy, so an id outside it
+ *     cannot be sampled. That is the miner's largest rejection category turned
+ *     into something that cannot happen.
+ *
+ * It is deliberately built from BJJ_POSITIONS rather than a copy, so a position
+ * added to the taxonomy is mineable without touching this file.
+ */
+function recordSchema() {
+  const s = { type: 'string' } as const;
+  return {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        position: { type: 'string', enum: BJJ_POSITIONS.map((p) => p.id) },
+        prescription: s,
+        why: s,
+        detail: s,
+        counter: s,
+        preconditions: {
+          type: 'object',
+          properties: {
+            gi: { type: 'string', enum: ['gi', 'no-gi', 'either'] },
+            level: {
+              type: 'string',
+              enum: ['beginner', 'intermediate', 'advanced', 'any'],
+            },
+            opponent: s,
+          },
+          required: ['gi', 'level', 'opponent'],
+        },
+        quote: s,
+        startSeconds: { type: 'integer' },
+      },
+      required: [
+        'position',
+        'prescription',
+        'why',
+        'detail',
+        'counter',
+        'preconditions',
+        'quote',
+        'startSeconds',
+      ],
+    },
+  };
+}
+
+/**
+ * Ollama, locally.
+ *
+ * Two settings here are the difference between a real run and a silently
+ * broken one:
+ *
+ * `num_ctx` — Ollama defaults to a small context (2k-4k) and SILENTLY DROPS
+ *   everything past it. A 25k-token transcript would arrive as its last few
+ *   pages, the model would dutifully mine those, and the output would look
+ *   like a normal short volume. Nothing downstream could tell. So the window
+ *   is sized from the actual prompt every run, and the run refuses rather than
+ *   truncates if the model cannot hold it.
+ *
+ * `num_predict` — same story at the other end: the default stops generation
+ *   early, and a JSON array cut mid-record fails to parse or, worse, parses
+ *   short.
+ *
+ * Streaming is not for show. A local run takes minutes, and tokens/sec is the
+ * one number that says whether the model is swapping — if it collapses from
+ * tens of tokens/sec to low single digits, the window no longer fits in
+ * memory and the answer is a smaller model, not more patience.
+ */
+async function callOllama(prompt: string, model: string): Promise<string> {
+  const host = process.env.OLLAMA_HOST ?? 'http://localhost:11434';
+
+  // ~4 chars/token is a low estimate for this corpus (timestamps and mangled
+  // ASR tokenise badly), so pad by 25% before adding the output budget.
+  const promptTokens = Math.ceil((prompt.length / 4) * 1.25);
+  const numCtx = promptTokens + MAX_TOKENS;
+
+  const tags = await fetch(`${host}/api/tags`).catch(() => null);
+  if (!tags?.ok) {
+    die(
+      `cannot reach Ollama at ${host}.\n` +
+        `  Start it with:  ollama serve\n` +
+        `  Then pull the model:  ollama pull ${model}`,
+    );
+  }
+  const installed =
+    ((await tags.json()) as { models?: { name?: string }[] }).models ?? [];
+  if (
+    !installed.some((m) => m.name === model || m.name === `${model}:latest`)
+  ) {
+    die(
+      `Ollama has no model "${model}".\n` +
+        `  Pull it:  ollama pull ${model}\n` +
+        `  Installed: ${installed.map((m) => m.name).join(', ') || '(none)'}`,
+    );
+  }
+
+  console.error(
+    `  context window ${numCtx} tokens (~${promptTokens} prompt + ${MAX_TOKENS} output)`,
+  );
+
+  const started = Date.now();
+  let firstToken = 0;
+  const res = await fetch(`${host}/api/generate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      prompt,
+      stream: true,
+      // Not 'json': a bare JSON mode returned ONE object for a 9,000-word
+      // volume and called it done. The schema makes an array of records the
+      // only thing the sampler can emit.
+      format: recordSchema(),
+      options: {
+        num_ctx: numCtx,
+        num_predict: MAX_TOKENS,
+        temperature: 0.2,
+        // Extraction: the right next token is usually the transcript's own
+        // word. Widening the sampling pool only invites paraphrase, which is
+        // the exact failure `record-quality.sh` measures.
+        top_p: 0.9,
+        repeat_penalty: 1.0,
+      },
+    }),
+  });
+  if (!res.ok || !res.body) {
+    die(`Ollama ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  }
+
+  let out = '';
+  let evalCount = 0;
+  let promptEvalCount = 0;
+  let truncated = false;
+  let buffer = '';
+  const decoder = new TextDecoder();
+  for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const evt = JSON.parse(line) as {
+        response?: string;
+        done?: boolean;
+        done_reason?: string;
+        eval_count?: number;
+        prompt_eval_count?: number;
+      };
+      if (evt.response) {
+        if (!firstToken) firstToken = Date.now();
+        out += evt.response;
+      }
+      if (evt.done) {
+        evalCount = evt.eval_count ?? 0;
+        promptEvalCount = evt.prompt_eval_count ?? 0;
+        truncated = evt.done_reason === 'length';
+      }
+      if (out.length && out.length % 4000 < 40) {
+        const secs = (Date.now() - started) / 1000;
+        process.stderr.write(
+          `\r  generating… ${Math.round(out.length / 4)} tok, ${secs.toFixed(0)}s`,
+        );
+      }
+    }
+  }
+  const now = Date.now();
+  process.stderr.write('\r' + ' '.repeat(60) + '\r');
+  // Prefill and generation scale differently and fail differently: prefill
+  // grows with the transcript, generation with the number of records. Lumping
+  // them into one tok/s hides which one is the problem.
+  const prefill = ((firstToken || now) - started) / 1000;
+  const gen = (now - (firstToken || now)) / 1000;
+  console.error(
+    `  read ${promptEvalCount} prompt tokens in ${prefill.toFixed(0)}s ` +
+      `(${(promptEvalCount / Math.max(prefill, 0.1)).toFixed(0)} tok/s), ` +
+      `wrote ${evalCount} in ${gen.toFixed(0)}s ` +
+      `(${(evalCount / Math.max(gen, 0.1)).toFixed(0)} tok/s)`,
+  );
+
+  // The prompt asked for the whole volume. A run that hit the output cap
+  // returned SOME of it, and the missing part is silent — every downstream
+  // count would just look like a thin volume.
+  if (truncated) {
+    die(
+      `Ollama stopped at the ${MAX_TOKENS}-token output cap — the response is ` +
+        `incomplete and the records it holds are only part of the volume. ` +
+        `Mine this volume in chapter chunks rather than whole.`,
+    );
+  }
+  // Prompt tokens actually read vs. sent: the truncation this exists to catch.
+  if (promptEvalCount > 0 && promptEvalCount < promptTokens * 0.5) {
+    console.error(
+      `  WARNING: Ollama reported reading only ${promptEvalCount} prompt tokens ` +
+        `of an estimated ${promptTokens}. If this is not a cache hit, the ` +
+        `transcript was truncated and these records cover only part of the volume.`,
+    );
+  }
+  return out;
+}
+
 /** Models sometimes fence JSON despite instructions. */
 export function parseModelJson(text: string): unknown[] {
   const cleaned = text.replace(/```json|```/g, '').trim();
   const start = cleaned.indexOf('[');
   const end = cleaned.lastIndexOf(']');
   if (start === -1 || end === -1) {
-    die('model response contained no JSON array');
+    die(
+      `model response contained no JSON array. It returned ${text.length} ` +
+        `chars starting:\n\n${cleaned.slice(0, 400)}\n`,
+    );
   }
   const parsed = JSON.parse(cleaned.slice(start, end + 1));
   if (!Array.isArray(parsed)) die('model response was not an array');
@@ -349,11 +577,23 @@ async function main() {
     responseText =
       provider === 'gemini'
         ? await callGemini(prompt, model)
-        : await callClaude(prompt, model);
+        : provider === 'ollama'
+          ? await callOllama(prompt, model)
+          : await callClaude(prompt, model);
+  }
+
+  const slug = `${slugify(instructional)}-v${volume}`;
+
+  // Write the raw response BEFORE parsing it. A parse failure used to lose the
+  // response entirely — on a paid provider that means paying twice to see what
+  // the model actually said, and the answer is usually visible in the first
+  // hundred characters.
+  mkdirSync(outDir, { recursive: true });
+  if (!fromJson) {
+    writeFileSync(join(outDir, `${slug}.response.json`), responseText, 'utf8');
   }
 
   const raw = parseModelJson(responseText);
-  const slug = `${slugify(instructional)}-v${volume}`;
 
   const { valid, rejected, warnings } = validateRecords(
     raw as never[],
@@ -362,12 +602,8 @@ async function main() {
   );
   const records: MinedRecord[] = assignIds(valid, slug);
 
-  mkdirSync(outDir, { recursive: true });
   const outPath = join(outDir, `${slug}.records.json`);
   writeFileSync(outPath, JSON.stringify(records, null, 2) + '\n', 'utf8');
-  if (!fromJson) {
-    writeFileSync(join(outDir, `${slug}.response.json`), responseText, 'utf8');
-  }
 
   report(records, rejected, warnings, chapters, outPath);
 }

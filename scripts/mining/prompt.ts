@@ -133,8 +133,19 @@ Only use "either" when the technique genuinely works without a jacket.
 their weight, the reaction they just gave you. Most techniques are taught as answers to a
 specific situation; name it.
 
-ABSOLUTES MUST BE SCOPED. If a prescription says "always", "never", "must", "do not" or
-"avoid", the "opponent" field is REQUIRED. An unconditional instruction with no stated
+ABSOLUTES MUST BE SCOPED — ANYWHERE IN THE SENTENCE. If a prescription contains
+"always", "never", "must", "do not" or "avoid" — in the main clause, a trailing clause, or
+a second sentence — the "opponent" field is REQUIRED.
+
+This is the part that gets missed. These all need a scope, and the absolute is not the
+first thing said:
+
+  "Lever your two knees in the direction you want to sweep. Do not bridge."
+  "Always play the dilemma between the knee lever and the butterfly hook."
+  "Never stay flat on your back in deep half guard; maintain a constant angle."
+
+Scoping the main instruction is not enough. If ANY part of the record tells the reader to
+always or never do something, name the situation it applies in. An unconditional instruction with no stated
 scope cannot be reconciled with one that says the opposite, and both will reach the same
 cue. This is a real collision, not a hypothetical:
 
