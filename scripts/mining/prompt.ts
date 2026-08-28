@@ -133,6 +133,27 @@ Only use "either" when the technique genuinely works without a jacket.
 their weight, the reaction they just gave you. Most techniques are taught as answers to a
 specific situation; name it.
 
+ABSOLUTES MUST BE SCOPED. If a prescription says "always", "never", "must", "do not" or
+"avoid", the "opponent" field is REQUIRED. An unconditional instruction with no stated
+scope cannot be reconciled with one that says the opposite, and both will reach the same
+cue. This is a real collision, not a hypothetical:
+
+  "Do not worry about connecting your knee and elbow when playing a LOW knee shield."
+  "Always keep your knee and elbow connected when playing a HIGH knee shield."
+
+Both are correct as taught. Neither says so in "opponent", so together they are a coin
+flip. The qualifier was RIGHT THERE in the sentence — "when playing a low knee shield" —
+and belongs in the structured field as well as the prose.
+
+Do NOT soften the instruction to avoid this. "Never play with an underhook while
+maintaining a knee shield" is real coaching and must stay absolute. Scope it, do not
+hedge it.
+
+If the instructor genuinely states something with no condition at all — a universal
+principle of the position — leave "opponent" empty and keep the absolute. That is a real
+category; just make sure it is genuinely unconditional rather than a qualifier you failed
+to capture.
+
 COUNTER — also commonly left empty.
 
 Instructors routinely say what the opponent does to defeat the technique, and what to do

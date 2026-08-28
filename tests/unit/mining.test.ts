@@ -1,6 +1,7 @@
 import {
   assignIds,
   chapterCoverage,
+  isUnscopedAbsolute,
   validateRecords,
   type MinedRecord,
 } from '../../scripts/mining/records';
@@ -313,5 +314,62 @@ describe('validateRecords — precondition synonyms', () => {
       noChapters,
     );
     expect(rejected).toHaveLength(1);
+  });
+});
+
+describe('isUnscopedAbsolute (#102)', () => {
+  const rec = (prescription: string, opponent = '') => ({
+    prescription,
+    preconditions: { opponent },
+  });
+
+  it('flags an absolute with no stated scope', () => {
+    // The real collision: two of these, same position, same instructor,
+    // opposite instructions, nothing to tell them apart.
+    expect(
+      isUnscopedAbsolute(
+        rec('Never play with an underhook while maintaining a knee shield.'),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    'Always keep your knee and elbow connected.',
+    'Do not let the opponent close a chest-to-chest position.',
+    'You must have an upper body connection.',
+    'Avoid crossing your feet.',
+    "Don't hang onto a locked triangle.",
+  ])('flags %j', (p) => expect(isUnscopedAbsolute(rec(p))).toBe(true));
+
+  it('does NOT flag an absolute that says when it applies', () => {
+    // Scoping is the fix, not softening. The instruction stays absolute.
+    expect(
+      isUnscopedAbsolute(
+        rec(
+          'Never play with an underhook while maintaining a knee shield.',
+          'Opponent is playing a low knee shield with locked legs.',
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not flag ordinary hedged advice', () => {
+    // A record without an absolute degrades gracefully — the model weighs it
+    // against its neighbours instead of obeying or contradicting it.
+    expect(
+      isUnscopedAbsolute(rec('Frame on the far hip before he settles.')),
+    ).toBe(false);
+  });
+
+  it('matches whole words only', () => {
+    // "mustache", "nevertheless" and friends must not trip it.
+    expect(isUnscopedAbsolute(rec('Grip the mustard-coloured lapel.'))).toBe(
+      false,
+    );
+    expect(isUnscopedAbsolute(rec('Nevertheless, frame early.'))).toBe(false);
+  });
+
+  it('treats a whitespace-only precondition as absent', () => {
+    expect(isUnscopedAbsolute(rec('Never cross your feet.', '   '))).toBe(true);
   });
 });
