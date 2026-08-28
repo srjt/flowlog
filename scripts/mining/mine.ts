@@ -355,7 +355,7 @@ async function main() {
   const raw = parseModelJson(responseText);
   const slug = `${slugify(instructional)}-v${volume}`;
 
-  const { valid, rejected } = validateRecords(
+  const { valid, rejected, warnings } = validateRecords(
     raw as never[],
     { instructor, instructional, volume },
     (seconds) => chapterAt(chapters, seconds)?.title ?? null,
@@ -369,12 +369,13 @@ async function main() {
     writeFileSync(join(outDir, `${slug}.response.json`), responseText, 'utf8');
   }
 
-  report(records, rejected, chapters, outPath);
+  report(records, rejected, warnings, chapters, outPath);
 }
 
 function report(
   records: MinedRecord[],
   rejected: { index: number; reason: string; offending: unknown }[],
+  warnings: { index: number; reason: string; offending: unknown }[],
   chapters: Chapter[],
   outPath: string,
 ) {
@@ -394,6 +395,22 @@ function report(
       console.error(
         `    #${r.index}: ${JSON.stringify(r.offending)?.slice(0, 90)}`,
       );
+    }
+  }
+
+  if (warnings.length) {
+    // Kept, not discarded — these teach something real. But an unconditional
+    // "always/never" with no scope cannot be safely combined with a record
+    // that says the opposite, and the collision is invisible once published
+    // (#102).
+    console.error(
+      `\nUNSCOPED ${warnings.length}  (kept — absolute with no "applies when")`,
+    );
+    for (const w of warnings.slice(0, 5)) {
+      console.error(`    ${String(w.offending).slice(0, 95)}`);
+    }
+    if (warnings.length > 5) {
+      console.error(`    ... and ${warnings.length - 5} more`);
     }
   }
 

@@ -101,6 +101,52 @@ export interface ValidationIssue {
 export interface ValidationResult {
   valid: MinedRecord[];
   rejected: ValidationIssue[];
+  /**
+   * Kept, but flagged. A warning is for a record that teaches something real
+   * and is unsafe to combine with others — rejecting it would throw away
+   * coaching, so it ships and gets reported (issue #102).
+   */
+  warnings: ValidationIssue[];
+}
+
+/**
+ * Words that make a prescription unconditional.
+ *
+ * An absolute does not degrade gracefully. A hedged record with no
+ * precondition gets weighed against its neighbours; "never play with an
+ * underhook while maintaining a knee shield" is either honoured or
+ * contradicted. When two absolutes disagree and neither carries a scope, the
+ * cue inherits whichever the model happened to weight.
+ *
+ * This is not hypothetical. Two records for `knee-shield-half-guard-bottom`,
+ * from the same instructor, both unscoped:
+ *
+ *   "Do NOT worry about connecting your knee and elbow when playing a LOW
+ *    knee shield."
+ *   "ALWAYS keep your knee and elbow connected when playing a HIGH knee
+ *    shield."
+ *
+ * Both correct as taught. Together, with nothing to separate them, a coin flip.
+ */
+const ABSOLUTE = /\b(always|never|do not|don't|must|avoid|no need to)\b/i;
+
+/**
+ * Does this prescription state an absolute without saying when it applies?
+ *
+ * Deliberately NOT a rejection and deliberately not auto-repaired. The scope is
+ * often present in the prose ("when playing a low knee shield"), but lifting it
+ * with a regex produced mangled fragments — "When using a crab ride with two
+ * legs under your opponent's legs, you must have a" — and a truncated clause in
+ * a field the prompt tells the model to honour is worse than an empty one.
+ */
+export function isUnscopedAbsolute(record: {
+  prescription: string;
+  preconditions: { opponent: string };
+}): boolean {
+  return (
+    ABSOLUTE.test(record.prescription) &&
+    record.preconditions.opponent.trim() === ''
+  );
 }
 
 const GI_VALUES = new Set(['gi', 'no-gi', 'either']);
@@ -157,6 +203,7 @@ export function validateRecords(
 ): ValidationResult {
   const valid: MinedRecord[] = [];
   const rejected: ValidationIssue[] = [];
+  const warnings: ValidationIssue[] = [];
 
   raw.forEach((r, index) => {
     const reject = (reason: string, offending: unknown) =>
@@ -230,9 +277,21 @@ export function validateRecords(
       certified: false,
       contested: false,
     });
+
+    // Ships, but flagged: an unconditional "always/never" that does not say
+    // when it applies cannot be safely combined with a record that says the
+    // opposite (#102).
+    const accepted = valid[valid.length - 1]!;
+    if (isUnscopedAbsolute(accepted)) {
+      warnings.push({
+        index,
+        reason: 'absolute prescription with no opponent precondition',
+        offending: accepted.prescription,
+      });
+    }
   });
 
-  return { valid, rejected };
+  return { valid, rejected, warnings };
 }
 
 function formatSeconds(seconds: number): string {

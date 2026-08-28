@@ -67,6 +67,26 @@ failed. Never switch `--model` to dodge a 503 mid-series: the rest of the series
 was mined on one model, and mixing them makes the records less comparable for
 the sake of a few volumes.
 
+### Read the UNSCOPED warning
+
+The miner keeps records that state an absolute ("always", "never", "must") with
+no "applies when", and reports them:
+
+```
+UNSCOPED 4  (kept — absolute with no "applies when")
+```
+
+They are kept because they teach something real. But an unconditional
+instruction cannot be reconciled with one that says the opposite, and both can
+reach the same cue — two records on `knee-shield-half-guard-bottom`, same
+instructor, say "do not connect knee and elbow" and "always connect knee and
+elbow", each without stating which knee shield they mean (#102).
+
+A high count means the volume's qualifiers stayed in the prose instead of
+reaching the `opponent` field. Worth a re-mine; not worth blocking on.
+
+`scripts/experiments/unscoped-absolutes.sh` lists them across the whole corpus.
+
 ## 3. Publish
 
 Use the **flowlog-publish** skill. It covers the leak scan, the two-store split,
