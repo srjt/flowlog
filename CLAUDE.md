@@ -148,6 +148,10 @@ unit-tested REFERENCE implementation the edge function mirrors. Sport content
   the record pulse + first-result celebration, ≥44px interactive targets
 - First-run onboarding — BUILT (`app/(onboarding)/`, account-first; gated by
   `profiles.onboarding_complete`, migration 004)
+- First-run feature tour — BUILT (`app/(onboarding)/tour.tsx`, 4 swipeable
+  slides; one-time local flag `src/utils/featureTour.ts`, no profile column, so
+  users onboarded before it existed still get it once via the entry gate.
+  `?mode=replay` from Profile's "Replay tour" row finishes back on Profile)
 - Local post-training reminders — BUILT (`src/services/NotificationService.ts`
   + Profile prefs; native only, web no-ops; deep-links into Record on tap)
 - First-result celebration + unlock progress — BUILT

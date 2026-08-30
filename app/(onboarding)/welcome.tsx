@@ -38,7 +38,7 @@ const VALUE_CARDS = [
  * First-run onboarding. Account-first: the user is already authenticated, so
  * their sport/skill picks persist to their profile. Steps: value intro → sport
  * → skill → mic priming. Finishing writes the profile and marks onboarding
- * complete, then drops the user on the recorder.
+ * complete, then hands off to the feature tour, which finishes on the recorder.
  */
 export default function Welcome() {
   const {
@@ -96,7 +96,7 @@ export default function Welcome() {
       }
     }
     setOnboardingComplete(true);
-    router.replace('/(tabs)/record');
+    router.replace('/(onboarding)/tour');
   };
 
   /**
@@ -106,7 +106,7 @@ export default function Welcome() {
    */
   const continueAnyway = () => {
     setOnboardingComplete(true);
-    router.replace('/(tabs)/record');
+    router.replace('/(onboarding)/tour');
   };
 
   return (

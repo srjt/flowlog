@@ -197,6 +197,16 @@ export default function ProfileScreen() {
           onPress={() => router.push('/digest/history')}
         />
 
+        {/* Replay mode only changes where the tour finishes -- it does NOT
+            clear the seen flag, so replaying never re-arms the first-run
+            tour on the next launch. */}
+        <Button
+          testID="replay-tour-link"
+          title="Replay tour"
+          variant="secondary"
+          onPress={() => router.push('/(onboarding)/tour?mode=replay')}
+        />
+
         <Button title="Sign out" variant="secondary" onPress={signOut} />
 
         {!isDemoMode && !isLocalPipeline ? (

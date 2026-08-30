@@ -39,7 +39,7 @@ describe('Onboarding flow', () => {
   });
   afterEach(() => jest.clearAllMocks());
 
-  it('walks sport → skill → mic and persists the picks, then opens the recorder', async () => {
+  it('walks sport → skill → mic and persists the picks, then hands off to the tour', async () => {
     const { getByTestId, getByText } = render(<Welcome />);
 
     fireEvent.press(getByTestId('onboarding-start'));
@@ -59,7 +59,7 @@ describe('Onboarding flow', () => {
       expect.any(String),
       'gi',
     );
-    expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
+    expect(router.replace).toHaveBeenCalledWith('/(onboarding)/tour');
     expect(useUserStore.getState().onboardingComplete).toBe(true);
   });
 
@@ -76,7 +76,7 @@ describe('Onboarding flow', () => {
 
     const av = require('expo-av');
     expect(av.Audio.requestPermissionsAsync).not.toHaveBeenCalled();
-    expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
+    expect(router.replace).toHaveBeenCalledWith('/(onboarding)/tour');
     expect(useUserStore.getState().onboardingComplete).toBe(true);
   });
 
@@ -120,7 +120,7 @@ describe('Onboarding flow', () => {
       fireEvent.press(getByTestId('onboarding-retry')); // succeeds
     });
 
-    expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
+    expect(router.replace).toHaveBeenCalledWith('/(onboarding)/tour');
     expect(useUserStore.getState().onboardingComplete).toBe(true);
   });
 
@@ -139,7 +139,7 @@ describe('Onboarding flow', () => {
 
     fireEvent.press(getByTestId('onboarding-continue-anyway'));
 
-    expect(router.replace).toHaveBeenCalledWith('/(tabs)/record');
+    expect(router.replace).toHaveBeenCalledWith('/(onboarding)/tour');
     expect(useUserStore.getState().onboardingComplete).toBe(true);
   });
 });
