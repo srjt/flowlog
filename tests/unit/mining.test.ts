@@ -2,6 +2,7 @@ import {
   assignIds,
   chapterCoverage,
   isUnscopedAbsolute,
+  repairQuote,
   validateRecords,
   type MinedRecord,
 } from '../../scripts/mining/records';
@@ -9,6 +10,7 @@ import { applyCorrections } from '../../scripts/mining/prompt';
 import {
   chapterAt,
   chaptersForVolume,
+  chunkLines,
   parseChapterIndex,
   parseTranscript,
 } from '../../scripts/mining/transcript';
@@ -371,5 +373,257 @@ describe('isUnscopedAbsolute (#102)', () => {
 
   it('treats a whitespace-only precondition as absent', () => {
     expect(isUnscopedAbsolute(rec('Never cross your feet.', '   '))).toBe(true);
+  });
+});
+
+describe('repairQuote', () => {
+  // One passage, used throughout: the repair is defined against real
+  // transcript text, so the tests read it the way a reviewer would.
+  const transcript =
+    'So I take my whole hand over the shoulder and I just give a quick pull. ' +
+    'Now watch what happens to his base here. ' +
+    'And I move my chin off the shoulder so the crossface has nothing to press on.';
+
+  it('leaves a quote that is already verbatim untouched', () => {
+    const r = repairQuote(
+      'I take my whole hand over the shoulder and I just give a quick pull',
+      transcript,
+    );
+    expect(r.repaired).toBe(false);
+    expect(r.unverifiable).toBe(false);
+    expect(r.dropped).toBe(0);
+  });
+
+  it('narrows a spliced quote to the longest span the transcript contains', () => {
+    // The two halves are real and minutes apart in the source; the sentence
+    // joining them was never spoken. This is the 20.5% case.
+    const spliced =
+      'So I take my whole hand over the shoulder and I just give a quick pull ' +
+      'and I move my chin off the shoulder so the crossface has nothing to press on.';
+    const r = repairQuote(spliced, transcript);
+    expect(r.repaired).toBe(true);
+    expect(r.dropped).toBeGreaterThan(0);
+    // Whatever it returns must be findable in the transcript verbatim — that
+    // is the entire point, so assert it rather than a fixed string.
+    expect(transcript).toContain(r.quote);
+  });
+
+  it('returns real transcript text, with its own punctuation and casing', () => {
+    const r = repairQuote(
+      'now watch what happens to his base here and then something never said',
+      transcript,
+    );
+    expect(r.repaired).toBe(true);
+    // Lowercased and unpunctuated going in, real transcript text coming out.
+    expect(r.quote).toBe('Now watch what happens to his base here');
+  });
+
+  it('does not leave the quote ending on a dangling connective', () => {
+    // "here. And" matches verbatim, because the spliced half began with "and".
+    // Keeping it reads as though the tool truncated the sentence.
+    const r = repairQuote(
+      'now watch what happens to his base here and then something never said',
+      transcript,
+    );
+    expect(r.quote.trim()).not.toMatch(/\b(and|but|so|then|the|to)$/i);
+  });
+
+  it('flags a quote with no substantial span as unverifiable', () => {
+    const r = repairQuote(
+      'He posts his free hand and re-pummels to recover the underhook',
+      transcript,
+    );
+    expect(r.unverifiable).toBe(true);
+    expect(r.repaired).toBe(false);
+  });
+
+  it('never invents text — the result is always a transcript substring', () => {
+    for (const q of [
+      'whole hand over the shoulder and I just give a quick pull',
+      'so I take my whole hand and I move my chin off the shoulder',
+      'Now watch what happens to his base',
+    ]) {
+      const r = repairQuote(q, transcript);
+      if (!r.unverifiable) expect(transcript).toContain(r.quote);
+    }
+  });
+
+  it('prefers the span that backs the claim over the longest one', () => {
+    // The failure this guards against, measured on the real corpus: taking the
+    // longest span lost more than half the support for the record's own claim
+    // in 30% of repairs, leaving a verbatim quote that is evidence for nothing.
+    const t =
+      'I will show you the other angle very soon and it is going to go on ' +
+      'this rib cage which we will cover later on. ' +
+      'Your tight waist grip switches to the other side as he posts.';
+    const spliced =
+      'I will show you the other angle very soon and it is going to go on ' +
+      'this rib cage and your tight waist grip switches to the other side as he posts.';
+    const claim = 'Switch your tight waist grip when the opponent posts.';
+    const withClaim = repairQuote(spliced, t, claim);
+    expect(t).toContain(withClaim.quote);
+    expect(withClaim.quote).toContain('tight waist grip');
+    // Without the claim the longest span wins, which here is the aside.
+    const without = repairQuote(spliced, t);
+    expect(without.quote).not.toContain('tight waist grip');
+  });
+
+  it('treats an empty quote as unverifiable rather than throwing', () => {
+    expect(repairQuote('', transcript).unverifiable).toBe(true);
+  });
+
+  it('matches across apostrophes and hyphens', () => {
+    // Regression. The quote side deleted punctuation ("doesn't" -> "doesnt")
+    // while the transcript side split on it ("doesn", "t"), so the two never
+    // agreed. Every quote containing an apostrophe or hyphen was reported
+    // unverifiable — including quotes that were verbatim — and the repair
+    // trimmed good text. It made Gemini look like it spliced 14 records in 15.
+    const t = "He doesn't want to give you the under-hook, so don't fight it.";
+    const r = repairQuote("He doesn't want to give you the under-hook", t);
+    expect(r.unverifiable).toBe(false);
+    expect(r.repaired).toBe(false);
+  });
+});
+
+describe('chunkLines', () => {
+  const lines = Array.from({ length: 60 }, (_, i) => ({
+    startSeconds: i * 30,
+    text: `line ${i}`,
+  }));
+
+  it('splits on a fixed window when the title ships no chapter index', () => {
+    const chunks = chunkLines(lines, [], 480);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((c) => c.length > 0)).toBe(true);
+  });
+
+  it('loses no lines — every segment lands in exactly one window', () => {
+    // The failure this guards against is silent: a dropped window looks
+    // exactly like a volume that simply taught less.
+    const chunks = chunkLines(lines, [], 480);
+    expect(chunks.reduce((n, c) => n + c.length, 0)).toBe(lines.length);
+    expect(chunks.flat().map((l) => l.startSeconds)).toEqual(
+      lines.map((l) => l.startSeconds),
+    );
+  });
+
+  it('never lets a chapter-aligned window run far over the target', () => {
+    // Regression, and it cost real records. Breaking at the first boundary at
+    // or AFTER the target overshot: ~5-minute chapters produced 9-12 minute
+    // windows against an 8-minute target, and the model summarised them —
+    // 18 records where fixed windows got 33, across one position instead of
+    // three. An over-long window is the failure chunking exists to prevent.
+    const long = Array.from({ length: 110 }, (_, i) => ({
+      startSeconds: i * 30,
+      text: `line ${i}`,
+    }));
+    const every5min = Array.from({ length: 10 }, (_, i) => ({
+      startSeconds: i * 318,
+      title: `C${i}`,
+      volume: null,
+    }));
+    const chunks = chunkLines(long, every5min, 480);
+    for (const c of chunks) {
+      const span = c[c.length - 1]!.startSeconds - c[0]!.startSeconds;
+      expect(span).toBeLessThanOrEqual(480 * 1.25);
+    }
+  });
+
+  it('breaks on chapter boundaries when an index exists', () => {
+    const chapters = [
+      { startSeconds: 0, title: 'A', volume: null },
+      { startSeconds: 600, title: 'B', volume: null },
+      { startSeconds: 1200, title: 'C', volume: null },
+    ];
+    const chunks = chunkLines(lines, chapters, 480);
+    // A window must start exactly where a chapter does, not mid-technique.
+    expect(chunks[1]![0]!.startSeconds).toBe(600);
+  });
+
+  it('returns one window for a transcript shorter than the window', () => {
+    expect(chunkLines(lines.slice(0, 3), [], 480)).toHaveLength(1);
+  });
+
+  it('returns nothing for no lines', () => {
+    expect(chunkLines([], [], 480)).toEqual([]);
+  });
+});
+
+describe('parseChapterIndex — title-first ranges', () => {
+  // The format a chapter list is pasted in from a product page: title first,
+  // then a start-end range, under a titled volume header and column headings.
+  const index = [
+    'Volume 01: Pin Escapes & Turtle Escapes 1',
+    'CHAPTER TITLE',
+    'START TIME',
+    'introduction\t0:00 - 6:56',
+    'Escapes Overview\t6:56 - 43:37',
+    'Defense & Escapes - General Reflections\t43:37 - 49:50',
+    'Bridging\t1:25:21 - 1:33:00',
+  ].join('\n');
+
+  it('reads title-first rows with a start-end range', () => {
+    const got = parseChapterIndex(index);
+    expect(got).toHaveLength(4);
+    expect(got[0]).toMatchObject({
+      startSeconds: 0,
+      endSeconds: 416,
+      title: 'introduction',
+    });
+    expect(got[3]).toMatchObject({
+      startSeconds: 5121,
+      endSeconds: 5580,
+      title: 'Bridging',
+    });
+  });
+
+  it('reads a titled volume header, not just a bare VOLUME n', () => {
+    expect(parseChapterIndex(index)[0]!.volume).toBe(1);
+  });
+
+  it('skips column headings instead of making chapters of them', () => {
+    const titles = parseChapterIndex(index).map((c) => c.title);
+    expect(titles).not.toContain('CHAPTER TITLE');
+    expect(titles).not.toContain('START TIME');
+  });
+
+  it('keeps a dash inside a chapter title', () => {
+    expect(parseChapterIndex(index)[2]!.title).toBe(
+      'Defense & Escapes - General Reflections',
+    );
+  });
+
+  it('still reads the timestamp-first form', () => {
+    const got = parseChapterIndex(
+      '6:56 - Escapes Overview\n1:25:21 - Bridging',
+    );
+    expect(got).toHaveLength(2);
+    expect(got[1]).toMatchObject({ startSeconds: 5121, title: 'Bridging' });
+    expect(got[1]!.endSeconds).toBeUndefined();
+  });
+
+  it('ignores a row whose range runs backwards', () => {
+    expect(parseChapterIndex('Bad Row\t10:00 - 2:00')).toHaveLength(0);
+  });
+});
+
+describe('chapterAt with stated ends', () => {
+  const chapters = [
+    { startSeconds: 0, endSeconds: 100, title: 'A', volume: null },
+    { startSeconds: 200, endSeconds: 300, title: 'B', volume: null },
+  ];
+
+  it('finds the chapter a moment falls inside', () => {
+    expect(chapterAt(chapters, 250)?.title).toBe('B');
+  });
+
+  it('returns null for a moment in a gap the index left', () => {
+    // 150 is past A's stated end and before B starts. Attributing it to A
+    // would put a record under a chapter it does not belong to.
+    expect(chapterAt(chapters, 150)).toBeNull();
+  });
+
+  it('returns null past the end of the last chapter', () => {
+    expect(chapterAt(chapters, 5000)).toBeNull();
   });
 });

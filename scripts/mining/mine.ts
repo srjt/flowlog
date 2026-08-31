@@ -29,13 +29,15 @@ import { homedir } from 'node:os';
 import {
   assignIds,
   chapterCoverage,
+  repairQuote,
   validateRecords,
   type MinedRecord,
 } from './records.ts';
-import { buildMiningPrompt } from './prompt.ts';
-import { BJJ_POSITIONS } from '../../src/sports/bjj/bjjPositions.ts';
+import { applyCorrections, buildMiningPrompt } from './prompt.ts';
 import {
   chapterAt,
+  chunkLines,
+  formatTimestamp as formatSeconds,
   chaptersForVolume,
   parseChapterIndex,
   parseTranscript,
@@ -280,64 +282,6 @@ async function callClaude(prompt: string, model: string): Promise<string> {
 }
 
 /**
- * The record schema, as a constraint rather than a request.
- *
- * Ollama compiles this into a decoding grammar, so the shape is not something
- * the model is asked for and then checked against — it is the only thing the
- * sampler can produce. That closes two failure modes the hosted providers can
- * only be asked nicely about:
- *
- *   - "JSON mode" alone got a single OBJECT back, not an array of records. One
- *     record for a 9,000-word volume, and it looked like a well-formed answer.
- *   - `position` becomes an enum of the real taxonomy, so an id outside it
- *     cannot be sampled. That is the miner's largest rejection category turned
- *     into something that cannot happen.
- *
- * It is deliberately built from BJJ_POSITIONS rather than a copy, so a position
- * added to the taxonomy is mineable without touching this file.
- */
-function recordSchema() {
-  const s = { type: 'string' } as const;
-  return {
-    type: 'array',
-    items: {
-      type: 'object',
-      properties: {
-        position: { type: 'string', enum: BJJ_POSITIONS.map((p) => p.id) },
-        prescription: s,
-        why: s,
-        detail: s,
-        counter: s,
-        preconditions: {
-          type: 'object',
-          properties: {
-            gi: { type: 'string', enum: ['gi', 'no-gi', 'either'] },
-            level: {
-              type: 'string',
-              enum: ['beginner', 'intermediate', 'advanced', 'any'],
-            },
-            opponent: s,
-          },
-          required: ['gi', 'level', 'opponent'],
-        },
-        quote: s,
-        startSeconds: { type: 'integer' },
-      },
-      required: [
-        'position',
-        'prescription',
-        'why',
-        'detail',
-        'counter',
-        'preconditions',
-        'quote',
-        'startSeconds',
-      ],
-    },
-  };
-}
-
-/**
  * Ollama, locally.
  *
  * Two settings here are the difference between a real run and a silently
@@ -359,13 +303,38 @@ function recordSchema() {
  * tens of tokens/sec to low single digits, the window no longer fits in
  * memory and the answer is a smaller model, not more patience.
  */
-async function callOllama(prompt: string, model: string): Promise<string> {
+async function callOllama(
+  prompt: string,
+  model: string,
+  transcriptWords: number,
+): Promise<string> {
   const host = process.env.OLLAMA_HOST ?? 'http://localhost:11434';
 
   // ~4 chars/token is a low estimate for this corpus (timestamps and mangled
   // ASR tokenise badly), so pad by 25% before adding the output budget.
   const promptTokens = Math.ceil((prompt.length / 4) * 1.25);
-  const numCtx = promptTokens + MAX_TOKENS;
+
+  // Budget the output from the transcript, not from the cap.
+  //
+  // A schema-constrained array has no natural end: nothing in the grammar
+  // says how many records is enough, and `repeat_penalty` off gave the model
+  // no reason to stop. It ran to the 32k cap on every window — 12 minutes
+  // each, generating variations on records it had already written.
+  //
+  // So spend a budget the passage can justify, sized to head off the runaway
+  // rather than to ration: three output tokens per transcript word is about
+  // twelve records per thousand words at the corpus's ~250 tokens each —
+  // eight times Gemini's average yield, and still a hard stop.
+  //
+  // The first cut of this was four times tighter and truncated a legitimately
+  // dense window. Chunked mining is SUPPOSED to yield more per word than a
+  // whole-volume pass; a budget calibrated on whole-volume averages fights
+  // the thing chunking is for.
+  const numPredict = Math.min(
+    MAX_TOKENS,
+    Math.max(2500, Math.ceil(transcriptWords * 3)),
+  );
+  const numCtx = promptTokens + numPredict;
 
   const tags = await fetch(`${host}/api/tags`).catch(() => null);
   if (!tags?.ok) {
@@ -388,34 +357,90 @@ async function callOllama(prompt: string, model: string): Promise<string> {
   }
 
   console.error(
-    `  context window ${numCtx} tokens (~${promptTokens} prompt + ${MAX_TOKENS} output)`,
+    `  context ${numCtx} tokens (~${promptTokens} prompt + ${numPredict} output ` +
+      `for ~${transcriptWords} words)`,
   );
 
   const started = Date.now();
   let firstToken = 0;
-  const res = await fetch(`${host}/api/generate`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
+
+  // Hybrid-reasoning models (Qwen3's dense line, among others) emit a
+  // <think> block before the answer unless told not to. Here that is pure
+  // cost and pure risk: the reasoning lands inside the response text where
+  // `parseModelJson` has to step over it, and it spends the output budget on
+  // deliberation for what is a copying task.
+  //
+  // Ollama rejects `think` outright on models that have no such mode, so it
+  // is sent optimistically and dropped on the one error that means "not
+  // applicable" — cheaper than maintaining a list of which models think.
+  const body = (withThink: boolean) =>
+    JSON.stringify({
       model,
       prompt,
       stream: true,
-      // Not 'json': a bare JSON mode returned ONE object for a 9,000-word
-      // volume and called it done. The schema makes an array of records the
-      // only thing the sampler can emit.
-      format: recordSchema(),
+      ...(withThink ? { think: false } : {}),
+      // No `format` field, and both alternatives were measured on a real
+      // 4,340-token chunk prompt before settling on none:
+      //
+      //   none            25.2 tok/s   output starts "["   <- correct already
+      //   format: json    20.2 tok/s   output starts "{"   <- one object, not an array
+      //   format: schema   0.6 tok/s   output starts "["   <- 42x slower
+      //
+      // The prompt on its own gets the array right, so a grammar buys nothing
+      // and costs the run: `format: json` biased the model to a single object
+      // (one record for a 9,000-word volume), and a full JSON-schema grammar
+      // collapses throughput at realistic prompt sizes — llama.cpp evaluates
+      // the grammar against the vocabulary at every token, and the cost grows
+      // with context. `parseModelJson` and `validateRecords` catch what a
+      // grammar would have prevented, one step later and for free.
       options: {
         num_ctx: numCtx,
-        num_predict: MAX_TOKENS,
+        num_predict: numPredict,
         temperature: 0.2,
         // Extraction: the right next token is usually the transcript's own
         // word. Widening the sampling pool only invites paraphrase, which is
         // the exact failure `record-quality.sh` measures.
         top_p: 0.9,
-        repeat_penalty: 1.0,
+        // Not 1.0. Turning repetition off looks right for a copying task and
+        // is wrong here: with an unbounded array grammar it removed the only
+        // pressure to stop, and the model padded to the cap.
+        repeat_penalty: 1.1,
       },
-    }),
-  });
+    });
+
+  const post = (withThink: boolean) =>
+    fetch(`${host}/api/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: body(withThink),
+    });
+
+  let res = await post(true);
+  if (!res.ok) {
+    const detail = await res.text();
+    if (/think/i.test(detail)) {
+      console.error(`  (model has no thinking mode — retrying without)`);
+      res = await post(false);
+    } else if (res.status >= 500) {
+      // Transient, and worth surviving: a long unattended run restarts the
+      // server between volumes, and a request arriving while llama-server is
+      // still loading gets "timed out waiting for llama-server to start".
+      // That killed a volume nine windows from the end. Same reasoning as the
+      // 503 advice in the flowlog-mine skill — back off, do not hammer.
+      for (let attempt = 1; attempt <= 3 && !res.ok; attempt++) {
+        const wait = attempt * 15;
+        console.error(
+          `  Ollama ${res.status} (${detail.trim().slice(0, 80)}) — retry ${attempt}/3 in ${wait}s`,
+        );
+        await new Promise((r) => setTimeout(r, wait * 1000));
+        res = await post(true);
+      }
+      if (!res.ok)
+        die(`Ollama ${res.status}: ${(await res.text()).slice(0, 400)}`);
+    } else {
+      die(`Ollama ${res.status}: ${detail.slice(0, 400)}`);
+    }
+  }
   if (!res.ok || !res.body) {
     die(`Ollama ${res.status}: ${(await res.text()).slice(0, 400)}`);
   }
@@ -470,14 +495,14 @@ async function callOllama(prompt: string, model: string): Promise<string> {
       `(${(evalCount / Math.max(gen, 0.1)).toFixed(0)} tok/s)`,
   );
 
-  // The prompt asked for the whole volume. A run that hit the output cap
-  // returned SOME of it, and the missing part is silent — every downstream
-  // count would just look like a thin volume.
+  // Loud, but not fatal. The records BEFORE the cut are complete and real —
+  // throwing them away to punish the tail would be the worse trade, and
+  // `parseModelJson` closes the dangling array. What must not happen is this
+  // passing silently, because a truncated window looks exactly like a thin one.
   if (truncated) {
-    die(
-      `Ollama stopped at the ${MAX_TOKENS}-token output cap — the response is ` +
-        `incomplete and the records it holds are only part of the volume. ` +
-        `Mine this volume in chapter chunks rather than whole.`,
+    console.error(
+      `  WARNING: hit the ${numPredict}-token output cap. The records before ` +
+        `the cut are kept; the rest of this passage was not mined.`,
     );
   }
   // Prompt tokens actually read vs. sent: the truncation this exists to catch.
@@ -493,18 +518,79 @@ async function callOllama(prompt: string, model: string): Promise<string> {
 
 /** Models sometimes fence JSON despite instructions. */
 export function parseModelJson(text: string): unknown[] {
-  const cleaned = text.replace(/```json|```/g, '').trim();
+  const cleaned = text
+    .replace(/```json|```/g, '')
+    // Reasoning-mode control tokens, stripped before parsing.
+    //
+    // Qwen3's dense line leaked a literal "/no_think" into the middle of a
+    // quote — 1 record in 166, inside the one field the whole review model
+    // depends on being verbatim. The verbatim check would catch it, but only
+    // after the record is written and only if someone runs the check; at ten
+    // times this corpus that is dozens of quietly corrupted quotes.
+    .replace(/<\/?think>/g, '')
+    .replace(/\/no_?think\b/g, '')
+    .trim();
   const start = cleaned.indexOf('[');
-  const end = cleaned.lastIndexOf(']');
-  if (start === -1 || end === -1) {
+  if (start === -1) {
     die(
       `model response contained no JSON array. It returned ${text.length} ` +
         `chars starting:\n\n${cleaned.slice(0, 400)}\n`,
     );
   }
-  const parsed = JSON.parse(cleaned.slice(start, end + 1));
-  if (!Array.isArray(parsed)) die('model response was not an array');
-  return parsed;
+  const end = cleaned.lastIndexOf(']');
+  if (end > start) {
+    const parsed = JSON.parse(cleaned.slice(start, end + 1));
+    if (!Array.isArray(parsed)) die('model response was not an array');
+    return parsed;
+  }
+  // No closing bracket: generation stopped mid-array at the output cap. Every
+  // record before the cut is complete and worth keeping, so close the array
+  // after the last one rather than discarding a whole window's work.
+  const lastComplete = cleaned.lastIndexOf('},');
+  if (lastComplete === -1) {
+    die(
+      `model response was cut off before a single complete record. It returned ` +
+        `${text.length} chars starting:\n\n${cleaned.slice(0, 400)}\n`,
+    );
+  }
+  const salvaged = JSON.parse(cleaned.slice(start, lastComplete + 1) + ']');
+  console.error(
+    `  salvaged ${salvaged.length} complete records from a truncated response`,
+  );
+  return salvaged;
+}
+
+/**
+ * Parse a saved response, whole-volume or chunked.
+ *
+ * A chunked run saves the windows as an array of RAW STRINGS — each one a
+ * model response in its own right — so a saved chunked response is an array
+ * whose elements are strings rather than records. Feeding that to
+ * `parseModelJson` yields the outer array and then rejects every "record" for
+ * having no position, which is what it did: 0 records, 6 rejections, and a
+ * saved response that could not be reprocessed.
+ *
+ * That matters more than it looks. Reprocessing saved responses is how a fix
+ * to validation or to `repairQuote` gets applied to work already paid for —
+ * it is the difference between re-running the tokens and re-running the code.
+ */
+export function parseSavedResponse(text: string): unknown[] {
+  const outer = parseModelJson(text);
+  if (outer.every((x) => typeof x === 'string')) {
+    const out: unknown[] = [];
+    for (const part of outer as string[]) {
+      try {
+        out.push(...parseModelJson(part));
+      } catch {
+        console.error('  a saved window did not parse — skipped');
+      }
+    }
+    console.error(
+      `  chunked response: ${outer.length} windows -> ${out.length} records`,
+    );
+    return out;
+  }
+  return outer;
 }
 
 async function main() {
@@ -532,7 +618,12 @@ async function main() {
   if (lines.length === 0) die('transcript parsed to zero lines');
 
   let chapters: Chapter[] = [];
-  const indexPath = arg('--chapters') ?? findChapterIndex(volumePath);
+  // `--no-chapters` exists to make the index's value measurable: mine one
+  // volume with it and once without, and the difference is the index's
+  // contribution rather than a guess about it.
+  const indexPath = has('--no-chapters')
+    ? null
+    : (arg('--chapters') ?? findChapterIndex(volumePath));
   if (indexPath && existsSync(indexPath)) {
     chapters = chaptersForVolume(
       parseChapterIndex(readFileSync(indexPath, 'utf8')),
@@ -567,40 +658,139 @@ async function main() {
   }
 
   const fromJson = arg('--from-json');
+  const chunkSeconds = Number(arg('--chunk') ?? '0');
   let responseText: string;
+  let raw: unknown[];
+
   if (fromJson) {
     responseText = readFileSync(fromJson, 'utf8');
+    raw = parseSavedResponse(responseText);
   } else {
     const provider = resolveProvider();
     const model = arg('--model') ?? DEFAULT_MODEL[provider];
-    console.error(`calling ${provider} (${model})…`);
-    responseText =
+    const call = (p: string, w: number) =>
       provider === 'gemini'
-        ? await callGemini(prompt, model)
+        ? callGemini(p, model)
         : provider === 'ollama'
-          ? await callOllama(prompt, model)
-          : await callClaude(prompt, model);
+          ? callOllama(p, model, w)
+          : callClaude(p, model);
+    console.error(`calling ${provider} (${model})…`);
+
+    if (chunkSeconds > 0) {
+      const chunks = chunkLines(lines, chapters, chunkSeconds);
+      console.error(
+        `chunked: ${chunks.length} windows of ~${Math.round(chunkSeconds / 60)} min\n`,
+      );
+      raw = [];
+      const parts: string[] = [];
+      for (const [i, chunk] of chunks.entries()) {
+        const span = `${formatSeconds(chunk[0]!.startSeconds)}-${formatSeconds(chunk[chunk.length - 1]!.startSeconds)}`;
+        console.error(`  [${i + 1}/${chunks.length}] ${span}`);
+        // The whole chapter index still goes in: a window needs to know where
+        // it sits in the volume even though it only mines its own span.
+        const chunkPrompt = buildMiningPrompt(
+          { instructor, instructional, volume },
+          chunk,
+          chapters,
+        );
+        const chunkWords = chunk.reduce(
+          (n, l) => n + l.text.split(/\s+/).length,
+          0,
+        );
+        const text = await call(chunkPrompt, chunkWords);
+        parts.push(text);
+        // One bad window must not lose the other seven. A local run is free,
+        // but it is also slow, and re-mining an hour of video because window
+        // three returned prose is the expensive mistake here.
+        try {
+          const got = parseModelJson(text);
+          console.error(`      ${got.length} records`);
+          raw.push(...got);
+        } catch {
+          console.error(`      WINDOW FAILED to parse — skipped, continuing`);
+        }
+      }
+      responseText = JSON.stringify(parts, null, 2);
+    } else {
+      responseText = await call(prompt, words);
+      raw = parseModelJson(responseText);
+    }
   }
 
   const slug = `${slugify(instructional)}-v${volume}`;
 
-  // Write the raw response BEFORE parsing it. A parse failure used to lose the
-  // response entirely — on a paid provider that means paying twice to see what
-  // the model actually said, and the answer is usually visible in the first
-  // hundred characters.
   mkdirSync(outDir, { recursive: true });
   if (!fromJson) {
     writeFileSync(join(outDir, `${slug}.response.json`), responseText, 'utf8');
   }
-
-  const raw = parseModelJson(responseText);
 
   const { valid, rejected, warnings } = validateRecords(
     raw as never[],
     { instructor, instructional, volume },
     (seconds) => chapterAt(chapters, seconds)?.title ?? null,
   );
-  const records: MinedRecord[] = assignIds(valid, slug);
+  // Narrow spliced quotes to text the transcript actually contains, so every
+  // surviving record is verbatim by construction rather than by the model's
+  // good behaviour. A quote with no checkable span left is dropped: an
+  // unverifiable quote defeats the ten-second review the whole record exists
+  // to support, which is the same reason an EMPTY quote is already rejected.
+  const transcriptText = lines.map((l) => applyCorrections(l.text)).join(' ');
+  const repaired: MinedRecord[] = [];
+  let trimmed = 0;
+  let droppedWords = 0;
+  const unverifiable: { index: number; reason: string; offending: unknown }[] =
+    [];
+  valid.forEach((r, i) => {
+    const fix = repairQuote(
+      r.quote,
+      transcriptText,
+      `${r.prescription} ${r.detail}`,
+    );
+    if (fix.unverifiable) {
+      unverifiable.push({
+        index: i,
+        reason: 'quote is not in the transcript — unverifiable',
+        offending: r.quote.slice(0, 120),
+      });
+      return;
+    }
+    if (fix.repaired) {
+      trimmed++;
+      droppedWords += fix.dropped;
+    }
+    repaired.push({ ...r, quote: fix.quote, quoteRepaired: fix.repaired });
+  });
+  rejected.push(...unverifiable);
+
+  const records: MinedRecord[] = assignIds(repaired, slug);
+  if (trimmed || unverifiable.length) {
+    console.error(
+      `\nQUOTES  ${trimmed} trimmed to a verbatim span ` +
+        `(${droppedWords} spliced words dropped), ` +
+        `${unverifiable.length} dropped as unverifiable`,
+    );
+  }
+
+  // A volume that yields nothing is a FAILURE, not an empty result.
+  //
+  // It exited 0 and wrote `[]`, which is the worst possible outcome: the batch
+  // runner skips volumes that already have a records file, so an empty one
+  // makes the volume permanently invisible — re-running the series will never
+  // retry it, and the corpus keeps a hole nobody can see. That is the same
+  // silent-skip class as #75.
+  //
+  // Observed for real: `systematically-attacking-the-arm-bar-v3` returned a
+  // bare `[]` from Gemini on three separate runs while the same transcript
+  // yielded 13-32 records under a different prompt. Whatever the cause, it
+  // must not be recorded as "mined".
+  if (records.length === 0 && words > 500) {
+    die(
+      `no records from ${words} words of transcript.\n` +
+        `  The model returned nothing usable, so this volume is NOT mined and no\n` +
+        `  records file was written — a re-run will retry it rather than skip it.\n` +
+        `  The raw response was saved for inspection.`,
+    );
+  }
 
   const outPath = join(outDir, `${slug}.records.json`);
   writeFileSync(outPath, JSON.stringify(records, null, 2) + '\n', 'utf8');

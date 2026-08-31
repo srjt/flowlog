@@ -30,7 +30,7 @@ import { homedir } from 'node:os';
 import { parseTranscript, type TranscriptLine } from '../mining/transcript.ts';
 import { applyCorrections } from '../mining/prompt.ts';
 import { isUnscopedAbsolute, type MinedRecord } from '../mining/records.ts';
-import { volumeNumber } from '../mining/volumes.ts';
+import { volumeNumbersForDirectory } from '../mining/volumes.ts';
 
 function arg(flag: string): string | null {
   const i = process.argv.indexOf(flag);
@@ -67,15 +67,27 @@ function indexLibrary(root: string): Map<string, string> {
     }
     for (const e of entries) {
       if (e.startsWith('.')) continue;
+      if (statSync(join(dir, e)).isDirectory()) walk(join(dir, e));
+    }
+    // Number this directory's transcripts as a SET. A `vol` marker repeated
+    // identically across every file names the series, not the file, and
+    // numbering them one at a time mapped eight volumes onto one slug — which
+    // made this scorer compare records against a sibling transcript and report
+    // the mismatch as fabricated quotes.
+    const txts = entries.filter(
+      (e) =>
+        !e.startsWith('.') &&
+        e.toLowerCase().endsWith('.txt') &&
+        !/^contents?\.txt$/i.test(e),
+    );
+    const numbers = volumeNumbersForDirectory(
+      txts.map((e) => e.replace(/\.txt$/i, '')),
+    );
+    for (const e of txts) {
       const p = join(dir, e);
-      if (statSync(p).isDirectory()) {
-        walk(p);
-        continue;
-      }
-      if (!e.toLowerCase().endsWith('.txt')) continue;
       const head = readFileSync(p, 'utf8').slice(0, 4000);
       if (!/^\[\d+:\d{2}:\d{2}/m.test(head)) continue; // index file, not transcript
-      const vol = volumeNumber(e.replace(/\.txt$/i, ''));
+      const vol = numbers.get(e.replace(/\.txt$/i, '')) ?? null;
       if (vol === null) continue;
       out.set(`${slugify(seriesName(dir))}-v${vol}`, p);
     }

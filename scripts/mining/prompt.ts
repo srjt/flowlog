@@ -165,12 +165,27 @@ principle of the position — leave "opponent" empty and keep the absolute. That
 category; just make sure it is genuinely unconditional rather than a qualifier you failed
 to capture.
 
-COUNTER — also commonly left empty.
+COUNTER — the most under-filled field.
 
-Instructors routinely say what the opponent does to defeat the technique, and what to do
-about it: "he'll base out with his free hand", "a good opponent will re-pummel here", "if
-he posts, you switch to...". Capture that in "counter" whenever it is spoken. Leave it
-empty only when the instructor genuinely never says how the move gets stopped.
+Instructors state the counter constantly, and rarely as a heading. Capture it whenever it
+is spoken, in any of these shapes:
+
+  - the opponent's reaction:  "he'll base out with his free hand"
+  - the conditional failure:  "if he posts, this won't work"
+  - the thing you must beat:  "his whole job is to get that underhook back"
+  - the pre-emption:          "before he can bring his knee in, you have to..."
+
+Two rules decide most cases:
+
+1. A counter is what the OPPONENT does to stop you, not your next step. "Then you switch
+   to the far-side armbar" is not a counter; "he hides the far arm, so you switch to the
+   far-side armbar" is — the counter is the hiding.
+2. The counter is often spoken BEFORE the technique, as the reason for it: "everybody
+   loses this position because he pummels back in, so what we do is...". That opening
+   clause is the counter for the record that follows.
+
+Leave "counter" empty only when the instructor genuinely never says how the move gets
+stopped.
 
 TRANSCRIPT
 
