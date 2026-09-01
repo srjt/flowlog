@@ -30,8 +30,14 @@ const DROPPED_FIELDS = ['quote', 'source', 'chapter'] as const;
  * Extend as new sources are mined.
  */
 export const SCRUBBED_NAMES = [
+  // Order matters: longer variants first, or `\bMateus\b` claims the stem and
+  // leaves the suffix behind. "Mateusz" survived a publish this way — the
+  // automated guard passed and the manual sweep in flowlog-publish caught it,
+  // which is the whole reason that sweep is a separate step.
+  'Mateusz',
   'Mateus',
   'Matace', // recurring mis-transcription of the same name
+  'Brian', // training partner in the Ageless series; not in any title
   'Danaher',
   'Gordon',
   'Garry',
@@ -43,7 +49,36 @@ export const SCRUBBED_NAMES = [
  * Markers that betray the source. The publish step REFUSES to run if any
  * survives, so a future mined series cannot quietly reintroduce a citation.
  */
+/**
+ * Self-references the instructor makes to the recording itself.
+ *
+ * Neutralised rather than rejected, exactly like a partner's name: "the
+ * instructional is designed for people who are physically disadvantaged" is
+ * real coaching context wearing a citation, and dropping the record would
+ * throw the coaching away to remove three words.
+ *
+ * Found by the guard refusing a publish. Two of the three offenders said
+ * "throughout this video", which `SOURCE_MARKERS` did not cover even though
+ * the flowlog-publish checklist tells a human to grep for it — so they would
+ * have shipped silently. Both the scrub and the marker list are extended here.
+ */
+export const SOURCE_PHRASES: [RegExp, string][] = [
+  [
+    /\bthis (?:instructional|video|series|lesson plan|course)\b/gi,
+    'this approach',
+  ],
+  [
+    /\bthe (?:instructional|video|series|lesson plan|course)\b/gi,
+    'this approach',
+  ],
+  [/\bthroughout this approach\b/gi, 'throughout'],
+  [/\bin this approach\b/gi, 'here'],
+];
+
 export const SOURCE_MARKERS: RegExp[] = [
+  /\bthis video\b/i,
+  /\bthis series\b/i,
+  /\blesson plan\b/i,
   /\bgff\b/i,
   /go further faster/i,
   /\bvol(?:ume)?\s*\.?\s*\d/i,
@@ -80,6 +115,9 @@ export interface ServingRecord {
  */
 export function scrubNames(text: string): string {
   let out = text;
+  // Source self-references first: they are phrases, and scrubbing a name
+  // inside one would leave a stranger sentence than scrubbing the phrase.
+  for (const [re, to] of SOURCE_PHRASES) out = out.replace(re, to);
   for (const name of SCRUBBED_NAMES) {
     out = out.replace(new RegExp(`\\b${name}'s\\b`, 'gi'), "your opponent's");
     out = out.replace(new RegExp(`\\b${name}\\b`, 'gi'), 'your opponent');
