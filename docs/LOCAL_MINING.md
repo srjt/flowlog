@@ -3,12 +3,17 @@
 Whether the Gemini mining step (`flowlog-mine`) can be replaced by a model
 running on this Mac, and at what cost to quality.
 
-**Answer: yes for coverage, no for conditions.** The whole Gemini-mined corpus
+**Answer: yes, on every axis that was measured — but only with the two free
+post-passes.** The whole Gemini-mined corpus
 — 88 volumes — has now been re-mined locally with `qwen3:32b`. It produced 2.35x
 the records, every one citing a quote that is verbatim in the transcript, and
-did not invent a single quote in 4,311 records. What it does measurably worse is
-say WHEN a technique applies and HOW it gets stopped, which is the part #102 and
-`docs/REVIEW_BENCH.md` care most about.
+did not invent a single quote in 4,311 records.
+
+Raw, it was much worse at saying WHEN a technique applies and HOW it gets
+stopped — the part #102 and `docs/REVIEW_BENCH.md` care most about. That gap
+turned out to be a missing step rather than a model limitation: a grounded
+second pass over the records lifted `counter` from 21.6% to **46.3%**, past
+Gemini's 33.7%, and `applies-when` from 61.7% to 76.4% against Gemini's 78.5%.
 
 It is a REPLACEMENT strategy, not a reproduction one: agreement with the Gemini
 corpus is F1 26.8%, so a local re-mine builds a different, larger corpus rather
@@ -101,6 +106,53 @@ fifth of Gemini's records and adds a great deal Gemini never found. Whether
 that is acceptable depends on whether you want coverage of the library or
 consistency with what is already published; a title half-mined by each is the
 case to avoid.
+
+### After the two post-passes
+
+Neither pass calls a model on the transcript again and neither costs anything
+on a local setup. Both are now steps 3 and 4 of the `flowlog-mine` skill.
+
+| | Gemini | local, raw | **local, repaired + enriched** |
+| --- | --- | --- | --- |
+| records | 1,835 | 4,311 | 4,311 |
+| contiguous quotes | 85.8% -> 100%* | 100% | **100%** |
+| fabricated | 0% | 0% | **0%** |
+| `why` filled | 99.5% | 100% | **100%** |
+| **`counter` filled** | 33.7% | 21.6% | **46.3%** |
+| **`applies-when` filled** | 78.5% | 61.7% | **76.4%** |
+| unscoped absolutes | 3.1% | 6.9% | **4.2%** |
+
+\* the Gemini corpus was 85.8% before `repair-quotes.sh` was run over it; both
+stores are now at 100%.
+
+**The enrichment added 1,063 counters and 634 scopes, and discarded 150.**
+
+| | |
+| --- | --- |
+| additions proposed | 3,085 |
+| discarded — evidence not in the transcript | 26 |
+| discarded — scope field was a pasted excerpt | 124 |
+| kept | 1,697 |
+
+Only about half of the proposals became additions; the rest were the model
+correctly reporting that the instructor does not say. That is why the 46.3% is
+worth trusting rather than being an inflated fill rate.
+
+**The paste guard earned its place.** The model kept putting its own evidence
+into the scope field — `"arms are on the outside just like so do you remember
+the phrase that we always use from bottom position everything inside okay"` is
+a transcript excerpt, not a condition, and a scope full of raw transcript is
+useless to the collision check it exists for. Prompt wording did not stop it.
+The mechanical rule does: a condition written in the model's own words is NOT
+verbatim in the transcript, so a scope that IS verbatim was pasted. It caught
+124.
+
+**What this changes about the verdict.** The conditions gap was the one finding
+that held at 44, 67 and 88 volumes, and it was the reason to keep paying. It
+was closable for free, without re-mining anything, in about twelve hours of
+machine time. Local mining now leads or ties on every measured axis except
+`exact quotes`, where Gemini's 95.9% is itself a product of the same repair
+applied to its corpus.
 
 ### Two caveats on this table
 
