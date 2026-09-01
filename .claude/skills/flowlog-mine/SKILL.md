@@ -182,24 +182,34 @@ real demand. Known dead ends: `k-guard-bottom` and `headquarters-bottom` appear
 **zero times** in the entire unmined library, and `closed-guard-bottom` is
 barely taught anywhere — those gaps need a different purchase, not more mining.
 
-## Mining locally instead of on Gemini
+## Mining locally instead of on Gemini — tried, and the answer is no
 
-`--provider ollama --model qwen3:32b --chunk 480` mines for free. Over the same
-88 volumes it produced 2.35x the records with zero fabricated quotes, and after
-steps 3 and 4 it leads Gemini on `counter` and ties on everything but `exact
-quotes`.
+`--provider ollama --model qwen3:32b --chunk 480` mines for free, and the whole
+corpus was re-mined that way to find out whether it could replace Gemini.
 
-Three things that are not optional locally:
+**It cannot.** A blind read of 20 matched pairs preferred Gemini 14 to 3. Every
+mechanical metric had said local was ahead — it produced 2.35x the records with
+zero fabricated quotes — and every one of those metrics was measuring the wrong
+thing. Local records are about a third shorter in `prescription` and `why`, and
+more fragmented: it splits one teaching point into several thin ones rather
+than finding more teaching. Record count read as a win when it was the symptom.
 
-- **`--chunk 480`.** Whole-volume, a local model summarises — 14 records where
-  chunking got 33 — and prefill collapses 76x at a 46k context window.
-- **A rested machine.** Throughput halves after roughly a day of continuous
-  mining and a full Ollama restart does not reliably clear it. Restarting
-  between volumes delays it a long way; `scripts/experiments/remine-local.sh`
-  does that and is idempotent, so an interrupted run resumes for free.
-- **Accepting a DIFFERENT corpus.** Agreement with the Gemini corpus is F1 27%.
-  Local mining replaces a corpus; it does not reproduce one. Do not mine half a
-  title each way.
+Do not re-run this expecting a different result, and do not mine half a title
+each way: agreement with the Gemini corpus is F1 27%, so the two produce
+different corpora, not two versions of one.
+
+The local path stays in `mine.ts` because it is useful for free experiments —
+probing a title's position distribution before paying to mine it, for one. It
+is not a production path. See `docs/LOCAL_MINING.md`.
+
+**The transferable lesson.** Mechanical metrics could not tell these two apart
+correctly. Quote fidelity, fill rates and fabrication all measure FORM; none of
+them measures whether a record teaches the right thing at a useful grain. Before
+trusting any mining change, read twenty pairs:
+
+```bash
+scripts/experiments/blind-compare.sh <records-dir> --sample 20 --html
+```
 
 ## Related
 

@@ -3,21 +3,56 @@
 Whether the Gemini mining step (`flowlog-mine`) can be replaced by a model
 running on this Mac, and at what cost to quality.
 
-**Answer: yes, on every axis that was measured — but only with the two free
-post-passes.** The whole Gemini-mined corpus
-— 88 volumes — has now been re-mined locally with `qwen3:32b`. It produced 2.35x
-the records, every one citing a quote that is verbatim in the transcript, and
-did not invent a single quote in 4,311 records.
+**Answer: no. Stay on Gemini.**
 
-Raw, it was much worse at saying WHEN a technique applies and HOW it gets
-stopped — the part #102 and `docs/REVIEW_BENCH.md` care most about. That gap
-turned out to be a missing step rather than a model limitation: a grounded
-second pass over the records lifted `counter` from 21.6% to **46.3%**, past
-Gemini's 33.7%, and `applies-when` from 61.7% to 76.4% against Gemini's 78.5%.
+A human read 20 blind pairs — same moment, same video, sides hidden — and
+preferred Gemini on **14, local on 3**, with 3 where neither card was usable.
+Every mechanical metric in this document said the opposite. That result is the
+one that counts, and the rest of this document should be read as a record of
+how confidently the measurements got it wrong.
 
-It is a REPLACEMENT strategy, not a reproduction one: agreement with the Gemini
-corpus is F1 26.8%, so a local re-mine builds a different, larger corpus rather
-than the same one again.
+**What the metrics missed.** Local records are systematically THINNER and more
+FRAGMENTED, and nothing here was measuring either:
+
+| mean words | Gemini | local |
+| --- | --- | --- |
+| prescription | 25 | **16** |
+| why | 29 | **24** |
+| quote | 46 | **33** |
+| applies-when | 7 | **5** |
+| records per occupied minute | 1.06 | **1.30** (max 7 vs 3) |
+
+The 2.35x record count was the tell, read backwards. It is not that local found
+more than twice as much teaching; it is that local split the same teaching into
+more, smaller pieces and stated each one more briefly. **The `yield` metric in
+`record-quality.sh` actively rewarded that**, and every field-fill metric
+counted a field as good when it was merely non-empty.
+
+**A cost this document under-reported.** The splice trim removes an average of
+**27 words per repaired quote** — roughly half of it. It buys verifiability and
+it is still right to run, but "100% verifiable" was reported here as a clean win
+when it is a trade: 261 Gemini quotes and 750 local ones are now shorter, and a
+shorter quote is weaker evidence even when it is a real one.
+
+**Three of twenty pairs were BOTH BAD.** Neither model produced a usable card
+for 15% of the sampled moments. That is a prompt-level ceiling and it is
+independent of which model runs.
+
+## What was worth keeping
+
+The experiment answered "no", and produced things that outlive the answer:
+
+- **`repair-quotes.sh`** — 14.1% of the Gemini corpus cited a sentence never
+  spoken. Now 0%. Nothing had ever checked.
+- **`volumeNumbersForDirectory`** — 13 transcripts were invisible to every
+  mining run, corpus-wide, for as long as the corpus has existed.
+- **`enrich.sh`** — lifts `counter` on ANY provider. Gemini's own corpus is the
+  obvious next place to run it.
+- **Chapter indexes for all 8 GFF series** — 62 transcripts that had none, and
+  the completeness check that comes with them.
+- **`record-quality.sh` / `record-agreement.sh` / `blind-compare.sh`** — the
+  measurement, including the demonstration that the mechanical half of it is
+  not sufficient on its own.
 
 ## The measurement
 
