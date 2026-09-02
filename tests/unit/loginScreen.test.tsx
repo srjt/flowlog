@@ -20,6 +20,8 @@ jest.mock('react-native-safe-area-context', () => {
 // eslint-disable-next-line import/first
 import { authService } from '@/services/AuthService';
 // eslint-disable-next-line import/first
+import { router } from 'expo-router';
+// eslint-disable-next-line import/first
 import LoginScreen from '../../app/(auth)/login';
 
 describe('LoginScreen', () => {
@@ -31,6 +33,24 @@ describe('LoginScreen', () => {
       fireEvent.press(getByTestId('oauth-google'));
     });
     expect(authService.signInWithOAuth).toHaveBeenCalledWith('google');
+  });
+
+  it('sends a signed-in user through the entry gate, not straight to a tab', async () => {
+    (authService.signIn as jest.Mock).mockResolvedValueOnce({
+      id: 'u1',
+      email: 'a@b.com',
+    });
+    const { getByTestId, getByText } = render(<LoginScreen />);
+
+    fireEvent.changeText(getByTestId('login-email'), 'a@b.com');
+    fireEvent.changeText(getByTestId('login-password'), 'hunter2hunter2');
+    await act(async () => {
+      fireEvent.press(getByText('Log in'));
+    });
+
+    // The gate owns the onboarding and feature-tour checks; jumping to
+    // /(tabs)/record here would skip both for a returning user.
+    expect(router.replace).toHaveBeenCalledWith('/');
   });
 
   it('requires an email before sending a reset, then triggers it with feedback', async () => {

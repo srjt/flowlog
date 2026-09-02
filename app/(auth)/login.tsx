@@ -33,7 +33,9 @@ export default function LoginScreen() {
       // RLS). The DB trigger normally handles this; this self-heals older users.
       await authService.ensureProfile(user.id);
       setProfile(await authService.getProfile(user.id));
-      router.replace('/(tabs)/record');
+      // Via the entry gate, not straight to Record: it owns the onboarding and
+      // feature-tour checks, and the OAuth path below already routes this way.
+      router.replace('/');
     } catch (err) {
       logger.warn('sign-in failed', err);
       setError((err as Error).message);

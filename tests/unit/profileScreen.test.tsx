@@ -70,6 +70,16 @@ describe('ProfileScreen', () => {
     expect(useUserStore.getState().skillLevel).toBe('Blue Belt');
   });
 
+  it('offers a Replay tour row that reopens the tour in replay mode', () => {
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('replay-tour-link'));
+
+    // Replay mode only redirects the finish; the seen flag is left alone, so
+    // this never re-arms the first-run tour.
+    expect(router.push).toHaveBeenCalledWith('/(onboarding)/tour?mode=replay');
+  });
+
   it('requires an explicit confirm before deleting the account', async () => {
     const { getByTestId, queryByTestId } = render(<ProfileScreen />);
     expect(queryByTestId('account-delete-confirm')).toBeNull();
