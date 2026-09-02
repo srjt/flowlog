@@ -419,3 +419,67 @@ describe('rankRecords honours human review (#77)', () => {
     expect(out[0]?.prescription).toMatch(/landed/);
   });
 });
+
+describe('rankRecords — domain terms outrank generic ones', () => {
+  const base = {
+    position: 'turtle-top',
+    why: '',
+    detail: '',
+    certified: false,
+    contested: false,
+    rejected: false,
+  };
+  // The real failure, reduced. For "failed to secure the Kimura, allowing the
+  // opponent to escape to Turtle", `allowing` and `kimura` each appeared in
+  // exactly 13 of 295 records — identical rarity — so the two records tied and
+  // file order picked the one that never mentions the technique.
+  const mistake =
+    'The practitioner failed to secure the Kimura, allowing the opponent to escape to Turtle.';
+  const generic = {
+    ...base,
+    id: 'generic',
+    prescription:
+      'Connect behind the hips, allowing no space, to stop them standing from turtle.',
+  };
+  const domain = {
+    ...base,
+    id: 'domain',
+    prescription:
+      'Secure the kimura grip from turtle before they hide the arm.',
+  };
+  const vocabulary = ['Kimura', 'Turtle', 'Escape'];
+
+  it('ranks the record naming the technique first', () => {
+    // Generic first in input order, so only ranking can move it.
+    const ranked = rankRecords([generic, domain], mistake, 20, 2, vocabulary);
+    expect(ranked[0]?.id).toBe('domain');
+  });
+
+  it('still returns both — this is ordering, not a gate', () => {
+    expect(
+      rankRecords([generic, domain], mistake, 20, 2, vocabulary),
+    ).toHaveLength(2);
+  });
+
+  it('falls back to rarity alone when no vocabulary is supplied', () => {
+    // Sport-agnostic callers must keep working; without the vocabulary the
+    // tie is unresolved and input order stands.
+    const ranked = rankRecords([generic, domain], mistake, 20, 2);
+    expect(ranked).toHaveLength(2);
+  });
+
+  it('does not let one common domain word beat two specific ones', () => {
+    const common = {
+      ...base,
+      id: 'common',
+      prescription: 'Escape the position by turning in.',
+    };
+    const specific = {
+      ...base,
+      id: 'specific',
+      prescription: 'Secure the kimura from turtle by trapping the far wrist.',
+    };
+    const ranked = rankRecords([common, specific], mistake, 20, 2, vocabulary);
+    expect(ranked[0]?.id).toBe('specific');
+  });
+});

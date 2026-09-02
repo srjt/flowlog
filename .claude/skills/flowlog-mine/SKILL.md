@@ -1,6 +1,6 @@
 ---
 name: flowlog-mine
-description: Mine a transcribed BJJ instructional into coaching records and publish them to the serving store. Use when the user says "mine <instructional/folder>", asks to extract records from a title, or wants to improve cue coverage from an instructional. Wraps scripts/mining — costs money, so it checks before spending.
+description: Mine a transcribed BJJ instructional into coaching records and publish them to the serving store. Use when the user says "mine <instructional/folder>", asks to extract records from a title, or wants to improve cue coverage from an instructional. Wraps scripts/mining — mines with Gemini or a local model, repairs quotes, and fills counter/applies-when in a second pass.
 ---
 
 # Mining an instructional
@@ -8,8 +8,17 @@ description: Mine a transcribed BJJ instructional into coaching records and publ
 Turns timestamped transcripts into structured coaching records, then publishes
 the distilled half to Supabase where grounding can use it.
 
-**This one costs money.** It calls Gemini per volume. Check before spending, and
+**This one costs money on Gemini, nothing locally.** Check before spending, and
 never re-mine what is already mined.
+
+Mining is now THREE steps, and the last two are free. Skipping them leaves a
+corpus measurably worse than one that ran them:
+
+1. **mine** — transcript to records
+2. **repair quotes** — narrow spliced quotes to a verbatim span
+3. **enrich** — fill empty `counter` and `applies-when` from the transcript
+
+See `docs/LOCAL_MINING.md` for the measurements behind all three.
 
 ## Records must never be committed
 
@@ -87,13 +96,65 @@ reaching the `opponent` field. Worth a re-mine; not worth blocking on.
 
 `scripts/experiments/unscoped-absolutes.sh` lists them across the whole corpus.
 
-## 3. Publish
+## 3. Repair the quotes — always, free
+
+A spliced quote is two things the instructor said minutes apart, joined into a
+sentence never spoken. Every word is genuine and a reviewer searching for it
+finds nothing, so the ten-second check silently fails and a splice is
+indistinguishable from an invention at that point.
+
+**14.2% of the Gemini corpus was spliced.** All of it was repairable.
+
+```bash
+scripts/mining/repair-quotes.sh --records ~/flowlog-records          # dry run
+scripts/mining/repair-quotes.sh --records ~/flowlog-records --write
+```
+
+Dry-run by default and keeps a `.bak`, because it rewrites the review store and
+that store is the only copy of the verbatim text. It NARROWS and never
+rewrites, so it cannot introduce words the instructor did not say.
+
+## 4. Fill counter and applies-when — always, free
+
+The two fields every model under-fills, and the entire quality gap between a
+local run and a paid one. Raw mining leaves `counter` empty on two records in
+three; the second pass roughly doubles it.
+
+```bash
+scripts/mining/enrich.sh ~/flowlog-records --dry-run     # how many are missing
+scripts/mining/enrich.sh ~/flowlog-records
+```
+
+Measured over 88 volumes: `counter` 21.6% -> **46.3%** (Gemini's raw mining
+manages 33.7%), `applies-when` 61.7% -> **76.4%**, unscoped absolutes 6.9% ->
+4.2%.
+
+It re-reads only a two-minute window around each record rather than the whole
+transcript, so it is far cheaper than re-mining — and on Gemini it is the only
+way to fix an already-mined title without churning record ids.
+
+**Why it does not hallucinate, and what to check.** Every addition must return
+verbatim EVIDENCE from the window, and an addition whose evidence is not in the
+transcript is discarded. Read the two rejection counts at the end:
+
+```
+DISCARDED — evidence not in the transcript: 26
+DISCARDED — scope field was a pasted excerpt:  124
+```
+
+The second guard exists because the model pastes its evidence into the scope
+field instead of summarising it, and a scope full of raw transcript is useless
+to the collision check it exists for. Prompt wording alone did not stop it. If
+either count is a large share of the additions, the pass is guessing rather
+than reading — stop and look at what it produced.
+
+## 5. Publish
 
 Use the **flowlog-publish** skill. It covers the leak scan, the two-store split,
 and verifying live counts — all of which matter more than the mining step and
 are easy to do carelessly.
 
-## 4. Report what it actually bought
+## 6. Report what it actually bought
 
 Do not report volume and record counts alone. The question is whether coverage
 of positions the athletes **actually train** improved.
@@ -120,6 +181,35 @@ new title, check the miner's position output from a single probe volume against
 real demand. Known dead ends: `k-guard-bottom` and `headquarters-bottom` appear
 **zero times** in the entire unmined library, and `closed-guard-bottom` is
 barely taught anywhere — those gaps need a different purchase, not more mining.
+
+## Mining locally instead of on Gemini — tried, and the answer is no
+
+`--provider ollama --model qwen3:32b --chunk 480` mines for free, and the whole
+corpus was re-mined that way to find out whether it could replace Gemini.
+
+**It cannot.** A blind read of 20 matched pairs preferred Gemini 14 to 3. Every
+mechanical metric had said local was ahead — it produced 2.35x the records with
+zero fabricated quotes — and every one of those metrics was measuring the wrong
+thing. Local records are about a third shorter in `prescription` and `why`, and
+more fragmented: it splits one teaching point into several thin ones rather
+than finding more teaching. Record count read as a win when it was the symptom.
+
+Do not re-run this expecting a different result, and do not mine half a title
+each way: agreement with the Gemini corpus is F1 27%, so the two produce
+different corpora, not two versions of one.
+
+The local path stays in `mine.ts` because it is useful for free experiments —
+probing a title's position distribution before paying to mine it, for one. It
+is not a production path. See `docs/LOCAL_MINING.md`.
+
+**The transferable lesson.** Mechanical metrics could not tell these two apart
+correctly. Quote fidelity, fill rates and fabrication all measure FORM; none of
+them measures whether a record teaches the right thing at a useful grain. Before
+trusting any mining change, read twenty pairs:
+
+```bash
+scripts/experiments/blind-compare.sh <records-dir> --sample 20 --html
+```
 
 ## Related
 

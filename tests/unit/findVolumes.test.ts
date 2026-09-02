@@ -1,4 +1,7 @@
-import { volumeNumber } from '../../scripts/mining/volumes';
+import {
+  volumeNumber,
+  volumeNumbersForDirectory,
+} from '../../scripts/mining/volumes';
 
 describe('volumeNumber (#75)', () => {
   describe('conventions that already worked', () => {
@@ -46,5 +49,61 @@ describe('volumeNumber (#75)', () => {
 
   it('handles Volume spelled out', () => {
     expect(volumeNumber('Feet To Floor Volume 2 - John Danaher')).toBe(2);
+  });
+});
+
+describe('volumeNumbersForDirectory', () => {
+  it('numbers a series whose marker names the SERIES, not the file', () => {
+    // All eight carry "Vol.3"; the trailing number is the real volume. Read one
+    // at a time they all come back 3, collapse onto one slug, and seven of the
+    // eight vanish from every mining run.
+    const stems = Array.from(
+      { length: 8 },
+      (_, i) => `John Danaher Feet to Floor Vol.3 - ${i + 1}`,
+    );
+    expect([...volumeNumbersForDirectory(stems).values()]).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+  });
+
+  it('still prefers a varying marker over a trailing number', () => {
+    // The documented counterexample: the trailing 2 belongs to the chapter
+    // title, not the volume.
+    const stems = [
+      'Back Attacks Vol 1 - Straitjacket System',
+      'Back Attacks Vol 2 10 Critical Principles',
+      'Back Attacks Vol 3 Workings of Straitjacket System',
+      'Back Attacks Vol 4 Workings of Straitjacket System 2',
+    ];
+    expect([...volumeNumbersForDirectory(stems).values()]).toEqual([
+      1, 2, 3, 4,
+    ]);
+  });
+
+  it('leaves a conventional series alone', () => {
+    const stems = Array.from(
+      { length: 8 },
+      (_, i) => `GFF - Gi Fundamentals - Escapes Vol ${i + 1}`,
+    );
+    expect([...volumeNumbersForDirectory(stems).values()]).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+  });
+
+  it('does not treat a lone file as a series label', () => {
+    // One file cannot tell us the marker is shared, so the single-file rule
+    // stands rather than guessing.
+    expect([
+      ...volumeNumbersForDirectory(['Some Title Vol 3']).values(),
+    ]).toEqual([3]);
+  });
+
+  it('assigns every file a distinct volume, or the slug collides', () => {
+    const stems = Array.from(
+      { length: 7 },
+      (_, i) => `John Danaher Feet to Floor Vol.2 - ${i + 1}`,
+    );
+    const nums = [...volumeNumbersForDirectory(stems).values()];
+    expect(new Set(nums).size).toBe(stems.length);
   });
 });

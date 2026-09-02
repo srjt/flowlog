@@ -177,6 +177,11 @@ Deno.serve(async (req: Request) => {
           existing.gi === 'gi' || existing.gi === 'no-gi' ? existing.gi : null,
         ),
         extraction.keyMistake,
+        undefined,
+        undefined,
+        // Same ranking as the original run, for the same reason: re-analysis
+        // must not quietly change which records ground the cue.
+        sport.vocabulary,
       );
       const initialCoaching = await generateCoaching(
         extraction,
@@ -470,6 +475,11 @@ Deno.serve(async (req: Request) => {
     const relevantRecords = rankRecords(
       filterByGiContext(candidateRecords, giResolution.gi),
       extraction.keyMistake,
+      undefined,
+      undefined,
+      // Domain terms outrank generic ones of equal rarity. Without this a
+      // record matching "allowing" ties one matching "kimura".
+      sport.vocabulary,
     );
     // Assigned only when records are actually available, so the control arm
     // means "had records, withheld them" — the counterfactual the comparison

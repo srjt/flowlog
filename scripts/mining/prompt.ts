@@ -133,8 +133,19 @@ Only use "either" when the technique genuinely works without a jacket.
 their weight, the reaction they just gave you. Most techniques are taught as answers to a
 specific situation; name it.
 
-ABSOLUTES MUST BE SCOPED. If a prescription says "always", "never", "must", "do not" or
-"avoid", the "opponent" field is REQUIRED. An unconditional instruction with no stated
+ABSOLUTES MUST BE SCOPED — ANYWHERE IN THE SENTENCE. If a prescription contains
+"always", "never", "must", "do not" or "avoid" — in the main clause, a trailing clause, or
+a second sentence — the "opponent" field is REQUIRED.
+
+This is the part that gets missed. These all need a scope, and the absolute is not the
+first thing said:
+
+  "Lever your two knees in the direction you want to sweep. Do not bridge."
+  "Always play the dilemma between the knee lever and the butterfly hook."
+  "Never stay flat on your back in deep half guard; maintain a constant angle."
+
+Scoping the main instruction is not enough. If ANY part of the record tells the reader to
+always or never do something, name the situation it applies in. An unconditional instruction with no stated
 scope cannot be reconciled with one that says the opposite, and both will reach the same
 cue. This is a real collision, not a hypothetical:
 
@@ -154,12 +165,27 @@ principle of the position — leave "opponent" empty and keep the absolute. That
 category; just make sure it is genuinely unconditional rather than a qualifier you failed
 to capture.
 
-COUNTER — also commonly left empty.
+COUNTER — the most under-filled field.
 
-Instructors routinely say what the opponent does to defeat the technique, and what to do
-about it: "he'll base out with his free hand", "a good opponent will re-pummel here", "if
-he posts, you switch to...". Capture that in "counter" whenever it is spoken. Leave it
-empty only when the instructor genuinely never says how the move gets stopped.
+Instructors state the counter constantly, and rarely as a heading. Capture it whenever it
+is spoken, in any of these shapes:
+
+  - the opponent's reaction:  "he'll base out with his free hand"
+  - the conditional failure:  "if he posts, this won't work"
+  - the thing you must beat:  "his whole job is to get that underhook back"
+  - the pre-emption:          "before he can bring his knee in, you have to..."
+
+Two rules decide most cases:
+
+1. A counter is what the OPPONENT does to stop you, not your next step. "Then you switch
+   to the far-side armbar" is not a counter; "he hides the far arm, so you switch to the
+   far-side armbar" is — the counter is the hiding.
+2. The counter is often spoken BEFORE the technique, as the reason for it: "everybody
+   loses this position because he pummels back in, so what we do is...". That opening
+   clause is the counter for the record that follows.
+
+Leave "counter" empty only when the instructor genuinely never says how the move gets
+stopped.
 
 TRANSCRIPT
 

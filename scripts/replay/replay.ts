@@ -30,6 +30,7 @@ import {
   rankRecords,
 } from '../../src/sports/grounding.ts';
 import { BJJ_COACHING_PROMPT } from '../../src/sports/bjj/bjjPrompts.ts';
+import { BJJ_VOCABULARY_FLAT } from '../../src/sports/bjj/bjjVocabulary.ts';
 
 /** The frozen baseline's row shape — snake_case, straight from the database. */
 interface BaselineSession {
@@ -174,7 +175,15 @@ async function main() {
         level: r.preconditions.level,
         opponent: r.preconditions.opponent,
       }));
-    const top = rankRecords(pool, extraction.keyMistake);
+    // Mirrors production: without the vocabulary this measures a ranking
+    // the app does not use.
+    const top = rankRecords(
+      pool,
+      extraction.keyMistake,
+      undefined,
+      undefined,
+      BJJ_VOCABULARY_FLAT,
+    );
     if (top.length) grounded++;
 
     const prompt = BJJ_COACHING_PROMPT.replaceAll(

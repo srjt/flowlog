@@ -18,7 +18,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
-import { volumeNumber } from './volumes.ts';
+import { volumeNumbersForDirectory } from './volumes.ts';
 
 function die(msg: string): never {
   console.error(`error: ${msg}`);
@@ -69,11 +69,18 @@ function looksLikeTranscript(path: string): boolean {
  */
 function findVolumes(dir: string): Volume[] {
   const out: Volume[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (!entry.toLowerCase().endsWith('.txt') || entry.startsWith('._'))
-      continue;
+  const entries = readdirSync(dir).filter(
+    (e) => e.toLowerCase().endsWith('.txt') && !e.startsWith('._'),
+  );
+  // Numbered as a SET, not one at a time: a `vol` marker repeated identically
+  // across a directory names the series rather than the file, and reading each
+  // name in isolation collapsed eight transcripts onto one volume number.
+  const numbers = volumeNumbersForDirectory(
+    entries.map((e) => e.replace(/\.txt$/i, '')),
+  );
+  for (const entry of entries) {
     const path = join(dir, entry);
-    const volume = volumeNumber(entry.replace(/\.txt$/i, ''));
+    const volume = numbers.get(entry.replace(/\.txt$/i, '')) ?? null;
     if (volume === null) {
       // Index files carry no timestamps and are correctly excluded in silence.
       if (looksLikeTranscript(path)) {

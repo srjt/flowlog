@@ -207,6 +207,7 @@ export class FlowlogPipeline {
         input.clientSessionId ??
           `${input.userId}:${input.sessionDate.toISOString()}`,
         giResolution.gi,
+        sportContext.vocabulary,
       );
 
       // ── Stage 2b: coaching ──────────────────────────────────────────────
@@ -446,6 +447,8 @@ export class FlowlogPipeline {
     extraction: ExtractionOutput,
     sessionKey: string,
     gi: GiContext | null,
+    /** The sport's vocabulary, so ranking can weight domain terms (#—). */
+    vocabulary: readonly string[],
   ): Promise<{
     records: CoachingRecord[];
     assignment: GroundingAssignment;
@@ -461,7 +464,13 @@ export class FlowlogPipeline {
       // Before ranking, not after: a gi-only record must not occupy one of the
       // 20 slots and crowd out a mechanic that actually applies.
       const applicable = filterByGiContext(records, gi);
-      const relevant = rankRecords(applicable, extraction.keyMistake);
+      const relevant = rankRecords(
+        applicable,
+        extraction.keyMistake,
+        undefined,
+        undefined,
+        vocabulary,
+      );
       const assignment = assignGrounding(sessionKey, relevant.length, {
         hasPosition: positionIds.length > 0,
         rollout: this.groundingRollout,
