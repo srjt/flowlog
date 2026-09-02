@@ -15,6 +15,7 @@ const DEFAULT_EXTRACTION: ExtractionOutput = {
   hasCoachableContent: true,
   insufficientReason: '',
   perspective: 'bottom',
+  statedGi: 'unknown',
 };
 
 const DEFAULT_GOOD_COACHING: CoachingOutput = {

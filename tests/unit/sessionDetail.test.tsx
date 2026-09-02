@@ -62,6 +62,8 @@ function sample(id: string): Session {
     coachingCue: 'Get to your side.',
     targetPosition: 'Half guard',
     targetPositionId: null,
+    gi: null,
+    giSource: null,
     qualityGatePassed: true,
     thumbsUp: null,
     pipelineVersion: 'test',

@@ -453,6 +453,7 @@ describe('FlowlogPipeline — grounded coaching', () => {
       opponent: '',
       certified: false,
       contested: false,
+      rejected: false,
     };
   }
 
@@ -606,6 +607,7 @@ describe('FlowlogPipeline — grounded/withheld experiment', () => {
       opponent: '',
       certified: false,
       contested: false,
+      rejected: false,
     };
   }
   function build(records: ReturnType<typeof rec>[]) {
@@ -747,6 +749,7 @@ describe('FlowlogPipeline — gi filtering and override (#60)', () => {
       opponent: '',
       certified: false,
       contested: false,
+      rejected: false,
     };
   }
 
@@ -895,6 +898,7 @@ describe('FlowlogPipeline — mining backlog signal (#58)', () => {
       opponent: '',
       certified: false,
       contested: false,
+      rejected: false,
     }));
     const t = new MockTranscriptionProvider();
     t.result = {
