@@ -120,6 +120,51 @@ const STOPWORDS = new Set([
 ]);
 
 /**
+ * How much a matched term should count, by how rare it is in the pool.
+ *
+ * Plain inverse document frequency. A term in nearly every record ("escape",
+ * "control") says almost nothing about which record to pick; one in a handful
+ * ("kimura", "berimbolo") says almost everything. Computed over the CANDIDATE
+ * pool rather than the whole store, because the pool is already narrowed to a
+ * position and that is the set the choice is actually made within.
+ */
+function idf(term: string, pool: { haystack: string }[]): number {
+  let df = 0;
+  for (const entry of pool) if (entry.haystack.includes(term)) df++;
+  return Math.log((pool.length + 1) / (df + 1));
+}
+
+/**
+ * How much more a term from the sport's own vocabulary is worth.
+ *
+ * Rarity alone is not enough, and the case that showed it is exact: for
+ * "failed to secure the Kimura, allowing the opponent to escape to Turtle",
+ * `allowing` and `kimura` each appeared in exactly 13 of 295 candidate
+ * records, so IDF scored them IDENTICALLY. `allowing+turtle` tied
+ * `kimura+turtle` and file order picked the winner — a record about hip
+ * connection outranked the one naming the technique.
+ *
+ * Rarity in the record store measures how unusual a word is, not how much it
+ * identifies a technique. `allowing` is rare because it is connective tissue
+ * from the mistake sentence; `kimura` is rare because few techniques are the
+ * Kimura. The sport's vocabulary is what separates them, and 2 is enough:
+ * a domain term beats a generic one of equal rarity without letting a single
+ * common domain word ("guard") outweigh two specific ones.
+ */
+const DOMAIN_TERM_WEIGHT = 2;
+
+/** The sport's vocabulary as single lowercase words, for term lookup. */
+function domainWords(vocabulary: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const phrase of vocabulary) {
+    for (const w of phrase.toLowerCase().split(/[^a-z]+/)) {
+      if (w.length >= 4) out.add(w);
+    }
+  }
+  return out;
+}
+
+/**
  * Rank by overlap with the key mistake, then cap.
  *
  * Cost is not the constraint — 20 records is ~2,100 tokens on a prompt that is
@@ -136,6 +181,13 @@ export function rankRecords<T extends GroundableRecord>(
   keyMistake: string,
   limit: number = GROUNDING_RECORD_LIMIT,
   minRelevance: number = GROUNDING_MIN_RELEVANCE,
+  /**
+   * The sport's vocabulary, from `ISportContext.vocabulary`. Passed IN rather
+   * than imported: this module is sport-agnostic and CLAUDE.md rule 3 keeps a
+   * sport's vocabulary inside `src/sports/{sportKey}/`. Omitting it falls back
+   * to rarity alone, which ranks worse but never wrongly.
+   */
+  vocabulary: readonly string[] = [],
 ): T[] {
   const terms = new Set(
     (keyMistake.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter(
@@ -146,6 +198,7 @@ export function rankRecords<T extends GroundableRecord>(
   // Injecting arbitrary records for the position is exactly what made cues
   // worse, so ground nothing instead.
   if (terms.size === 0) return [];
+  const domain = domainWords(vocabulary);
 
   return (
     records
@@ -158,12 +211,39 @@ export function rankRecords<T extends GroundableRecord>(
       // black belts disagreeing is a finding about the mechanic, and building
       // a confident cue on it is exactly the failure grounding keeps producing.
       .filter((record) => !record.rejected && !record.contested)
-      .map((record, index) => {
-        const haystack =
-          `${record.prescription} ${record.why} ${record.detail}`.toLowerCase();
-        let score = 0;
-        for (const term of terms) if (haystack.includes(term)) score++;
-        return { record, score, index };
+      .map((record, index) => ({
+        record,
+        index,
+        haystack:
+          `${record.prescription} ${record.why} ${record.detail}`.toLowerCase(),
+      }))
+      .map((entry, _i, all) => {
+        const matched = [...terms].filter((t) => entry.haystack.includes(t));
+        return {
+          record: entry.record,
+          index: entry.index,
+          // The GATE stays a plain count of distinct terms, unchanged.
+          score: matched.length,
+          // The ORDER is weighted by how rare each matched term is in this
+          // pool. Counting every term equally is what let a nine-way tie
+          // happen and be resolved by file order: for "failed to secure the
+          // Kimura, allowing the opponent to escape to Turtle", nine records
+          // scored exactly 2 and not one of them matched "kimura" — they
+          // matched "allowing"+"turtle" and "allowing"+"escape". The record
+          // that names the technique has to beat the record that shares a
+          // filler word, and only rarity distinguishes them.
+          //
+          // A bigger store makes this worse rather than better, which is why
+          // it surfaced when the corpus grew: more records clear a low bar,
+          // and the tiebreak was never meaningful.
+          weighted: matched.reduce(
+            (sum, t) =>
+              sum +
+              idf(t, all as { haystack: string }[]) *
+                (domain.has(t) ? DOMAIN_TERM_WEIGHT : 1),
+            0,
+          ),
+        };
       })
       // The gate: a record about the right position but the wrong problem is
       // worse than no record, because the model will build a confident, specific
@@ -177,6 +257,7 @@ export function rankRecords<T extends GroundableRecord>(
         (a, b) =>
           Number(b.record.certified ?? false) -
             Number(a.record.certified ?? false) ||
+          b.weighted - a.weighted ||
           b.score - a.score ||
           a.index - b.index,
       )
