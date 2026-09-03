@@ -43,6 +43,8 @@ function sampleSession(id: string): Session {
     coachingCue: null,
     targetPosition: null,
     targetPositionId: null,
+    gi: null,
+    giSource: null,
     qualityGatePassed: true,
     thumbsUp: null,
     pipelineVersion: null,

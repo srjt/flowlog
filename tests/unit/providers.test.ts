@@ -24,6 +24,7 @@ const coachingInput: CoachingInput = {
     hasCoachableContent: true,
     insufficientReason: '',
     perspective: 'bottom',
+    statedGi: 'unknown',
   },
   sportContext: bjj,
   recentMistakes: [],
