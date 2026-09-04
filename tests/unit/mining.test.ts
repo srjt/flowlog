@@ -627,3 +627,57 @@ describe('chapterAt with stated ends', () => {
     expect(chapterAt(chapters, 5000)).toBeNull();
   });
 });
+
+describe('parseChapterIndex — timestamp-first, space separated', () => {
+  // The third convention in the library. Feet to Floor ships a well-formed
+  // 8-volume index in this shape and the miner reported "no chapter index",
+  // fell back to fixed windows, and lost the completeness check. An index that
+  // silently fails to parse is worse than an absent one, because nothing says
+  // so.
+  const index = [
+    'Volume 1',
+    '00:00:00 Introduction To Feet To Floor Volume 1',
+    '00:04:20 The Six Essential Skills Of Jiu Jitsu In The Standing Position',
+    '01:40:55 The Second Precursor Skill: Fighting For A Grip - Understanding Power Hand',
+    'Volume 2',
+    '00:00:00 Front Headlock Series',
+  ].join('\n');
+
+  it('reads space-separated rows', () => {
+    const got = parseChapterIndex(index);
+    expect(got).toHaveLength(4);
+    expect(got[1]).toMatchObject({
+      startSeconds: 260,
+      title: 'The Six Essential Skills Of Jiu Jitsu In The Standing Position',
+      volume: 1,
+    });
+  });
+
+  it('keeps a dash inside the title rather than splitting on it', () => {
+    // The dash rule is tried first and requires the separator immediately
+    // after the timestamp, which this format never has — so a title
+    // containing a dash survives whole.
+    expect(parseChapterIndex(index)[2]!.title).toBe(
+      'The Second Precursor Skill: Fighting For A Grip - Understanding Power Hand',
+    );
+  });
+
+  it('splits chapters across the volume headers', () => {
+    const got = parseChapterIndex(index);
+    expect(chaptersForVolume(got, 1)).toHaveLength(3);
+    expect(chaptersForVolume(got, 2)).toHaveLength(1);
+  });
+
+  it('still reads the dash form', () => {
+    const got = parseChapterIndex('6:56 - Escapes Overview');
+    expect(got[0]).toMatchObject({
+      startSeconds: 416,
+      title: 'Escapes Overview',
+    });
+  });
+
+  it('still reads the title-first range form', () => {
+    const got = parseChapterIndex('Bridging\t1:25:21 - 1:33:00');
+    expect(got[0]).toMatchObject({ startSeconds: 5121, endSeconds: 5580 });
+  });
+});
