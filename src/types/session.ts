@@ -78,6 +78,14 @@ export interface NewSession {
   groundingRecords?: number | null;
   /** Records that matched and could have been injected — the control's counterfactual. */
   groundingAvailable?: number | null;
+  /**
+   * Ids of the records actually injected, in rank order.
+   *
+   * `undefined`/`null` means "not recorded"; `[]` means "we know nothing was
+   * injected". Conflating those would make a session from before this existed
+   * look like a deliberately ungrounded one.
+   */
+  groundingRecordIds?: string[] | null;
   /** Records found for the position BEFORE the gi filter and relevance gate (#58). */
   groundingCandidates?: number | null;
 }
@@ -115,6 +123,14 @@ export interface SessionAnalysisUpdate {
   groundingRecords?: number | null;
   /** Records that matched and could have been injected — the control's counterfactual. */
   groundingAvailable?: number | null;
+  /**
+   * Ids of the records actually injected, in rank order.
+   *
+   * `undefined`/`null` means "not recorded"; `[]` means "we know nothing was
+   * injected". Conflating those would make a session from before this existed
+   * look like a deliberately ungrounded one.
+   */
+  groundingRecordIds?: string[] | null;
   /** Records found for the position BEFORE the gi filter and relevance gate (#58). */
   groundingCandidates?: number | null;
 }

@@ -367,6 +367,15 @@ Deno.serve(async (req: Request) => {
       grounding: string;
       groundingRecords: number;
       groundingAvailable: number;
+      /**
+       * Ids of the records actually injected, in rank order.
+       *
+       * The count alone cannot tell you WHICH record produced a bad cue, which
+       * is what makes reviewing 5,000 records the only option. `[]` and
+       * undefined mean different things here: `[]` is "nothing was injected
+       * and we know it", undefined is "we did not record".
+       */
+      groundingRecordIds: string[];
       /** Records for the position before gi + relevance filtering (#58). */
       groundingCandidates: number | null;
     }): Promise<{ row: any } | { conflictOutput: Response }> => {
@@ -388,6 +397,7 @@ Deno.serve(async (req: Request) => {
           grounding: analysis.grounding,
           grounding_records: analysis.groundingRecords,
           grounding_available: analysis.groundingAvailable,
+          grounding_record_ids: analysis.groundingRecordIds,
           grounding_candidates: analysis.groundingCandidates,
           gi: giResolution.gi,
           gi_source: giResolution.source,
@@ -429,6 +439,8 @@ Deno.serve(async (req: Request) => {
         grounding: 'declined',
         groundingRecords: 0,
         groundingAvailable: 0,
+        // Empty, not undefined: we know nothing was injected here.
+        groundingRecordIds: [],
         // Nothing was looked up, so this is not a corpus gap.
         groundingCandidates: null,
       });
@@ -536,6 +548,10 @@ Deno.serve(async (req: Request) => {
       grounding: groundingArm.outcome,
       groundingRecords: groundingArm.inject,
       groundingAvailable: groundingArm.available,
+      // The records that actually reached the prompt — `groundingRecords` is
+      // the slice length, so this must be sliced the same way or the ids and
+      // the count disagree.
+      groundingRecordIds: groundingRecords.map((r) => r.id),
       groundingCandidates: candidateRecords.length,
     });
     if ('conflictOutput' in inserted) return inserted.conflictOutput;

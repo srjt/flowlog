@@ -275,6 +275,9 @@ export class FlowlogPipeline {
         groundingCandidates:
           groundingCandidates < 0 ? null : groundingCandidates,
         groundingAvailable: assignment.available,
+        // Sliced identically to `groundingRecords`, or the ids and the count
+        // would disagree about the same prompt.
+        groundingRecordIds: groundingRecords.map((r) => r.id),
       });
       done('persistence');
 
