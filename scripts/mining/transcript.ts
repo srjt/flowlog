@@ -64,6 +64,23 @@ export function parseTranscript(raw: string): TranscriptLine[] {
 const CHAPTER_RE = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\s*[-–—]\s*(.+?)\s*$/;
 
 /**
+ * The third convention: timestamp first, separated by SPACE rather than a dash.
+ *
+ *   00:00:00 Introduction To Feet To Floor Volume 1
+ *   01:40:55 The Second Precursor Skill: Fighting For A Grip - Understanding...
+ *
+ * Tried only after the dash form, so a title that itself contains a dash still
+ * parses correctly — the dash rule requires the separator immediately after
+ * the timestamp, which this format never has.
+ *
+ * Missing this cost a whole box: Feet to Floor Volume 1 ships a well-formed
+ * 8-volume index and the miner reported "no chapter index", falling back to
+ * fixed windows and losing the completeness check. An index that silently does
+ * not parse is worse than an absent one, because nothing says so.
+ */
+const CHAPTER_SPACE_RE = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\s+(\S.*?)\s*$/;
+
+/**
  * The other convention in the wild: title first, then a start-end range.
  *
  *   Escapes Overview<TAB>6:56 - 43:37
@@ -117,7 +134,7 @@ export function parseChapterIndex(raw: string): Chapter[] {
 
     if (HEADER_RE.test(trimmed)) continue;
 
-    const m = CHAPTER_RE.exec(trimmed);
+    const m = CHAPTER_RE.exec(trimmed) ?? CHAPTER_SPACE_RE.exec(trimmed);
     if (m) {
       const [, h, mm, ss, title] = m;
       chapters.push({
