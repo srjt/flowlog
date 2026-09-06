@@ -182,7 +182,7 @@ real demand. Known dead ends: `k-guard-bottom` and `headquarters-bottom` appear
 **zero times** in the entire unmined library, and `closed-guard-bottom` is
 barely taught anywhere — those gaps need a different purchase, not more mining.
 
-## Mining locally instead of on Gemini — tried, and the answer is no
+## Mining locally instead of on Gemini — worse per record, right for gaps
 
 `--provider ollama --model qwen3:32b --chunk 480` mines for free, and the whole
 corpus was re-mined that way to find out whether it could replace Gemini.
@@ -194,13 +194,22 @@ thing. Local records are about a third shorter in `prescription` and `why`, and
 more fragmented: it splits one teaching point into several thin ones rather
 than finding more teaching. Record count read as a win when it was the symptom.
 
-Do not re-run this expecting a different result, and do not mine half a title
-each way: agreement with the Gemini corpus is F1 27%, so the two produce
-different corpora, not two versions of one.
+Do not mine half a title each way: agreement with the Gemini corpus is F1 27%,
+so the two produce different corpora, not two versions of one.
 
-The local path stays in `mine.ts` because it is useful for free experiments —
-probing a title's position distribution before paying to mine it, for one. It
-is not a production path. See `docs/LOCAL_MINING.md`.
+**It is nonetheless what is live.** The local corpus was published deliberately
+after weighing a 14-3 preference against the cost, and the whole serving store
+is local-mined today. Two things to hold together: per record, Gemini is
+better; per gap, local is the only affordable way to mine at all.
+
+Where local has clearly earned its place is **coverage**. `standing` sat at 32
+records — nothing in the guard-and-passing library teaches it — and mining Feet
+to Floor locally took it to 692 for free. A gap that no amount of re-ranking or
+certification can close is exactly what free mining is for, and no blind read
+is needed to know that a position with 32 records was underserved.
+
+Where it has not: replacing well-covered material. Re-mining what Gemini
+already did produced more, thinner records and a worse blind read.
 
 **The transferable lesson.** Mechanical metrics could not tell these two apart
 correctly. Quote fidelity, fill rates and fabrication all measure FORM; none of
