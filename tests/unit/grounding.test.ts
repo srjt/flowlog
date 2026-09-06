@@ -421,10 +421,23 @@ describe('rankRecords honours human review (#77)', () => {
 });
 
 describe('rankRecords — domain terms outrank generic ones', () => {
-  const base = {
+  // Typed, not inferred: `npm run typecheck` is a gate, and a fixture that
+  // satisfies jest via babel while failing tsc is exactly how the suite drifts
+  // from the types it is supposed to be testing.
+  //
+  // `id` and `position` are not on GroundableRecord — ranking runs on a
+  // shortlist already filtered by position — but rankRecords is generic over
+  // it, and carrying them here makes each case readable.
+  type Fixture = GroundableRecord & { id: string; position: string };
+  const base: Omit<Fixture, 'prescription'> = {
+    id: '',
     position: 'turtle-top',
     why: '',
     detail: '',
+    counter: '',
+    gi: 'either',
+    level: 'any',
+    opponent: '',
     certified: false,
     contested: false,
     rejected: false,

@@ -56,10 +56,28 @@ describe('assignGrounding', () => {
     ).toBe('grounded');
   });
 
-  it('does not bucket every session the same way', () => {
+  it('splits sessions across arms when a holdout is configured', () => {
+    // Explicit rollout, not the production constant. The property under test
+    // is that the hash DISTRIBUTES — that stays true and stays worth guarding
+    // even though the experiment concluded at a rollout of 1, because a future
+    // holdout (0.9, say) depends on it.
     const arms = new Set(
-      Array.from({ length: 50 }, (_, i) => assignGrounding(`s${i}`, 3).outcome),
+      Array.from(
+        { length: 50 },
+        (_, i) =>
+          assignGrounding(`s${i}`, 3, { hasPosition: true, rollout: 0.5 })
+            .outcome,
+      ),
     );
     expect(arms.size).toBeGreaterThan(1);
+  });
+
+  it('grounds every eligible session at the concluded rollout', () => {
+    // The experiment is over: no eligible session should be withheld now.
+    const outcomes = Array.from(
+      { length: 50 },
+      (_, i) => assignGrounding(`s${i}`, 3).outcome,
+    );
+    expect(new Set(outcomes)).toEqual(new Set(['grounded']));
   });
 });

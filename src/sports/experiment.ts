@@ -22,8 +22,30 @@ export interface GroundingAssignment {
   available: number;
 }
 
-/** Share of eligible sessions that receive grounding. */
-export const GROUNDING_ROLLOUT = 0.5;
+/**
+ * Share of eligible sessions that receive grounding.
+ *
+ * Was 0.5 while the experiment ran. Concluded at 1.0 — every eligible session
+ * is now grounded.
+ *
+ * **The experiment did not show grounding helps.** Over its run: grounded 4 up
+ * / 4 down, withheld 4 up / 2 down. The point estimate favours the CONTROL,
+ * and with six and eight rated sessions neither result means anything — the
+ * comparison was nowhere near powered, and at the observed rate it would have
+ * taken months to become so.
+ *
+ * It is concluded rather than continued because the question has changed.
+ * Withholding records from half of a 20-50 user cohort now costs real cue
+ * quality to keep measuring something that will not resolve, and the feedback
+ * those sessions produce is worth more pointed at WHICH records fail than at
+ * whether records help at all.
+ *
+ * The cost is honest and worth stating: at 1.0 there is no control arm, so
+ * "does grounding help" can no longer be answered from production data. If
+ * that question matters again, set this to 0.9 rather than 0.5 — a small
+ * holdout preserves the comparison at a fraction of the quality cost.
+ */
+export const GROUNDING_ROLLOUT = 1;
 
 /**
  * Stable 32-bit hash. Small and deterministic — the point is not cryptographic
