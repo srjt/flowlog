@@ -206,12 +206,15 @@ applied to its corpus.
 | median per volume | 1,271s |
 | slowest | 4,948s |
 
-Throughput held at ~11-12 tok/s for the first ~21 hours and then halved to
-~5 tok/s, recovering partially later. Restarting Ollama before each volume
-DELAYS the decay substantially — earlier batches without it collapsed within
-the hour — but does not prevent it. Normalised for volume length the first 20
-volumes ran at 80 s/1000 words and the last 20 at 71, so the decay is real but
-smaller than raw wall-clock suggests: later volumes are simply twice as long.
+Throughput swung between ~12 tok/s and ~1 tok/s across this run and the ones
+after it. **Check macOS Low Power Mode before concluding anything about local
+inference speed** — see the throughput entry under "Configuration findings",
+which records what was measured and what an earlier draft of this document got
+wrong about it.
+
+Normalised for volume length the first 20 volumes ran at 80 s/1000 words and
+the last 20 at 71, so raw wall-clock overstates the slowdown within this
+particular run: later volumes are simply twice as long.
 
 **A runner flaw worth remembering.** `remine-local.sh` caches its work list, so
 it survived a fix to the code that GENERATES that list and re-mined one volume
@@ -400,39 +403,51 @@ silent.
    (~8× Gemini's observed yield) and `parseModelJson` salvages the complete
    records from a truncated response instead of losing the window.
 
-6. **Throughput collapses after ~30-40 minutes of sustained mining, and
-   restarting does not fix it.** This is the finding that decides whether a
-   bulk run is practical, and it took three attempts to characterise honestly.
+6. **Throughput varies by more than 10x, and the one cause actually confirmed
+   is a macOS setting.** This entry previously asserted a confident causal
+   story — "decays after ~21 hours of sustained inference, and restarting does
+   not clear it" — built from wall-clock times. That story was wrong, and it is
+   left described here because the way it went wrong is the useful part.
 
-   A rested machine runs `qwen3:32b` at ~11 tok/s generate and ~190 tok/s
-   prefill, and mines a volume in about 13 minutes. Volume 1 of the batch:
-   806s. Volume 2: 1,181s. From there:
+   **Measured, and reproducible:**
 
-   | | wall clock | what it looked like |
+   | | generate | prefill |
    | --- | --- | --- |
-   | volume 1 | 806s | 11 tok/s throughout |
-   | volume 2 | 1,181s | 11 tok/s throughout |
-   | volume 4 | **9,092s** | windows dropping to 1-2 tok/s |
-   | volume 5 | abandoned | prefill itself fell to 7 tok/s, one window 1,970s |
+   | Low Power Mode ON | 5 tok/s | 106 tok/s |
+   | Low Power Mode OFF | **12 tok/s** | **219 tok/s** |
 
-   Two mitigations were tried and **both failed**:
+   Same volume, same model, minutes apart, on AC power at 100% charge. Check it
+   with `pmset -g | grep powermode` — `1` is on. It is a system setting, so a
+   reboot does NOT clear it, which is exactly why it survived every experiment
+   aimed at load or uptime.
 
-   - *Restart Ollama between volumes.* Recovered speed once, then the next
-     volume degraded within itself — the boundary is elapsed time, not volume
-     boundaries.
-   - *Kill Ollama entirely and start a fresh server.* Window 1 of the next
-     volume still ran at 1 tok/s (1,024 tokens in 1,283s).
+   **Also measured:** a full manual teardown — `pkill ollama`, restart, warm the
+   model — restored 13.5 tok/s from a 1 tok/s collapse. The per-volume restart
+   built into `remine-local.sh` nominally does the same thing and evidently did
+   not achieve it; that mitigation was described in an earlier draft as
+   "delaying the decay" on no evidence at all.
 
-   Since a completely fresh server on an idle port reproduces it, the state is
-   below Ollama — the machine, not the process. The symptom is low CPU with the
-   model fully GPU-resident, which reads as thermal or power-state throttling
-   after hours of sustained load rather than memory pressure (no swap, 35% free).
+   **Still unexplained.** Late in one run, with Low Power Mode off: prefill
+   healthy at 222 tok/s while generation sat at **1 tok/s** — a 200x split
+   between two things that share a GPU. Ruled out at the time: swap (0.8 MB of
+   1 GB used), memory (42% free, model fully resident at 22.6 GB VRAM), thermal
+   (no warning recorded), Low Power Mode (off). Prefill is compute-bound and
+   generation is memory-bandwidth-bound, so the split points at sustained clocks
+   rather than raw compute — but confirming that needs `sudo powermetrics
+   --samplers gpu_power`, which was never run. **No cause is claimed.**
 
-   **Practical consequence.** Do not plan a 99-volume run as one unattended
-   job. Two of five volumes in this batch completed at full speed, one took
-   seven times as long, and two never finished. Mine in short sessions on a
-   rested machine and re-measure rather than extrapolating from the first
-   volume — the first volume is always the fast one.
+   **How this got written wrong three times.** Each slowdown was attributed to
+   the most interesting hypothesis available — sustained-load decay, then Low
+   Power Mode as a total explanation, then memory pressure — and each was
+   presented before the cheap check that would have falsified it. `pmset` is one
+   line and would have caught the real one on day one.
+
+   **Practical consequence.** Do not plan a long unattended run without first
+   checking Low Power Mode and taking a throughput baseline; a single
+   `num_predict: 200` request tells you in seconds whether the machine is at 12
+   tok/s or 1. Re-check it between volumes rather than trusting a rate measured
+   at the start, and treat any wall-clock estimate as provisional. The runners
+   are idempotent precisely because this is unpredictable.
 
 7. **Qwen3's dense line is a hybrid reasoning model** and emits `<think>`
    blocks by default — inside the response text, spending the output budget on
