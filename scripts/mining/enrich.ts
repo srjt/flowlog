@@ -213,8 +213,51 @@ async function callOllama(
       },
     }),
   });
-  if (!res.ok) die(`Ollama ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) {
+    // Thrown, not die()d: the caller retries transient server-start failures,
+    // and a process exit cannot be caught.
+    throw new Error(
+      `Ollama ${res.status}: ${(await res.text()).slice(0, 300)}`,
+    );
+  }
   return ((await res.json()) as { response?: string }).response ?? '';
+}
+
+/**
+ * `callOllama`, but surviving a server that is still coming up.
+ *
+ * A 500 "timed out waiting for llama-server to start" killed a run 16 volumes
+ * in, and because the summary prints at the end, the whole report of what had
+ * been added was lost with it. `mine.ts` already retries this exact failure;
+ * this file did not, which is the kind of gap that only shows up once the run
+ * is long enough to hit it.
+ *
+ * Retried rather than fatal because the pass is resumable per VOLUME, not per
+ * batch: dying mid-volume throws away every batch already answered for that
+ * volume, and those cost minutes each.
+ */
+async function callOllamaWithRetry(
+  prompt: string,
+  model: string,
+  budget: number,
+): Promise<string> {
+  const backoff = [15, 30, 45];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await callOllama(prompt, model, budget);
+    } catch (err) {
+      const msg = String(err);
+      // Only transient server-start failures. A bad request means the prompt
+      // is wrong and retrying just fails identically.
+      const transient = /5\d\d|timed out|ECONNREFUSED|fetch failed/i.test(msg);
+      if (!transient || attempt >= backoff.length) throw err;
+      const wait = backoff[attempt]!;
+      console.error(
+        `\n  Ollama not ready (${msg.slice(0, 60)}) — retrying in ${wait}s`,
+      );
+      await new Promise((r) => setTimeout(r, wait * 1000));
+    }
+  }
 }
 
 function parseJsonArray(text: string): Enrichment[] {
@@ -285,7 +328,7 @@ async function main() {
         windowText(lines, r.source.startSeconds),
       );
       const prompt = buildEnrichPrompt(batch, windows);
-      const text = await callOllama(prompt, model, 1800);
+      const text = await callOllamaWithRetry(prompt, model, 1800);
       for (const e of parseJsonArray(text)) {
         const id = typeof e.id === 'string' ? e.id : '';
         const rec = byId.get(id);
