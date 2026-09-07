@@ -44,7 +44,11 @@ import type {
   ProcessingStep,
 } from '../_shared/types.ts';
 
-const PIPELINE_VERSION = '1.0.0';
+// 1.1.0 is the first version whose coaching prompt actually carries the
+// grounding block; 1.0.0 wrote `grounding = 'grounded'` while sending the
+// literal `{{GROUNDING}}` to the model. Migration 019 segments the two on this
+// value, so bumping it is part of the fix, not cosmetic.
+const PIPELINE_VERSION = '1.1.0';
 const COACHING_CUE_MAX_WORDS = 25;
 const QUALITY_GATE_RETRY_LIMIT = 2;
 const RECENT_MISTAKES_WINDOW = 5;

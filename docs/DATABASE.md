@@ -38,7 +38,16 @@ the position or the side could not be determined).
 
 ## Key Design Decisions
 
-- `pipeline_version` on sessions: enables re-processing with improved pipeline
+- `pipeline_version` on sessions: enables re-processing with improved pipeline.
+  It is also the **behaviour boundary** for the grounding columns. Pipeline
+  `1.0.0` recorded `grounding = 'grounded'` while sending the literal
+  `{{GROUNDING}}` to the model, so over those rows the grounding columns
+  describe what was *selected*, never what the model *saw*, and the
+  grounded/withheld arms are the same condition. `1.1.0` is the first version
+  that actually injects. Gate every read on
+  `public.grounding_reached_model(pipeline_version)` (migration 019) rather
+  than re-typing the version — `record_feedback_signal` and
+  `grounding_experiment` already do.
 - `quality_gate_passed` stored: dashboard can filter to high-confidence outputs only
 - `thumbs_up` field: binary user feedback, feeds quality monitoring pipeline
 - Audio stored in Supabase Storage (bucket `session-audio`), path referenced in
