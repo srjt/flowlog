@@ -273,6 +273,15 @@ export async function generateCoaching(
     OPPONENT_ACTION: extraction.opponentAction,
     POSITIONS_VISITED: extraction.positionsVisited.join(', ') || 'none',
     RECENT_MISTAKES: recentMistakes.join('; ') || 'none recorded',
+    // The door the whole mining pipeline exists to reach. Omitting this key
+    // does NOT fail: `fillTemplate` only replaces what it is given, so the
+    // prompt goes to the model carrying the literal characters `{{GROUNDING}}`
+    // and no mechanics, while `sessions.grounding` still records `grounded`
+    // with the injected ids. Selection succeeded, the treatment was never
+    // applied, and nothing anywhere reported a problem — see
+    // `tests/unit/promptPlaceholders.test.ts`, which now makes an unfilled
+    // placeholder a test failure rather than a silent no-op.
+    GROUNDING: groundingSection(groundingRecords),
     DOMINANT_WEAKNESS: dominantWeakness ?? 'not yet established',
     MAX_WORDS: String(maxWords),
   });

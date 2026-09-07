@@ -29,6 +29,21 @@ to Storage and invokes the function.
 same stages, fully unit-tested with mocked providers. The edge function mirrors
 it. When you change pipeline behaviour, change both and keep the tests green.
 
+**The mirror is hand-maintained, and it has already drifted once.** Grounding
+was added to the client providers and to the edge function's *signature*, but
+the edge function never filled `{{GROUNDING}}` — so for every production
+session the prompt carried the literal placeholder and no mechanics, while
+`sessions.grounding` recorded `grounded` with the injected record ids. Nothing
+failed, because `fillTemplate` replaces only the keys it is handed and no test
+loads the Deno function. `tests/unit/promptPlaceholders.test.ts` now asserts
+that every `{{PLACEHOLDER}}` in a sport prompt is supplied at **every** call
+site — client and server — by scanning the sources. Add a placeholder to a
+prompt and that test tells you which call sites still need it.
+
+Note that `tsconfig.json` excludes `supabase/functions`, so `npm run typecheck`
+does not cover the edge function. Use `deno check
+supabase/functions/process-session/index.ts` after changing it.
+
 The stages below describe the logic in both places. Entry point (reference):
 `FlowlogPipeline.run(input, onProgress?)`; entry point (production): the edge
 function handler. Both fetch sport context from the registry and thread it
