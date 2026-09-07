@@ -1,4 +1,4 @@
-# Shipping Flowlog to 20 TestFlight users
+# Shipping Flowlog to TestFlight
 
 Backend is already deployed. This covers the iOS build + distribution only.
 Everything cloud-builds with EAS, so you do **not** need Xcode or a Mac build
@@ -11,7 +11,9 @@ machine — just an Apple Developer account.
 - **Expo account** — `npx expo login` (free).
 - Install the CLI ad hoc (no global install needed): commands below use `npx eas-cli@latest`.
 
-Grab three IDs and paste them into `eas.json` → `submit.testflight.ios`:
+These are **already filled in** for this project (`eas.json` →
+`submit.testflight.ios`, and the App Store Connect record exists). This table is
+here for a fresh setup or if the account changes:
 
 | Field         | Where to find it                                                        |
 |---------------|-------------------------------------------------------------------------|
@@ -19,21 +21,37 @@ Grab three IDs and paste them into `eas.json` → `submit.testflight.ios`:
 | `appleTeamId` | <https://developer.apple.com/account> → Membership → Team ID (10 chars) |
 | `ascAppId`    | Created in step 2 below (App Store Connect app's Apple ID, numeric)     |
 
-## 1. Pre-flight: bump version + sanity check
+## 1. Pre-flight: validate for EAS PARITY, not just locally
+
+A cloud build is metered **by the number STARTED, not by success** — a build
+that dies in "Install dependencies" still burns one from the monthly quota. So
+run all of this and see it green before spending one:
 
 ```bash
-npm test && npm run typecheck      # CLAUDE.md rule 8 — must be green
+git status --porcelain            # must be empty; eas.json sets requireCommit
+npm test && npm run typecheck && npm run lint
+npx expo export                   # catches bundler breakage cheaply
+npx npm@10.8.2 ci                 # THE one that catches EAS install failures
 ```
 
-In `app.json`, set a real marketing version for the first invite, e.g.
-`"version": "0.1.0"` → leave as is; the **build number** auto-increments via EAS
-(`autoIncrement: true`), so you never hand-manage it.
+**Why the pinned npm.** The EAS image ships **npm 10.8.2**; local dev is often
+on npm 11, which dedupes nested deps out of the lockfile that npm 10 still
+requires. The result is a local `npm ci` that passes and an EAS build that fails
+"Install dependencies" with `Missing: … from lock file` — after the quota is
+already spent. Any change touching `package.json` must regenerate the lockfile
+with `npx npm@10.8.2 install --package-lock-only` and commit both together.
 
-> ⚠️ `app.json` has `"newArchEnabled": true`. The repo's verified build is the
-> **web** export; a native New Architecture build on SDK 51 is untested here and
-> is the most likely thing to fail. If the first `eas build` errors in the native
-> compile, set `"newArchEnabled": false` and rebuild — that's the safe SDK 51
-> config (see ADR 0009 in `docs/adr/`).
+**Do not bump `app.json` `version`.** The build number auto-increments via EAS
+(`autoIncrement: true`). `runtimeVersion` policy is `appVersion`, so bumping the
+version orphans already-shipped builds off the OTA update stream. Version bumps
+happen only alongside a deliberate, planned build.
+
+> **Leave `newArchEnabled: true` alone.** An earlier version of this document
+> told you to flip it off if the native compile failed. That advice was written
+> for SDK 51 and is now actively wrong: on SDK 54, Reanimated 4 REQUIRES the New
+> Architecture, and turning it off breaks the build rather than rescuing it.
+> ADR 0009, which that advice came from, applied only to SDK 51. Builds have
+> since succeeded with New Architecture on — see `docs/SDK54_UPGRADE.md`.
 
 ## 2. Create the app record + credentials
 
@@ -87,7 +105,7 @@ In App Store Connect → your app → **TestFlight** tab:
 > build needs a quick Apple "Beta App Review" (usually < 24h). For 20 known
 > people, Internal is faster and reviewless — recommended.
 
-## 5. How your 20 testers install + sign up
+## 5. How your testers install + sign up
 
 Send testers this short script:
 
@@ -100,6 +118,10 @@ Send testers this short script:
 
 No invite codes or allow-list in the app — anyone with the TestFlight build can
 sign up. Account creation is the gate.
+
+An **internal** testing group holds up to 100 testers and needs no Apple review,
+so a 20-50 person cohort ships the moment the build finishes processing. External
+groups do require review; you do not need one at this size.
 
 ## 6. Backend gotchas to clear before you invite (important)
 
@@ -127,11 +149,55 @@ from a shipped build, which violates CLAUDE.md rule 1. `eas.json` intentionally
 omits them, but you should still **rotate both keys** and keep them only as
 server-side `supabase secrets`.
 
+## Shipping a change: OTA or a new build?
+
+Most changes after the first build do **not** need a cloud build. OTA updates
+are free, instant, and go to the existing TestFlight app:
+
+```bash
+npx eas-cli@latest update --channel testflight
+```
+
+**The trap.** `runtimeVersion` policy is `appVersion`. Compatibility is decided
+by that string alone — so an OTA is delivered to any installed build sharing the
+version, **even when the native layer has changed underneath it**. Nothing warns
+you. The update lands and the app crashes wherever it touches a native module
+the installed binary does not have.
+
+So the version string is not the check. **The fingerprint is:**
+
+```bash
+npx expo-updates fingerprint:generate --platform ios     # ends with "hash":"…"
+npx eas-cli@latest build:list --platform ios --limit 1   # "Fingerprint" of the installed build
+```
+
+| fingerprints | ship it with |
+| --- | --- |
+| identical | `eas update` — free, instant |
+| **differ** | a new `eas build` |
+
+A real example, and the reason this section exists. 112 commits after build 29,
+every changed file looked like JS — and an OTA would have been wrong. Adding
+`expo-keep-awake` as a direct dependency moved the fingerprint, and
+`app/(tabs)/record.tsx` calls `activateKeepAwakeAsync` on the record screen. The
+version was still `0.2.0`, so the update would have shipped straight to build 29
+and taken the core flow down.
+
+If the fingerprints differ, do not reason about whether the native change "looks
+safe". Build.
+
 ## Quick reference
 
 ```bash
-# every release:
-npm test && npm run typecheck
+# JS-only change, fingerprint unchanged — free, no quota spent:
+npx eas-cli@latest update --channel testflight
+
+# native change, or fingerprint differs — costs one cloud build:
+git status --porcelain && npm test && npm run typecheck && npm run lint
+npx expo export && npx npm@10.8.2 ci        # EAS parity; see step 1
 npx eas-cli@latest build -p ios --profile testflight --auto-submit
-# then in App Store Connect: add build to the internal group (one click)
+# then in App Store Connect: add the build to the internal group (one click)
 ```
+
+Only a human runs `eas build` / `eas submit` — they need interactive Apple 2FA.
+An agent preps and validates; it does not spend the quota.
