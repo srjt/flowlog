@@ -189,6 +189,58 @@ export function rankRecords<T extends GroundableRecord>(
    */
   vocabulary: readonly string[] = [],
 ): T[] {
+  return rankRecordsWithStats(
+    records,
+    keyMistake,
+    limit,
+    minRelevance,
+    vocabulary,
+  ).records;
+}
+
+/** What the funnel did, alongside what it produced. */
+export interface RankedRecords<T> {
+  /** The records to inject: gate-passers, ranked, capped at `limit`. */
+  records: T[];
+  /**
+   * How many records cleared the relevance gate, BEFORE the cap (#119).
+   *
+   * The number `grounding_available` was documented as holding and never did:
+   * that column stores `min(gatePassed, GROUNDING_RECORD_LIMIT)`, because it is
+   * derived from the length of the already-sliced result. Three consecutive
+   * sessions recorded exactly 20, which is what surfaced it — on a real
+   * session, 70 records cleared the gate and the row said 20.
+   *
+   * Without this the gate's selectivity cannot be observed from production
+   * data, and calibrating any replacement for it — a cosine threshold, say
+   * (#116) — has nothing to be calibrated against.
+   */
+  gatePassed: number;
+}
+
+/**
+ * `rankRecords`, plus what the funnel discarded on the way.
+ *
+ * A sibling rather than a changed return type on `rankRecords`: that name has
+ * 24 call sites, 21 of them tests documenting ranking behaviour, and churning
+ * all of them would bury a one-number fix in an unrelated diff. A sibling
+ * rather than a standalone counter, too — the gate is `!rejected && !contested`
+ * plus term extraction, stopwords and `score >= minRelevance`, and a second
+ * copy that must agree with this one is exactly the drift this codebase keeps
+ * paying for.
+ *
+ * Counting here also costs nothing: the gate-passing set is computed and then
+ * discarded by the slice, so the number is already in hand. Recomputing it with
+ * a second uncapped call would re-run ranking, which is quadratic in pool size
+ * — ~300ms on a 2,386-record pool — to recover a value this function threw away.
+ */
+export function rankRecordsWithStats<T extends GroundableRecord>(
+  records: T[],
+  keyMistake: string,
+  limit: number = GROUNDING_RECORD_LIMIT,
+  minRelevance: number = GROUNDING_MIN_RELEVANCE,
+  vocabulary: readonly string[] = [],
+): RankedRecords<T> {
   const terms = new Set(
     (keyMistake.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter(
       (w) => !STOPWORDS.has(w),
@@ -197,73 +249,82 @@ export function rankRecords<T extends GroundableRecord>(
   // Nothing to match against means we cannot tell relevance from irrelevance.
   // Injecting arbitrary records for the position is exactly what made cues
   // worse, so ground nothing instead.
-  if (terms.size === 0) return [];
+  if (terms.size === 0) return { records: [], gatePassed: 0 };
   const domain = domainWords(vocabulary);
 
-  return (
-    records
-      // Human review outranks keyword overlap. A record reviewers called wrong
-      // must never ground a cue however well it matches the mistake — matching
-      // is a weak signal and being wrong is not.
-      //
-      // `contested` is excluded too: migration 008 said a contested position
-      // should not ground a cue unaided, and nothing had honoured that. Two
-      // black belts disagreeing is a finding about the mechanic, and building
-      // a confident cue on it is exactly the failure grounding keeps producing.
-      .filter((record) => !record.rejected && !record.contested)
-      .map((record, index) => ({
-        record,
-        index,
-        haystack:
-          `${record.prescription} ${record.why} ${record.detail}`.toLowerCase(),
-      }))
-      .map((entry, _i, all) => {
-        const matched = [...terms].filter((t) => entry.haystack.includes(t));
-        return {
-          record: entry.record,
-          index: entry.index,
-          // The GATE stays a plain count of distinct terms, unchanged.
-          score: matched.length,
-          // The ORDER is weighted by how rare each matched term is in this
-          // pool. Counting every term equally is what let a nine-way tie
-          // happen and be resolved by file order: for "failed to secure the
-          // Kimura, allowing the opponent to escape to Turtle", nine records
-          // scored exactly 2 and not one of them matched "kimura" — they
-          // matched "allowing"+"turtle" and "allowing"+"escape". The record
-          // that names the technique has to beat the record that shares a
-          // filler word, and only rarity distinguishes them.
-          //
-          // A bigger store makes this worse rather than better, which is why
-          // it surfaced when the corpus grew: more records clear a low bar,
-          // and the tiebreak was never meaningful.
-          weighted: matched.reduce(
-            (sum, t) =>
-              sum +
-              idf(t, all as { haystack: string }[]) *
-                (domain.has(t) ? DOMAIN_TERM_WEIGHT : 1),
-            0,
-          ),
-        };
-      })
-      // The gate: a record about the right position but the wrong problem is
-      // worse than no record, because the model will build a confident, specific
-      // cue around it.
-      .filter((entry) => entry.score >= minRelevance)
-      // Certified first, then overlap, then input order. A tiebreak rather
-      // than a gate: with 0 of 1,322 records certified, requiring
-      // certification would ground nothing at all, so review improves ranking
-      // smoothly instead of switching grounding off until the queue is done.
-      .sort(
-        (a, b) =>
-          Number(b.record.certified ?? false) -
-            Number(a.record.certified ?? false) ||
-          b.weighted - a.weighted ||
-          b.score - a.score ||
-          a.index - b.index,
-      )
-      .slice(0, limit)
-      .map((entry) => entry.record)
-  );
+  const gatePassers = records
+    // Human review outranks keyword overlap. A record reviewers called wrong
+    // must never ground a cue however well it matches the mistake — matching
+    // is a weak signal and being wrong is not.
+    //
+    // `contested` is excluded too: migration 008 said a contested position
+    // should not ground a cue unaided, and nothing had honoured that. Two
+    // black belts disagreeing is a finding about the mechanic, and building
+    // a confident cue on it is exactly the failure grounding keeps producing.
+    .filter((record) => !record.rejected && !record.contested)
+    .map((record, index) => ({
+      record,
+      index,
+      haystack:
+        `${record.prescription} ${record.why} ${record.detail}`.toLowerCase(),
+    }))
+    .map((entry, _i, all) => {
+      const matched = [...terms].filter((t) => entry.haystack.includes(t));
+      return {
+        record: entry.record,
+        index: entry.index,
+        // The GATE stays a plain count of distinct terms, unchanged.
+        score: matched.length,
+        // The ORDER is weighted by how rare each matched term is in this
+        // pool. Counting every term equally is what let a nine-way tie
+        // happen and be resolved by file order: for "failed to secure the
+        // Kimura, allowing the opponent to escape to Turtle", nine records
+        // scored exactly 2 and not one of them matched "kimura" — they
+        // matched "allowing"+"turtle" and "allowing"+"escape". The record
+        // that names the technique has to beat the record that shares a
+        // filler word, and only rarity distinguishes them.
+        //
+        // A bigger store makes this worse rather than better, which is why
+        // it surfaced when the corpus grew: more records clear a low bar,
+        // and the tiebreak was never meaningful.
+        weighted: matched.reduce(
+          (sum, t) =>
+            sum +
+            idf(t, all as { haystack: string }[]) *
+              (domain.has(t) ? DOMAIN_TERM_WEIGHT : 1),
+          0,
+        ),
+      };
+    })
+    // The gate: a record about the right position but the wrong problem is
+    // worse than no record, because the model will build a confident, specific
+    // cue around it.
+    //
+    // Materialised here rather than left in the chain, so its SIZE can be
+    // reported (#119). This is the count the funnel was always documented as
+    // recording and never did — `grounding_available` stored the length of
+    // the sliced result, i.e. `min(this, limit)`.
+    .filter((entry) => entry.score >= minRelevance)
+    // Certified first, then overlap, then input order. A tiebreak rather
+    // than a gate: with 0 of 1,322 records certified, requiring
+    // certification would ground nothing at all, so review improves ranking
+    // smoothly instead of switching grounding off until the queue is done.
+    .sort(
+      (a, b) =>
+        Number(b.record.certified ?? false) -
+          Number(a.record.certified ?? false) ||
+        b.weighted - a.weighted ||
+        b.score - a.score ||
+        a.index - b.index,
+    );
+
+  return {
+    records: gatePassers.slice(0, limit).map((entry) => entry.record),
+    // Counted BEFORE the slice. Afterwards the number is `min(gatePassed,
+    // limit)` and the gate's selectivity is gone — on a real session, 70
+    // records cleared the gate and the row recorded 20.
+    gatePassed: gatePassers.length,
+  };
 }
 
 /**

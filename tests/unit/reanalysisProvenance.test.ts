@@ -57,6 +57,7 @@ describe('the edge function re-analysis path', () => {
     ['grounding_available', /grounding_available:\s*reArm\.available/],
     ['grounding_record_ids', /grounding_record_ids:\s*reGrounding\.map/],
     ['grounding_candidates', /grounding_candidates:\s*rePool\.total/],
+    ['grounding_gate_passed', /grounding_gate_passed:\s*reRanked\.gatePassed/],
   ])('writes %s on the success path', (_column, pattern) => {
     expect(branch).toMatch(pattern);
   });
@@ -70,6 +71,9 @@ describe('the edge function re-analysis path', () => {
     expect(declined).toContain('grounding_available: 0');
     expect(declined).toContain('grounding_record_ids: []');
     expect(declined).toContain('grounding_candidates: null');
+    // Unknown, not zero: nothing was ranked, so the gate never ran. 0 would
+    // read as "the gate rejected everything" (#119).
+    expect(declined).toContain('grounding_gate_passed: null');
   });
 
   // The only marker that reaches these rows: the version stamp cannot identify

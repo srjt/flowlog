@@ -11,9 +11,11 @@ export {
   candidatePositions,
   groundingSection,
   rankRecords,
+  rankRecordsWithStats,
   GROUNDING_RECORD_LIMIT,
 } from '@/sports/grounding';
 export type {
   GroundableExtraction,
   GroundableRecord,
+  RankedRecords,
 } from '@/sports/grounding';
