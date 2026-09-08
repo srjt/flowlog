@@ -310,6 +310,13 @@ export class FlowlogPipeline {
    * extraction → coaching → quality gate on the edited text and overwrite the
    * existing session's analysis fields IN PLACE (same row, no new session, no
    * transcription, no audio). Mirrors the edge function's reprocess branch.
+   *
+   * That last sentence used to be false (#117): this path never grounded at
+   * all — no records, no arm, no grounding in the coaching prompt — while the
+   * edge function's did. Two implementations building DIFFERENT prompts for the
+   * same session is the one thing `src/sports/grounding.ts` opens by forbidding,
+   * since a cue measured in one place means nothing if the other built
+   * something else.
    */
   async reanalyze(input: ReanalyzeInput): Promise<PipelineOutput> {
     const transcript = input.editedTranscript.trim();
@@ -337,6 +344,19 @@ export class FlowlogPipeline {
           targetPosition: null,
           targetPositionId: null,
           qualityGatePassed: false,
+          // The same state a declined first run writes (#117). Otherwise the
+          // row keeps the previous run's arm, record count and record ids
+          // while holding NO CUE — and 018's `record_feedback_signal` goes on
+          // attributing feedback to records behind a cue that is gone.
+          grounding: 'declined',
+          groundingRecords: 0,
+          groundingAvailable: 0,
+          groundingRecordIds: [],
+          // Nulled rather than kept: `positionsVisited` is overwritten in this
+          // same update, so the old count describes positions no longer on the
+          // row. Null is unknown; 0 would read as a corpus gap (#58).
+          groundingCandidates: null,
+          reanalyzedAt: new Date().toISOString(),
           pipelineVersion: PIPELINE_VERSION,
         },
       );
@@ -358,12 +378,36 @@ export class FlowlogPipeline {
       input.userId,
       input.sportKey,
     );
+    // Grounding, which this path used to skip entirely (#117). Without it the
+    // client reference implementation and the edge function built DIFFERENT
+    // prompts for the same re-analysis.
+    //
+    // The gi context and the arm both come from the row rather than being
+    // re-decided here: correcting a typo must not swap which records apply
+    // (#60), nor move the session between experiment arms.
+    const {
+      records: groundingRecords,
+      assignment,
+      candidates: groundingCandidates,
+    } = await this.loadGrounding(
+      input.sportKey,
+      extraction,
+      // Only reached when nothing is inherited, i.e. a row that never had an
+      // arm. The original key cannot be rebuilt — see `inheritedArm` in
+      // `src/sports/experiment.ts`.
+      `${input.userId}:reanalyze`,
+      input.existingGi ?? null,
+      sportContext.vocabulary,
+      input.existingGrounding ?? null,
+    );
+
     const coachingInput: CoachingInput = {
       extraction,
       sportContext,
       recentMistakes,
       skillLevel: input.skillLevel,
       dominantWeakness,
+      groundingRecords,
     };
     const initialCoaching = await this.coaching.generate(coachingInput);
     const gate = await this.qualityGate.enforce(
@@ -388,6 +432,16 @@ export class FlowlogPipeline {
       targetPosition: resolved.label ?? gate.coaching.targetPosition,
       targetPositionId: resolved.id,
       qualityGatePassed: gate.passed,
+      // Every grounding column this run changes the truth of (#117). Leaving
+      // them made `groundingRecordIds` name the records behind the PREVIOUS
+      // cue, which 018's `record_feedback_signal` then credits with a rating
+      // of the current one.
+      grounding: assignment.outcome,
+      groundingRecords: assignment.inject,
+      groundingAvailable: assignment.available,
+      groundingRecordIds: groundingRecords.map((r) => r.id),
+      groundingCandidates,
+      reanalyzedAt: new Date().toISOString(),
       pipelineVersion: PIPELINE_VERSION,
     });
 
@@ -452,6 +506,11 @@ export class FlowlogPipeline {
     gi: GiContext | null,
     /** The sport's vocabulary, so ranking can weight domain terms (#—). */
     vocabulary: readonly string[],
+    /**
+     * The arm this session already holds, for re-analysis (#117). Undefined on
+     * a first run, where there is nothing to inherit and the draw is genuine.
+     */
+    inheritedArm?: string | null,
   ): Promise<{
     records: CoachingRecord[];
     assignment: GroundingAssignment;
@@ -477,6 +536,10 @@ export class FlowlogPipeline {
       const assignment = assignGrounding(sessionKey, relevant.length, {
         hasPosition: positionIds.length > 0,
         rollout: this.groundingRollout,
+        // Only `grounded`/`withheld` are honoured; eligibility outcomes fall
+        // through to a fresh assignment because they depend on the current
+        // extraction. See `inheritedArm` in `src/sports/experiment.ts`.
+        inheritedArm: inheritedArm ?? null,
       });
       logger.debug('grounding', {
         positions: positionIds.length,

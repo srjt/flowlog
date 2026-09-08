@@ -75,13 +75,56 @@ function hash(input: string): number {
 export function assignGrounding(
   sessionKey: string,
   availableRecords: number,
-  opts: { hasPosition: boolean; rollout?: number } = { hasPosition: true },
+  opts: {
+    hasPosition: boolean;
+    rollout?: number;
+    /**
+     * The arm this session was ALREADY assigned, for re-analysis (#117).
+     *
+     * Re-analysis regenerates a cue for a session that has one, so its arm is
+     * not a new draw — it is a fact already recorded on the row, and re-drawing
+     * it could flip the session between arms and corrupt the comparison the
+     * same way a retry would.
+     *
+     * Passed rather than re-derived because the original key CANNOT be
+     * reconstructed. The insert path keys on `clientSessionId ?? user.id:
+     * sessionDate`, using the REQUEST's sessionDate — but the row stores
+     * `sessionDate ?? now()`. For a request that omitted it (13 of 64 rows at
+     * time of writing) the stored timestamp was never in the key, so rebuilding
+     * the key from the row yields a different string and a different arm.
+     *
+     * Only `grounded` and `withheld` are arms. `no_position`, `no_records` and
+     * `declined` are ELIGIBILITY, which depends on the current extraction and
+     * must be recomputed — a corrected transcript can resolve a position that
+     * previously did not — so they are ignored here and fall through to a fresh
+     * assignment. That split is the point: eligibility is a function of the
+     * text, assignment is a property of the session.
+     *
+     * Typed as a plain string because it arrives from a text column, and only
+     * two of its values mean anything here. Narrowing it at the boundary would
+     * force every caller to assert a shape the database does not enforce.
+     */
+    inheritedArm?: string | null;
+  } = { hasPosition: true },
 ): GroundingAssignment {
   if (!opts.hasPosition) {
     return { outcome: 'no_position', inject: 0, available: 0 };
   }
   if (availableRecords === 0) {
     return { outcome: 'no_records', inject: 0, available: 0 };
+  }
+  // Eligibility is settled above and the session is in the experiment. An arm
+  // it already holds is the assignment; re-drawing would be recomputing an
+  // identity.
+  if (opts.inheritedArm === 'grounded') {
+    return {
+      outcome: 'grounded',
+      inject: availableRecords,
+      available: availableRecords,
+    };
+  }
+  if (opts.inheritedArm === 'withheld') {
+    return { outcome: 'withheld', inject: 0, available: availableRecords };
   }
   const rollout = opts.rollout ?? GROUNDING_ROLLOUT;
   // A stable, uniformly-distributed value in [0,1) for this session.

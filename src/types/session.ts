@@ -33,6 +33,19 @@ export interface Session {
   giSource: GiSource | null;
   targetPosition: string | null;
   qualityGatePassed: boolean;
+  /**
+   * Why the cue was or was not grounded, and which arm it landed in (#58).
+   *
+   * Read back so re-analysis can INHERIT the arm rather than re-draw it (#117):
+   * the original assignment key cannot be reconstructed, so the recorded value
+   * IS the assignment. See `inheritedArm` in `src/sports/experiment.ts`.
+   */
+  grounding?: string | null;
+  /**
+   * When this session was last re-analysed (#117 / migration 021). Null means
+   * "not since the column existed" — NOT that it never happened.
+   */
+  reanalyzedAt?: string | null;
   thumbsUp: boolean | null;
   /** Reason chosen on a 👎 (single-select), or null/undefined. */
   feedbackReason?: string | null;
@@ -68,11 +81,11 @@ export interface NewSession {
   targetPositionId: string | null;
   qualityGatePassed: boolean;
   pipelineVersion: string;
-  /** Why the cue was or was not grounded, and which arm it landed in (#58). */
   /** Attire for this session (#43). */
   gi?: GiPreference | null;
   /** Where `gi` came from (#60). */
   giSource?: GiSource | null;
+  /** Why the cue was or was not grounded, and which arm it landed in (#58). */
   grounding?: string | null;
   /** Records actually injected. */
   groundingRecords?: number | null;
@@ -113,11 +126,18 @@ export interface SessionAnalysisUpdate {
   targetPositionId: string | null;
   qualityGatePassed: boolean;
   pipelineVersion: string;
-  /** Why the cue was or was not grounded, and which arm it landed in (#58). */
+  /**
+   * When this re-analysis ran (#117 / migration 021).
+   *
+   * The only marker that identifies a re-analysed row: `pipelineVersion` cannot,
+   * because re-analysis stamps whatever version was current at the time.
+   */
+  reanalyzedAt?: string | null;
   /** Attire for this session (#43). */
   gi?: GiPreference | null;
   /** Where `gi` came from (#60). */
   giSource?: GiSource | null;
+  /** Why the cue was or was not grounded, and which arm it landed in (#58). */
   grounding?: string | null;
   /** Records actually injected. */
   groundingRecords?: number | null;

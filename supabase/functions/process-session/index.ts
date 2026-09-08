@@ -60,9 +60,17 @@ import type {
 //          `grounding_candidates` is a LOWER BOUND over those rows (#114).
 //   1.2.0  candidate pool is paged and ordered; `grounding_candidates` is the
 //          database's exact count (020).
+//   1.3.0  re-analysis writes the grounding provenance it changes the truth of,
+//          and honours the session's existing arm (021).
 //
 // So bumping it is part of the fix, not cosmetic.
-const PIPELINE_VERSION = '1.2.0';
+//
+// Note what the version can and cannot segment for 1.3.0: re-analysis stamps
+// the version CURRENT AT THE TIME, so a row re-analysed under 1.0.0 still reads
+// 1.0.0 and is indistinguishable from one never re-analysed. `reanalyzed_at`
+// (021) is the marker that actually reaches those rows; the version only
+// asserts that a row written by THIS code is consistent.
+const PIPELINE_VERSION = '1.3.0';
 const COACHING_CUE_MAX_WORDS = 25;
 const QUALITY_GATE_RETRY_LIMIT = 2;
 const RECENT_MISTAKES_WINDOW = 5;
@@ -167,6 +175,23 @@ Deno.serve(async (req: Request) => {
             target_position: null,
             target_position_id: null,
             quality_gate_passed: false,
+            // The same state a declined INSERT writes (#117). Without this the
+            // row keeps the previous run's `grounding = 'grounded'`, its record
+            // count and its record ids while carrying NO CUE AT ALL — and 018's
+            // `record_feedback_signal` goes on attributing feedback to records
+            // that grounded a cue which no longer exists.
+            //
+            // `grounding_candidates` is nulled rather than preserved because
+            // `positions_visited` is overwritten in this same statement: the old
+            // count describes positions no longer on the row. Null is unknown,
+            // which the mining backlog excludes, and 0 would read as a corpus
+            // gap (#58).
+            grounding: 'declined',
+            grounding_records: 0,
+            grounding_available: 0,
+            grounding_record_ids: [],
+            grounding_candidates: null,
+            reanalyzed_at: new Date().toISOString(),
             pipeline_version: PIPELINE_VERSION,
           },
         );
@@ -192,7 +217,7 @@ Deno.serve(async (req: Request) => {
         existing.sport_key,
         candidatePositions(extraction),
       );
-      const reGrounding = rankRecords(
+      const reRelevant = rankRecords(
         filterByGiContext(
           rePool.records,
           // The context settled at capture time; re-analysis must not
@@ -206,6 +231,26 @@ Deno.serve(async (req: Request) => {
         // must not quietly change which records ground the cue.
         sport.vocabulary,
       );
+      // The arm is INHERITED, not re-drawn (#117). Re-analysis used to ground
+      // unconditionally and never consult the experiment at all, so a session
+      // in the control arm silently received a grounded cue while its row went
+      // on reading `withheld`. Harmless at GROUNDING_ROLLOUT = 1, which is why
+      // it went unnoticed — and live again the moment a holdout returns, which
+      // `experiment.ts` explicitly anticipates.
+      //
+      // The original key cannot be rebuilt (see `inheritedArm`), so the row's
+      // own recorded arm is the assignment. Eligibility is recomputed from the
+      // NEW extraction, because a corrected transcript can resolve a position
+      // that previously did not.
+      const reArm = assignGrounding(
+        existing.client_session_id ?? `${user.id}:reanalyze`,
+        reRelevant.length,
+        {
+          hasPosition: candidatePositions(extraction).length > 0,
+          inheritedArm: existing.grounding ?? null,
+        },
+      );
+      const reGrounding = reArm.outcome === 'grounded' ? reRelevant : [];
       const initialCoaching = await generateCoaching(
         extraction,
         sport,
@@ -258,13 +303,31 @@ Deno.serve(async (req: Request) => {
           target_position: reResolved.label ?? gate.coaching.targetPosition,
           target_position_id: reResolved.id,
           quality_gate_passed: gate.passed,
-          // Rewritten because the version stamp above is rewritten too (#114).
-          // Re-analysis updates the row in place and stamps it 1.2.0, and
-          // migration 020's `grounding_candidates_is_exact()` reads that stamp
-          // to decide whether this column is a true count or a lower bound.
-          // Leaving a 1.1.0 truncated value under a 1.2.0 stamp would make the
-          // predicate lie — the one thing it exists to prevent.
+          // Every grounding column this run changes the truth of (#117).
+          //
+          // Re-analysis regenerates the cue from an edited transcript, which
+          // changes `key_mistake`, which changes the terms `rankRecords` scores
+          // on — so it generally grounds on a DIFFERENT set of records. Leaving
+          // these as the previous run wrote them made `grounding_record_ids`
+          // name the records behind a cue that no longer exists, and 018's
+          // `record_feedback_signal` attribute a rating of the new cue to them.
+          //
+          // 019's guard does not catch it: that gates on
+          // `grounding_reached_model(pipeline_version)`, and a re-analysed row
+          // carries a FRESH version stamp, so it passes while holding stale ids.
+          grounding: reArm.outcome,
+          grounding_records: reArm.inject,
+          grounding_available: reArm.available,
+          grounding_record_ids: reGrounding.map((r) => r.id),
+          // Rewritten because the version stamp below is rewritten too (#114).
+          // Migration 020's `grounding_candidates_is_exact()` reads that stamp
+          // to decide whether this column is a true count or a lower bound, so
+          // a stale value under a fresh stamp would make the predicate lie.
           grounding_candidates: rePool.total,
+          // The only marker that reaches these rows (021). The version stamp
+          // cannot identify a re-analysed row, because re-analysis writes
+          // whatever version was current at the time.
+          reanalyzed_at: new Date().toISOString(),
           pipeline_version: PIPELINE_VERSION,
         },
       );

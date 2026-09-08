@@ -947,3 +947,131 @@ describe('FlowlogPipeline — mining backlog signal (#58)', () => {
     expect(storage.saved[0]?.groundingCandidates).toBe(2);
   });
 });
+
+// ── Re-analysis grounds, and tells the truth about it (#117) ─────────────────
+//
+// This path used to skip grounding entirely: no records, no arm, nothing in the
+// coaching prompt, and not one grounding column written — while the edge
+// function's re-analysis DID ground. Two implementations building different
+// prompts for the same session is the one thing `src/sports/grounding.ts` opens
+// by forbidding, and `reanalyze`'s own docstring claimed it mirrored the server.
+describe('FlowlogPipeline — reanalyze grounding provenance (#117)', () => {
+  function rec(position: string, prescription: string) {
+    return {
+      id: `rec-${position}`,
+      position,
+      prescription,
+      why: 'Because the frame has nowhere to go once the crossface lands.',
+      detail: 'Forearm across the hip.',
+      counter: '',
+      gi: 'either',
+      level: 'any',
+      opponent: '',
+      certified: false,
+      contested: false,
+      rejected: false,
+    };
+  }
+
+  function groundedPipeline(rollout = 1) {
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Could not frame before the crossface landed.',
+        opponentAction: 'Held a strong crossface.',
+        perspective: 'bottom',
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    storage.coachingRecords = [
+      rec('side-control-bottom', 'Frame on the far hip before he settles.'),
+    ];
+    return {
+      ai,
+      storage,
+      pipeline: new FlowlogPipeline({
+        transcription: new TranscriptionService(
+          new MockTranscriptionProvider(),
+        ),
+        extraction: new ExtractionService(ai),
+        coaching: new CoachingService(ai),
+        qualityGate: new QualityGateService(),
+        storage,
+        groundingRollout: rollout,
+      }),
+    };
+  }
+
+  const reanalyzeArgs = {
+    sessionId: 'existing-1',
+    userId: 'user-1',
+    sportKey: 'bjj' as const,
+    skillLevel: 'Blue Belt' as const,
+    editedTranscript:
+      'He passed to side control and I could not frame before the crossface landed.',
+  };
+
+  it('grounds the re-analysed cue instead of skipping grounding', async () => {
+    const { ai, pipeline } = groundedPipeline();
+
+    await pipeline.reanalyze({
+      ...reanalyzeArgs,
+      existingGrounding: 'grounded',
+    });
+
+    expect(ai.lastCoachingInput?.groundingRecords).toHaveLength(1);
+  });
+
+  it('writes the provenance for the records it actually used', async () => {
+    const { storage, pipeline } = groundedPipeline();
+
+    await pipeline.reanalyze({
+      ...reanalyzeArgs,
+      existingGrounding: 'grounded',
+    });
+
+    const { update } = storage.updated[0]!;
+    expect(update.grounding).toBe('grounded');
+    expect(update.groundingRecords).toBe(1);
+    expect(update.groundingAvailable).toBe(1);
+    // The ids of THIS run's records. Leaving the previous run's is what made
+    // 018's `record_feedback_signal` credit a rating of the new cue to the
+    // records behind the old one.
+    expect(update.groundingRecordIds).toEqual(['rec-side-control-bottom']);
+    expect(update.groundingCandidates).toBe(1);
+  });
+
+  // The arm is a fact on the row, not a new draw. Re-drawing could move a
+  // session between arms — and the original key cannot be reconstructed.
+  it('honours an inherited withheld arm and injects nothing', async () => {
+    const { ai, storage, pipeline } = groundedPipeline(1);
+
+    await pipeline.reanalyze({
+      ...reanalyzeArgs,
+      existingGrounding: 'withheld',
+    });
+
+    expect(ai.lastCoachingInput?.groundingRecords ?? []).toHaveLength(0);
+    const { update } = storage.updated[0]!;
+    expect(update.grounding).toBe('withheld');
+    expect(update.groundingRecords).toBe(0);
+    // Still recorded: without it the control arm is indistinguishable from a
+    // session that never had records.
+    expect(update.groundingAvailable).toBe(1);
+    expect(update.groundingRecordIds).toEqual([]);
+  });
+
+  it('marks the row as re-analysed', async () => {
+    const { storage, pipeline } = groundedPipeline();
+
+    await pipeline.reanalyze({
+      ...reanalyzeArgs,
+      existingGrounding: 'grounded',
+    });
+
+    // The only marker that identifies a re-analysed row: pipelineVersion is
+    // rewritten to whatever is current, so it cannot distinguish one.
+    expect(storage.updated[0]?.update.reanalyzedAt).toEqual(expect.any(String));
+  });
+});

@@ -81,3 +81,87 @@ describe('assignGrounding', () => {
     expect(new Set(outcomes)).toEqual(new Set(['grounded']));
   });
 });
+
+describe('assignGrounding — an inherited arm (#117)', () => {
+  // Re-analysis regenerates a cue for a session that already has one, so its
+  // arm is a fact on the row, not a new draw. Re-drawing it could move a
+  // session between arms — the same corruption a retry would cause, which the
+  // determinism test above exists to prevent.
+  it('honours an inherited grounded arm regardless of the draw', () => {
+    // rollout 0 would otherwise withhold from every session.
+    const out = assignGrounding('any-key', 9, {
+      hasPosition: true,
+      rollout: 0,
+      inheritedArm: 'grounded',
+    });
+    expect(out.outcome).toBe('grounded');
+    expect(out.inject).toBe(9);
+    expect(out.available).toBe(9);
+  });
+
+  it('honours an inherited withheld arm regardless of the draw', () => {
+    // The bug: re-analysis grounded unconditionally, so a control-arm session
+    // silently received a grounded cue while its row still read `withheld`.
+    const out = assignGrounding('any-key', 9, {
+      hasPosition: true,
+      rollout: 1,
+      inheritedArm: 'withheld',
+    });
+    expect(out.outcome).toBe('withheld');
+    expect(out.inject).toBe(0);
+    // Still recorded, or the two arms stop being comparable.
+    expect(out.available).toBe(9);
+  });
+
+  it('inherits independently of the session key', () => {
+    // The whole reason the arm is passed rather than re-derived: the original
+    // key cannot be reconstructed for rows whose request omitted sessionDate.
+    const a = assignGrounding('key-one', 4, {
+      hasPosition: true,
+      inheritedArm: 'withheld',
+    });
+    const b = assignGrounding('key-two', 4, {
+      hasPosition: true,
+      inheritedArm: 'withheld',
+    });
+    expect(a).toEqual(b);
+  });
+
+  // Eligibility is a function of the CURRENT extraction and must be
+  // recomputed; only the coin flip is inherited. A corrected transcript can
+  // resolve a position that previously did not, or stop resolving one.
+  it('recomputes eligibility even with an arm to inherit', () => {
+    expect(
+      assignGrounding('k', 0, { hasPosition: true, inheritedArm: 'grounded' })
+        .outcome,
+    ).toBe('no_records');
+    expect(
+      assignGrounding('k', 9, { hasPosition: false, inheritedArm: 'grounded' })
+        .outcome,
+    ).toBe('no_position');
+  });
+
+  // `no_position`, `no_records` and `declined` are eligibility outcomes, not
+  // arms. Treating one as an arm would freeze a stale eligibility decision
+  // into a session that has since become eligible.
+  it.each(['no_position', 'no_records', 'declined', '', null, undefined])(
+    'falls through to a fresh draw for a non-arm value (%s)',
+    (inherited) => {
+      const fresh = assignGrounding('stable-key', 6, { hasPosition: true });
+      const withNonArm = assignGrounding('stable-key', 6, {
+        hasPosition: true,
+        inheritedArm: inherited as string | null,
+      });
+      expect(withNonArm).toEqual(fresh);
+    },
+  );
+
+  it('still assigns deterministically when nothing is inherited', () => {
+    const a = assignGrounding('s', 5, { hasPosition: true });
+    const b = assignGrounding('s', 5, {
+      hasPosition: true,
+      inheritedArm: null,
+    });
+    expect(a).toEqual(b);
+  });
+});
