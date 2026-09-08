@@ -1,5 +1,6 @@
 import {
   candidatePositions,
+  rankRecordsWithStats,
   groundingSection,
   rankRecords,
   type GroundableExtraction,
@@ -494,5 +495,83 @@ describe('rankRecords — domain terms outrank generic ones', () => {
     };
     const ranked = rankRecords([common, specific], mistake, 20, 2, vocabulary);
     expect(ranked[0]?.id).toBe('specific');
+  });
+});
+
+// ── The relevance gate has to be measurable (#119) ──────────────────────────
+//
+// `grounding_available` is written from the length of the ALREADY-SLICED rank
+// result, so it is min(gate-passers, GROUNDING_RECORD_LIMIT) and saturates at
+// 20. Three consecutive production sessions recorded exactly 20; on one of
+// them 70 records had actually cleared the gate. Without the pre-cap count the
+// gate's selectivity cannot be observed at all, which is what #116 needs to
+// calibrate any replacement for it against.
+describe('rankRecordsWithStats', () => {
+  function match(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      ...rec(),
+      prescription: `Frame on the crossface, variation ${i}`,
+    }));
+  }
+
+  const MISTAKE = 'Could not frame before the crossface landed';
+
+  it('counts gate-passers before the cap, not after', () => {
+    const out = rankRecordsWithStats(match(50), MISTAKE);
+
+    expect(out.records).toHaveLength(20); // GROUNDING_RECORD_LIMIT
+    // The number the row should carry. `records.length` here would be 20 and
+    // would say nothing about how selective the gate was.
+    expect(out.gatePassed).toBe(50);
+  });
+
+  it('reports the same count the records come from when nothing is capped', () => {
+    const out = rankRecordsWithStats(match(5), MISTAKE);
+
+    expect(out.records).toHaveLength(5);
+    expect(out.gatePassed).toBe(5);
+  });
+
+  it('counts zero when the gate rejects everything', () => {
+    // A real finding about the corpus, and distinct from "not recorded" —
+    // which is why the column is nullable and this is 0.
+    const out = rankRecordsWithStats(match(30), 'entirely unrelated wording');
+
+    expect(out.records).toEqual([]);
+    expect(out.gatePassed).toBe(0);
+  });
+
+  it('counts zero when the mistake yields no usable terms', () => {
+    const out = rankRecordsWithStats(match(30), '');
+
+    expect(out.records).toEqual([]);
+    expect(out.gatePassed).toBe(0);
+  });
+
+  it('excludes rejected and contested records from the count', () => {
+    // Human review outranks keyword overlap, so a record reviewers called
+    // wrong must not inflate the gate's measured selectivity either.
+    const sound = match(3);
+    const bad = match(4).map((r) => ({ ...r, rejected: true }));
+    const disputed = match(5).map((r) => ({ ...r, contested: true }));
+
+    const out = rankRecordsWithStats([...sound, ...bad, ...disputed], MISTAKE);
+
+    expect(out.gatePassed).toBe(3);
+  });
+
+  it('honours a custom relevance bar when counting', () => {
+    const records = match(10);
+    expect(rankRecordsWithStats(records, MISTAKE, 20, 2).gatePassed).toBe(10);
+    expect(rankRecordsWithStats(records, MISTAKE, 20, 99).gatePassed).toBe(0);
+  });
+
+  // The delegation that keeps 21 existing call sites untouched. If these ever
+  // diverge, every test above is measuring something the pipeline does not do.
+  it('returns exactly what rankRecords returns', () => {
+    const records = match(40);
+    expect(rankRecordsWithStats(records, MISTAKE).records).toEqual(
+      rankRecords(records, MISTAKE),
+    );
   });
 });

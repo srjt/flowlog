@@ -19,7 +19,7 @@ import { corsHeaders, jsonResponse } from '../_shared/cors.ts';
 import { getSportContext } from '../_shared/sports.ts';
 import {
   candidatePositions,
-  rankRecords,
+  rankRecordsWithStats,
 } from '../../../src/sports/grounding.ts';
 import {
   filterByGiContext,
@@ -191,6 +191,7 @@ Deno.serve(async (req: Request) => {
             grounding_available: 0,
             grounding_record_ids: [],
             grounding_candidates: null,
+            grounding_gate_passed: null,
             reanalyzed_at: new Date().toISOString(),
             pipeline_version: PIPELINE_VERSION,
           },
@@ -217,7 +218,7 @@ Deno.serve(async (req: Request) => {
         existing.sport_key,
         candidatePositions(extraction),
       );
-      const reRelevant = rankRecords(
+      const reRanked = rankRecordsWithStats(
         filterByGiContext(
           rePool.records,
           // The context settled at capture time; re-analysis must not
@@ -231,6 +232,7 @@ Deno.serve(async (req: Request) => {
         // must not quietly change which records ground the cue.
         sport.vocabulary,
       );
+      const reRelevant = reRanked.records;
       // The arm is INHERITED, not re-drawn (#117). Re-analysis used to ground
       // unconditionally and never consult the experiment at all, so a session
       // in the control arm silently received a grounded cue while its row went
@@ -324,6 +326,7 @@ Deno.serve(async (req: Request) => {
           // to decide whether this column is a true count or a lower bound, so
           // a stale value under a fresh stamp would make the predicate lie.
           grounding_candidates: rePool.total,
+          grounding_gate_passed: reRanked.gatePassed,
           // The only marker that reaches these rows (021). The version stamp
           // cannot identify a re-analysed row, because re-analysis writes
           // whatever version was current at the time.
@@ -481,6 +484,15 @@ Deno.serve(async (req: Request) => {
       groundingRecordIds: string[];
       /** Records for the position before gi + relevance filtering (#58). */
       groundingCandidates: number | null;
+      /**
+       * Records that cleared the relevance gate, BEFORE the rank cap (#119).
+       *
+       * `groundingAvailable` is `min(this, GROUNDING_RECORD_LIMIT)` — it is the
+       * length of the already-sliced set — so the gate's selectivity was not
+       * observable from any row. On a real session 70 cleared the gate and the
+       * row recorded 20.
+       */
+      groundingGatePassed: number | null;
     }): Promise<{ row: any } | { conflictOutput: Response }> => {
       try {
         const row = await dbInsert('sessions', {
@@ -502,6 +514,7 @@ Deno.serve(async (req: Request) => {
           grounding_available: analysis.groundingAvailable,
           grounding_record_ids: analysis.groundingRecordIds,
           grounding_candidates: analysis.groundingCandidates,
+          grounding_gate_passed: analysis.groundingGatePassed,
           gi: giResolution.gi,
           gi_source: giResolution.source,
           pipeline_version: PIPELINE_VERSION,
@@ -546,6 +559,8 @@ Deno.serve(async (req: Request) => {
         groundingRecordIds: [],
         // Nothing was looked up, so this is not a corpus gap.
         groundingCandidates: null,
+        // Nothing was ranked either — unknown, not zero.
+        groundingGatePassed: null,
       });
       if ('conflictOutput' in declinedRow) return declinedRow.conflictOutput;
       await updateUserTrends(user.id, sportKey);
@@ -587,7 +602,7 @@ Deno.serve(async (req: Request) => {
     // empty corpus (mine it) from records that existed and were filtered out
     // by gi context or the relevance gate (mining will not help) — #58.
     const candidatePool = await loadGroundingRecords(sportKey, groundingIds);
-    const relevantRecords = rankRecords(
+    const ranked = rankRecordsWithStats(
       filterByGiContext(candidatePool.records, giResolution.gi),
       extraction.keyMistake,
       undefined,
@@ -596,6 +611,7 @@ Deno.serve(async (req: Request) => {
       // record matching "allowing" ties one matching "kimura".
       sport.vocabulary,
     );
+    const relevantRecords = ranked.records;
     // Assigned only when records are actually available, so the control arm
     // means "had records, withheld them" — the counterfactual the comparison
     // needs. Keyed on the idempotency id so a retry cannot flip the arm.
@@ -662,6 +678,10 @@ Deno.serve(async (req: Request) => {
       // unknown, which `rank.ts` excludes, rather than 0, which it reads as
       // "corpus gap, go mine it" (#58).
       groundingCandidates: candidatePool.total,
+      // The count BEFORE the rank cap (#119), so the funnel reads
+      // candidates -> gate_passed -> records instead of jumping from the pool
+      // straight to a number pinned at GROUNDING_RECORD_LIMIT.
+      groundingGatePassed: ranked.gatePassed,
     });
     if ('conflictOutput' in inserted) return inserted.conflictOutput;
     const session = inserted.row;

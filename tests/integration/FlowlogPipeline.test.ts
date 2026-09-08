@@ -1075,3 +1075,84 @@ describe('FlowlogPipeline — reanalyze grounding provenance (#117)', () => {
     expect(storage.updated[0]?.update.reanalyzedAt).toEqual(expect.any(String));
   });
 });
+
+// ── The client records the gate count too (#119) ─────────────────────────────
+describe('FlowlogPipeline — the relevance gate is measurable (#119)', () => {
+  it('persists gate-passers before the cap, not the capped set', async () => {
+    // 30 records all match the mistake; only GROUNDING_RECORD_LIMIT reach the
+    // prompt. `groundingAvailable` therefore reads 20 and says nothing about
+    // how selective the gate was — which is the whole bug.
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Could not frame before the crossface landed.',
+        opponentAction: 'Held a strong crossface.',
+        perspective: 'bottom',
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    storage.coachingRecords = Array.from({ length: 30 }, (_, i) => ({
+      id: `r-${i}`,
+      position: 'side-control-bottom',
+      prescription: `Frame on the far hip before the crossface, variation ${i}`,
+      why: 'Because the frame has nowhere to go once the crossface lands.',
+      detail: 'Forearm across the hip.',
+      counter: '',
+      gi: 'either',
+      level: 'any',
+      opponent: '',
+      certified: false,
+      contested: false,
+      rejected: false,
+    }));
+    const pipeline = new FlowlogPipeline({
+      transcription: new TranscriptionService(new MockTranscriptionProvider()),
+      extraction: new ExtractionService(ai),
+      coaching: new CoachingService(ai),
+      qualityGate: new QualityGateService(),
+      storage,
+      groundingRollout: 1,
+    });
+
+    await pipeline.run(input);
+
+    const saved = storage.saved[0];
+    expect(saved?.groundingCandidates).toBe(30);
+    // Saturated at the limit — true, and useless for measuring the gate.
+    expect(saved?.groundingAvailable).toBe(20);
+    // The number that actually cleared the gate.
+    expect(saved?.groundingGatePassed).toBe(30);
+  });
+
+  it('records unknown, not zero, when a lookup fails', async () => {
+    // 0 would read as "the gate rejected everything", a finding about the
+    // corpus. A lookup failure is not that.
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Could not frame before the crossface landed.',
+        opponentAction: 'Held a strong crossface.',
+        perspective: 'bottom',
+      },
+      [goodCue()],
+    );
+    const storage = new MockStorageProvider();
+    storage.getCoachingRecords = async () => {
+      throw new Error('lookup exploded');
+    };
+    const pipeline = new FlowlogPipeline({
+      transcription: new TranscriptionService(new MockTranscriptionProvider()),
+      extraction: new ExtractionService(ai),
+      coaching: new CoachingService(ai),
+      qualityGate: new QualityGateService(),
+      storage,
+      groundingRollout: 1,
+    });
+
+    await pipeline.run(input);
+
+    expect(storage.saved[0]?.groundingCandidates).toBeNull();
+    expect(storage.saved[0]?.groundingGatePassed).toBeNull();
+  });
+});
