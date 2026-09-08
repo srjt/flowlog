@@ -26,11 +26,16 @@ import {
   resolveGiContext,
 } from '../../../src/sports/giContext.ts';
 import { assignGrounding } from '../../../src/sports/experiment.ts';
+import {
+  RECORD_POOL_CEILING,
+  selectAllPages,
+} from '../../../src/services/pagedSelect.ts';
 import { extract, generateCoaching, transcribe } from '../_shared/ai.ts';
 import { enforce } from '../_shared/quality-gate.ts';
 import {
   dbInsert,
   dbSelect,
+  dbSelectCounted,
   dbUpdate,
   dbUpsert,
   downloadAudio,
@@ -44,11 +49,20 @@ import type {
   ProcessingStep,
 } from '../_shared/types.ts';
 
-// 1.1.0 is the first version whose coaching prompt actually carries the
-// grounding block; 1.0.0 wrote `grounding = 'grounded'` while sending the
-// literal `{{GROUNDING}}` to the model. Migration 019 segments the two on this
-// value, so bumping it is part of the fix, not cosmetic.
-const PIPELINE_VERSION = '1.1.0';
+// The version is the boundary marker for every grounding fix, because a row
+// has to state for itself which pipeline wrote it — migrations 019 and 020
+// both segment on this value rather than on a timestamp.
+//
+//   1.0.0  wrote `grounding = 'grounded'` while sending the literal
+//          `{{GROUNDING}}` to the model: selected, never injected (019).
+//   1.1.0  first version whose prompt actually carries the grounding block,
+//          but whose candidate fetch was capped at 200 unordered rows, so
+//          `grounding_candidates` is a LOWER BOUND over those rows (#114).
+//   1.2.0  candidate pool is paged and ordered; `grounding_candidates` is the
+//          database's exact count (020).
+//
+// So bumping it is part of the fix, not cosmetic.
+const PIPELINE_VERSION = '1.2.0';
 const COACHING_CUE_MAX_WORDS = 25;
 const QUALITY_GATE_RETRY_LIMIT = 2;
 const RECENT_MISTAKES_WINDOW = 5;
@@ -61,7 +75,11 @@ const UUID_RE =
 
 const STEPS: ProcessingStep[] = [
   { name: 'context', label: 'Getting set up', status: 'done' },
-  { name: 'transcription', label: 'Transcribing your reflection', status: 'done' },
+  {
+    name: 'transcription',
+    label: 'Transcribing your reflection',
+    status: 'done',
+  },
   { name: 'extraction', label: 'Reviewing what happened', status: 'done' },
   { name: 'coaching', label: 'Finding your cue', status: 'done' },
   { name: 'quality_gate', label: 'Polishing the cue', status: 'done' },
@@ -170,12 +188,13 @@ Deno.serve(async (req: Request) => {
       // Re-analysis regenerates the cue, so it needs the same grounding the
       // original run had — otherwise correcting a transcript would quietly
       // downgrade the cue from grounded to not.
+      const rePool = await loadGroundingRecords(
+        existing.sport_key,
+        candidatePositions(extraction),
+      );
       const reGrounding = rankRecords(
         filterByGiContext(
-          await loadGroundingRecords(
-            existing.sport_key,
-            candidatePositions(extraction),
-          ),
+          rePool.records,
           // The context settled at capture time; re-analysis must not
           // re-decide it, or correcting a typo could swap the record set.
           existing.gi === 'gi' || existing.gi === 'no-gi' ? existing.gi : null,
@@ -223,7 +242,10 @@ Deno.serve(async (req: Request) => {
           .join(' '),
         extraction.perspective,
       );
-      const reResolved = { id: reMatch.id, label: reMatch.id ? reMatch.label : null };
+      const reResolved = {
+        id: reMatch.id,
+        label: reMatch.id ? reMatch.label : null,
+      };
       const updated = await dbUpdate(
         `sessions?id=eq.${reanalyzeSessionId}&user_id=eq.${user.id}`,
         {
@@ -236,6 +258,13 @@ Deno.serve(async (req: Request) => {
           target_position: reResolved.label ?? gate.coaching.targetPosition,
           target_position_id: reResolved.id,
           quality_gate_passed: gate.passed,
+          // Rewritten because the version stamp above is rewritten too (#114).
+          // Re-analysis updates the row in place and stamps it 1.2.0, and
+          // migration 020's `grounding_candidates_is_exact()` reads that stamp
+          // to decide whether this column is a true count or a lower bound.
+          // Leaving a 1.1.0 truncated value under a 1.2.0 stamp would make the
+          // predicate lie — the one thing it exists to prevent.
+          grounding_candidates: rePool.total,
           pipeline_version: PIPELINE_VERSION,
         },
       );
@@ -317,7 +346,10 @@ Deno.serve(async (req: Request) => {
       // uploads that look successful). Fail with a clear message instead of
       // letting an LLM "transcribe" silence into fabricated text.
       return jsonResponse(
-        { error: 'Uploaded audio was empty (0 bytes) — the recording upload from the device failed. Please try recording again.' },
+        {
+          error:
+            'Uploaded audio was empty (0 bytes) — the recording upload from the device failed. Please try recording again.',
+        },
         422,
       );
     }
@@ -353,7 +385,11 @@ Deno.serve(async (req: Request) => {
     const resolvePosition = (targetPosition: string | null) => {
       const m = sport.normalizePosition(
         targetPosition,
-        [extraction.keyMistake, extraction.opponentAction, transcription.transcript]
+        [
+          extraction.keyMistake,
+          extraction.opponentAction,
+          transcription.transcript,
+        ]
           .filter(Boolean)
           .join(' '),
         extraction.perspective,
@@ -487,9 +523,9 @@ Deno.serve(async (req: Request) => {
     // Held separately from the filtered set: `no_records` must distinguish an
     // empty corpus (mine it) from records that existed and were filtered out
     // by gi context or the relevance gate (mining will not help) — #58.
-    const candidateRecords = await loadGroundingRecords(sportKey, groundingIds);
+    const candidatePool = await loadGroundingRecords(sportKey, groundingIds);
     const relevantRecords = rankRecords(
-      filterByGiContext(candidateRecords, giResolution.gi),
+      filterByGiContext(candidatePool.records, giResolution.gi),
       extraction.keyMistake,
       undefined,
       undefined,
@@ -556,7 +592,13 @@ Deno.serve(async (req: Request) => {
       // the slice length, so this must be sliced the same way or the ids and
       // the count disagree.
       groundingRecordIds: groundingRecords.map((r) => r.id),
-      groundingCandidates: candidateRecords.length,
+      // The DATABASE's count, not the fetched length (#114). These differ
+      // exactly when the ceiling truncates, and storing the fetched length is
+      // how a capped pool used to read as a healthy one — 200 meant "at least
+      // 200", and nothing said so. Null when the count was unavailable:
+      // unknown, which `rank.ts` excludes, rather than 0, which it reads as
+      // "corpus gap, go mine it" (#58).
+      groundingCandidates: candidatePool.total,
     });
     if ('conflictOutput' in inserted) return inserted.conflictOutput;
     const session = inserted.row;
@@ -598,25 +640,95 @@ Deno.serve(async (req: Request) => {
  */
 // deno-lint-ignore no-explicit-any
 /**
+ * The columns grounding actually consumes.
+ *
+ * Named rather than `select=*` because this fetch now pulls up to 3,000 rows
+ * (#114): `*` drags `sport_key`, `created_at` and `updated_at` through the
+ * mapper below, which reads none of them, at ~15% of the payload — measured at
+ * 741 KB vs 627 KB over 1,000 rows. Naming them also means a column added to
+ * `coaching_records` later cannot enter this hot path uninvited. An embedding
+ * vector would be ~6 KB a row; under `*` that arrives here with no code change.
+ */
+const GROUNDING_COLUMNS =
+  'id,position,prescription,why,detail,counter,gi,level,opponent,' +
+  'certified,contested,rejected';
+
+/**
  * Instructional records for the positions a session touched (#57).
  *
  * Read through the service role — the table's grants are revoked for clients
  * by design (#37). Never throws: grounding is enrichment, and failing a whole
  * session over reference data would be a far worse outcome than an ungrounded
  * cue, which the user cannot distinguish anyway.
+ *
+ * ── Why this pages, and why it is ordered (#114) ─────────────────────────────
+ *
+ * This used to be one request with `&limit=200` and no ordering. Nine
+ * positions individually exceed 200 records, so ranking never saw 58% of the
+ * pool for them — and worse than missing records, `rankRecords` computes IDF
+ * over the candidate pool deliberately, so a truncated pool measures every
+ * term's rarity against the wrong denominator and changes the ORDER of what
+ * survives, not merely the membership.
+ *
+ * Raising or removing the limit does not fix it. PostgREST caps this project
+ * at `db-max-rows = 1000`: `position=eq.standing` has 1,114 rows, and both an
+ * unbounded request and `limit=2000` return exactly 1,000. Paging is the only
+ * way to see the pool.
+ *
+ * `order=id.asc` is required for the paging to be correct at all — offset
+ * paging over an unordered query may repeat rows on one page and drop them
+ * from another. The id is a `gen_random_uuid()` primary key, chosen precisely
+ * because it means NOTHING: not recency, not certification, not publish batch.
+ * `created_at` was the obvious candidate and is wrong — the apparent
+ * publish-recency skew in the corpus tracks heap position, not publish time,
+ * and ordering by it would bake in a bias the evidence does not support. Every
+ * ordering that should carry meaning already lives in `rankRecords`, where it
+ * is tested. As a side effect this makes ADR 0011's guarantee — that
+ * re-analysis grounds a cue in the same records — structural rather than
+ * incidental to the query plan.
+ *
+ * Returns the DATABASE's count alongside the rows. The two differ when the
+ * ceiling truncates, and that difference is the only thing standing between
+ * this fix and the bug it replaces: `grounding_candidates` must mean "records
+ * that exist" (what migration 013 has always claimed) rather than "records we
+ * chose to fetch", or a capped pool once again reads as a healthy one.
  */
 async function loadGroundingRecords(
   sportKey: string,
   positionIds: string[],
-): Promise<CoachingRecord[]> {
-  if (positionIds.length === 0) return [];
+): Promise<{ records: CoachingRecord[]; total: number | null }> {
+  if (positionIds.length === 0) return { records: [], total: 0 };
   try {
     const list = positionIds.map((p) => `"${p}"`).join(',');
-    const rows = await dbSelect(
-      `coaching_records?select=*&sport_key=eq.${encodeURIComponent(sportKey)}` +
-        `&position=in.(${encodeURIComponent(list)})&limit=200`,
+    const base =
+      `coaching_records?select=${GROUNDING_COLUMNS}` +
+      `&sport_key=eq.${encodeURIComponent(sportKey)}` +
+      `&position=in.(${encodeURIComponent(list)})&order=id.asc`;
+
+    const page = await selectAllPages<Record<string, unknown>>(
+      async (offset, limit) => {
+        const res = await dbSelectCounted(
+          `${base}&offset=${offset}&limit=${limit}`,
+        );
+        return { rows: res.rows, total: res.total };
+      },
+      RECORD_POOL_CEILING,
     );
-    return (rows ?? []).map((r: any) => ({
+
+    if (page.truncated) {
+      // Logged as well as stored. The stored form (`grounding_candidates`
+      // exceeding the fetched count) is what survives to be queried; this line
+      // is what tells whoever is reading the logs that the corpus has outgrown
+      // the ceiling and the constant needs revisiting.
+      console.warn(
+        `[flowlog] grounding pool truncated at ${RECORD_POOL_CEILING}: ` +
+          `${page.rows.length} of ${page.total} records for ` +
+          `${positionIds.join(',')}`,
+      );
+    }
+
+    // deno-lint-ignore no-explicit-any
+    const records = page.rows.map((r: any) => ({
       id: r.id,
       position: r.position,
       prescription: r.prescription ?? '',
@@ -630,9 +742,15 @@ async function loadGroundingRecords(
       contested: r.contested === true,
       rejected: r.rejected === true,
     }));
+    // Null total, not `records.length`: an unavailable count is unknown, and
+    // writing the fetched length under a name that means "records found" is
+    // precisely the conflation #114 is about.
+    return { records, total: page.total };
   } catch (err) {
     console.error('[flowlog] grounding lookup failed', err);
-    return [];
+    // A lookup FAILURE is not a corpus gap. Null keeps it out of the mining
+    // backlog, which treats 0 as "mine this position" (#58).
+    return { records: [], total: null };
   }
 }
 

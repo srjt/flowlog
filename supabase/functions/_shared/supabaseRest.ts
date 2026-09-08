@@ -6,6 +6,8 @@
 // Auth verification uses the caller's JWT (low privilege). Storage + DB use the
 // service role (server-side only) after we've derived the userId from the JWT.
 
+import { parseContentRangeTotal } from '../../../src/services/pagedSelect.ts';
+
 const baseUrl = () => Deno.env.get('SUPABASE_URL') ?? '';
 const anonKey = () => Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const serviceKey = () => Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -54,6 +56,40 @@ export async function dbSelect(query: string): Promise<any[]> {
     throw new Error(`DB select failed: ${res.status} ${await safeText(res)}`);
   }
   return await res.json();
+}
+
+/**
+ * PostgREST GET that also reports how many rows MATCH, not just how many came
+ * back (#114).
+ *
+ * `dbSelect` returns the body alone, which is fine until a query is capped —
+ * and PostgREST caps this project at `db-max-rows = 1000`, so a bare read of a
+ * large slice returns a truncated array with nothing to say so. `Prefer:
+ * count=exact` makes the server report the real total in `content-range`
+ * (`0-999/2478`), which is what lets a caller store the size of the pool
+ * rather than the size of its own request.
+ *
+ * A separate function rather than a flag on `dbSelect`: that helper has nine
+ * other callers whose return shape should not change for this.
+ */
+// deno-lint-ignore no-explicit-any
+export async function dbSelectCounted(
+  query: string,
+): Promise<{ rows: any[]; total: number | null }> {
+  const res = await fetch(`${baseUrl()}/rest/v1/${query}`, {
+    headers: {
+      apikey: serviceKey(),
+      Authorization: `Bearer ${serviceKey()}`,
+      Prefer: 'count=exact',
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`DB select failed: ${res.status} ${await safeText(res)}`);
+  }
+  return {
+    rows: await res.json(),
+    total: parseContentRangeTotal(res.headers.get('content-range')),
+  };
 }
 
 /** PostgREST insert returning the created row. */
