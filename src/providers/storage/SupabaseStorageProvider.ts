@@ -157,6 +157,26 @@ export class SupabaseStorageProvider implements IStorageProvider {
         target_position: update.targetPosition,
         quality_gate_passed: update.qualityGatePassed,
         pipeline_version: update.pipelineVersion,
+        // Grounding provenance, which this method declared in its type and
+        // silently dropped (#117). Spread conditionally so a caller that omits
+        // a field leaves the column alone rather than nulling it — the update
+        // must not erase what it does not know about.
+        ...(update.grounding !== undefined && { grounding: update.grounding }),
+        ...(update.groundingRecords !== undefined && {
+          grounding_records: update.groundingRecords,
+        }),
+        ...(update.groundingAvailable !== undefined && {
+          grounding_available: update.groundingAvailable,
+        }),
+        ...(update.groundingRecordIds !== undefined && {
+          grounding_record_ids: update.groundingRecordIds,
+        }),
+        ...(update.groundingCandidates !== undefined && {
+          grounding_candidates: update.groundingCandidates,
+        }),
+        ...(update.reanalyzedAt !== undefined && {
+          reanalyzed_at: update.reanalyzedAt,
+        }),
       })
       .eq('id', sessionId)
       .select()
@@ -308,6 +328,10 @@ function mapSession(row: any): Session {
     feedbackReason: row.feedback_reason ?? null,
     feedbackNote: row.feedback_note ?? null,
     pipelineVersion: row.pipeline_version ?? null,
+    // Read back so re-analysis can inherit the arm instead of re-drawing it
+    // (#117). Undefined-safe: rows predating these columns simply have none.
+    grounding: row.grounding ?? null,
+    reanalyzedAt: row.reanalyzed_at ?? null,
     createdAt: row.created_at,
   };
 }

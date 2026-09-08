@@ -116,20 +116,38 @@ describe('what the session row records about the pool', () => {
 });
 
 describe('the pipeline version boundary', () => {
-  // Migrations 019 and 020 both segment on this value. Bumping it is part of
-  // each fix, and 020's predicate hardcodes the 1.1.0 boundary against it.
-  it('is 1.2.0, the version whose candidate count is exact', () => {
-    expect(source).toContain("const PIPELINE_VERSION = '1.2.0'");
+  const version = source.match(/const PIPELINE_VERSION = '([^']+)'/)?.[1];
+  const migration020 = readFileSync(
+    join(
+      __dirname,
+      '../../supabase/migrations/020_grounding_candidates_exact.sql',
+    ),
+    'utf8',
+  );
+
+  // Asserted as an INVARIANT rather than a literal. The version moves whenever
+  // a grounding fix lands (1.3.0 for #117), and a test pinning the number would
+  // fail for the right change while missing the wrong one: shipping a version
+  // that migration 020 still classifies as a lower bound.
+  it('ships a version whose candidate count migration 020 calls exact', () => {
+    expect(version).toBeTruthy();
+    const clause = migration020.match(/not in \(([^)]*)\)/)?.[1];
+    expect(clause).toBeTruthy();
+    const excluded = clause!.split(',').map((v) => v.trim().replace(/'/g, ''));
+    expect(excluded).toEqual(['1.0.0', '1.1.0']);
+    expect(excluded).not.toContain(version);
   });
 
-  it('is encoded identically in migration 020', () => {
-    const migration = readFileSync(
+  // Migration 021 documents the 1.3.0 boundary in prose; it must name the
+  // version the code actually ships or the caveat points at nothing.
+  it('is the version migration 021 names as the re-analysis boundary', () => {
+    const migration021 = readFileSync(
       join(
         __dirname,
-        '../../supabase/migrations/020_grounding_candidates_exact.sql',
+        '../../supabase/migrations/021_reanalysis_provenance.sql',
       ),
       'utf8',
     );
-    expect(migration).toContain("not in ('1.0.0', '1.1.0')");
+    expect(migration021).toContain(`before ${version}`);
   });
 });

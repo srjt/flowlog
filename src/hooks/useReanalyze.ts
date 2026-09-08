@@ -28,6 +28,13 @@ export function useReanalyze() {
       sessionId: string;
       sportKey: SportKey;
       editedTranscript: string;
+      /**
+       * The arm and gi context already on the row (#117). Passed through from
+       * the caller, which holds the Session: re-analysis must inherit both
+       * rather than re-deciding them.
+       */
+      existingGrounding?: string | null;
+      existingGi?: 'gi' | 'no-gi' | null;
     }): Promise<PipelineOutput | null> => {
       if (!authUser) {
         setState({
@@ -46,6 +53,8 @@ export function useReanalyze() {
           sportKey: args.sportKey,
           skillLevel,
           editedTranscript: args.editedTranscript,
+          existingGrounding: args.existingGrounding ?? null,
+          existingGi: args.existingGi ?? null,
         });
         setState({ status: 'idle' });
         return result;

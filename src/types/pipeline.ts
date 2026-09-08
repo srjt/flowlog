@@ -176,6 +176,29 @@ export interface ReanalyzeInput {
   sportKey: SportKey;
   skillLevel: SkillLevel;
   editedTranscript: string;
+  /**
+   * The arm this session was already assigned, from the row the caller holds
+   * (#117).
+   *
+   * Re-analysis regenerates a cue for a session that has one, so its arm is a
+   * fact to be read rather than a draw to be repeated. Passed in because the
+   * original assignment key cannot be reconstructed — see `inheritedArm` in
+   * `src/sports/experiment.ts` — and because the caller already has the whole
+   * Session in hand, exactly as it does for `sportKey`.
+   *
+   * Undefined means "caller did not say", which falls through to a fresh
+   * assignment. That is correct for a row that never had an arm; it is only
+   * wrong if a caller that HAS the value omits it.
+   */
+  existingGrounding?: string | null;
+  /**
+   * The gi context settled at capture time, from the row the caller holds.
+   *
+   * Re-analysis must not re-decide it (#60): correcting a typo should not swap
+   * which records can apply. Passed for the same reason as `existingGrounding`,
+   * and required for this path to filter identically to the edge function's.
+   */
+  existingGi?: 'gi' | 'no-gi' | null;
 }
 
 export interface PipelineOutput {

@@ -128,6 +128,12 @@ export default function SessionDetailScreen() {
       sessionId: session.id,
       sportKey: session.sportKey,
       editedTranscript: text,
+      // Inherited, not re-decided (#117): re-analysis must not move a session
+      // between experiment arms, nor re-settle the gi context that was fixed
+      // at capture time (#60).
+      existingGrounding: session.grounding ?? null,
+      existingGi:
+        session.gi === 'gi' || session.gi === 'no-gi' ? session.gi : null,
     });
     if (!result) return; // the hook surfaced a friendly error
     // The whole breakdown (positions, key mistake…) changed server-side, so
