@@ -125,6 +125,7 @@ export class SupabaseStorageProvider implements IStorageProvider {
         grounding_available: session.groundingAvailable ?? null,
         grounding_record_ids: session.groundingRecordIds ?? null,
         grounding_candidates: session.groundingCandidates ?? null,
+        grounding_gate_passed: session.groundingGatePassed ?? null,
         target_position: session.targetPosition,
         quality_gate_passed: session.qualityGatePassed,
         pipeline_version: session.pipelineVersion,
@@ -173,6 +174,9 @@ export class SupabaseStorageProvider implements IStorageProvider {
         }),
         ...(update.groundingCandidates !== undefined && {
           grounding_candidates: update.groundingCandidates,
+        }),
+        ...(update.groundingGatePassed !== undefined && {
+          grounding_gate_passed: update.groundingGatePassed,
         }),
         ...(update.reanalyzedAt !== undefined && {
           reanalyzed_at: update.reanalyzedAt,

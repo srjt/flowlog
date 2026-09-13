@@ -4,7 +4,10 @@ import { storageProvider } from '@/providers/storage';
 import type { IStorageProvider } from '@/providers/storage';
 import { CoachingService } from '@/services/CoachingService';
 import { ExtractionService } from '@/services/ExtractionService';
-import { candidatePositions, rankRecords } from '@/services/GroundingService';
+import {
+  candidatePositions,
+  rankRecordsWithStats,
+} from '@/services/GroundingService';
 import { assignGrounding, type GroundingAssignment } from '@/sports/experiment';
 import {
   filterByGiContext,
@@ -169,6 +172,9 @@ export class FlowlogPipeline {
           grounding: 'declined',
           groundingRecords: 0,
           groundingAvailable: 0,
+          // Nothing was looked up or ranked here — unknown, not zero. 0 would
+          // read as "the gate rejected everything" (#119).
+          groundingGatePassed: null,
         });
         done('persistence');
 
@@ -201,6 +207,7 @@ export class FlowlogPipeline {
         records: groundingRecords,
         assignment,
         candidates: groundingCandidates,
+        gatePassed: groundingGatePassed,
       } = await this.loadGrounding(
         input.sportKey,
         extraction,
@@ -275,6 +282,10 @@ export class FlowlogPipeline {
         groundingCandidates:
           groundingCandidates < 0 ? null : groundingCandidates,
         groundingAvailable: assignment.available,
+        // Before the rank cap (#119). `groundingAvailable` above is
+        // `min(this, GROUNDING_RECORD_LIMIT)`, so without it the funnel jumps
+        // from the pool straight to a number pinned at the limit.
+        groundingGatePassed,
         // Sliced identically to `groundingRecords`, or the ids and the count
         // would disagree about the same prompt.
         groundingRecordIds: groundingRecords.map((r) => r.id),
@@ -356,6 +367,7 @@ export class FlowlogPipeline {
           // same update, so the old count describes positions no longer on the
           // row. Null is unknown; 0 would read as a corpus gap (#58).
           groundingCandidates: null,
+          groundingGatePassed: null,
           reanalyzedAt: new Date().toISOString(),
           pipelineVersion: PIPELINE_VERSION,
         },
@@ -389,6 +401,7 @@ export class FlowlogPipeline {
       records: groundingRecords,
       assignment,
       candidates: groundingCandidates,
+      gatePassed: groundingGatePassed,
     } = await this.loadGrounding(
       input.sportKey,
       extraction,
@@ -441,6 +454,7 @@ export class FlowlogPipeline {
       groundingAvailable: assignment.available,
       groundingRecordIds: groundingRecords.map((r) => r.id),
       groundingCandidates,
+      groundingGatePassed,
       reanalyzedAt: new Date().toISOString(),
       pipelineVersion: PIPELINE_VERSION,
     });
@@ -516,6 +530,8 @@ export class FlowlogPipeline {
     assignment: GroundingAssignment;
     /** Records for the position BEFORE gi + relevance filtering (#58). */
     candidates: number;
+    /** Records that cleared the relevance gate, BEFORE the rank cap (#119). */
+    gatePassed: number | null;
   }> {
     try {
       const positionIds = candidatePositions(extraction);
@@ -526,13 +542,14 @@ export class FlowlogPipeline {
       // Before ranking, not after: a gi-only record must not occupy one of the
       // 20 slots and crowd out a mechanic that actually applies.
       const applicable = filterByGiContext(records, gi);
-      const relevant = rankRecords(
+      const ranked = rankRecordsWithStats(
         applicable,
         extraction.keyMistake,
         undefined,
         undefined,
         vocabulary,
       );
+      const relevant = ranked.records;
       const assignment = assignGrounding(sessionKey, relevant.length, {
         hasPosition: positionIds.length > 0,
         rollout: this.groundingRollout,
@@ -553,6 +570,9 @@ export class FlowlogPipeline {
         records: assignment.outcome === 'grounded' ? relevant : [],
         assignment,
         candidates: records.length,
+        // Before the cap, so the funnel is candidates -> gatePassed -> records
+        // rather than jumping to a number pinned at GROUNDING_RECORD_LIMIT.
+        gatePassed: ranked.gatePassed,
       };
     } catch (err) {
       // Grounding is enrichment; a lookup failure must not cost a session.
@@ -563,6 +583,9 @@ export class FlowlogPipeline {
         // A lookup failure is not a corpus gap. Null keeps it out of the
         // mining backlog rather than filing it as a position to mine.
         candidates: -1,
+        // Nothing was ranked, so the gate was never applied. Unknown, not 0 —
+        // 0 would read as "the gate rejected everything" (#119).
+        gatePassed: null,
       };
     }
   }

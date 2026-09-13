@@ -151,3 +151,32 @@ describe('the pipeline version boundary', () => {
     expect(migration021).toContain(`before ${version}`);
   });
 });
+
+// ── The funnel has to be readable from a session row (#119) ──────────────────
+//
+// `grounding_available` is the length of the ALREADY-SLICED rank result, so it
+// is min(gate-passers, GROUNDING_RECORD_LIMIT). It saturates at 20 and cannot
+// answer how selective the relevance gate is — the number #116 must calibrate
+// a cosine threshold against.
+describe('what the session row records about the funnel', () => {
+  it('stores the pre-cap gate count, not the capped one', () => {
+    expect(source).toContain('groundingGatePassed: ranked.gatePassed');
+    // `.records.length` here would re-create the bug: capped by construction.
+    expect(source).not.toMatch(/groundingGatePassed:\s*\w+\.records\.length/);
+  });
+
+  it('ranks once and reads both numbers off it', () => {
+    // A second uncapped rank purely to count would re-run a quadratic
+    // computation — ~300ms on a 2,386-record pool — for a value the first call
+    // already had and discarded.
+    expect(source).toContain('rankRecordsWithStats');
+    expect(source.match(/rankRecordsWithStats\(/g)).toHaveLength(2);
+    expect(source).not.toMatch(/MAX_SAFE_INTEGER/);
+  });
+
+  it('records unknown rather than zero where nothing was ranked', () => {
+    // 0 means the gate rejected everything, which is a finding about the
+    // corpus. Conflating it with "not measured" is the #58 error one layer down.
+    expect(source).toContain('groundingGatePassed: null');
+  });
+});

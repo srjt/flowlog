@@ -101,6 +101,14 @@ export interface NewSession {
   groundingRecordIds?: string[] | null;
   /** Records found for the position BEFORE the gi filter and relevance gate (#58). */
   groundingCandidates?: number | null;
+  /**
+   * Records that cleared the relevance gate, BEFORE the rank cap (#119).
+   *
+   * `groundingAvailable` is `min(this, GROUNDING_RECORD_LIMIT)`, being the
+   * length of the already-sliced set — so without this the gate's selectivity
+   * is not observable. Null means not recorded, never zero.
+   */
+  groundingGatePassed?: number | null;
 }
 
 /**
@@ -153,6 +161,14 @@ export interface SessionAnalysisUpdate {
   groundingRecordIds?: string[] | null;
   /** Records found for the position BEFORE the gi filter and relevance gate (#58). */
   groundingCandidates?: number | null;
+  /**
+   * Records that cleared the relevance gate, BEFORE the rank cap (#119).
+   *
+   * `groundingAvailable` is `min(this, GROUNDING_RECORD_LIMIT)`, being the
+   * length of the already-sliced set — so without this the gate's selectivity
+   * is not observable. Null means not recorded, never zero.
+   */
+  groundingGatePassed?: number | null;
 }
 
 /** Mirrors the `public.user_trends` table. */
