@@ -87,6 +87,21 @@ Session, so trends and streaks are unaffected.
 _Avoid_: reprocess (server-internal wording), redo, re-run, transcript review
 (there is no pre-Cue review step)
 
+### Grounding
+
+**Coaching record**:
+One distilled piece of mechanics for a single position — what to do or not do,
+why, and the conditions under which it holds. Carries no link to the material it
+was derived from. The vetted material a Cue rests on.
+_Avoid_: card (a card is how the review bench displays a record), tip, technique,
+snippet
+
+**Grounding**:
+Supplying the Coaching records most relevant to a Session's Key mistake to the
+coaching step, so the Cue rests on vetted mechanics rather than the model's
+general knowledge. Every Session either was grounded or records why it was not.
+_Avoid_: RAG, retrieval, injection
+
 ### What a Session records
 
 **Positions visited**:

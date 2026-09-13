@@ -1,0 +1,4 @@
+{
+  "//": "Scopes ESM to the admin tool only, as in scripts/review. Node's TypeScript type-stripping needs to know these are ES modules.",
+  "type": "module"
+}

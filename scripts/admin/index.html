@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flowlog cue review</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <header class="brand">
+        <h1>Cue review</h1>
+        <span id="count" class="muted"></span>
+      </header>
+      <form id="filters" class="filters" autocomplete="off"></form>
+      <ul id="list" class="list" aria-label="Sessions"></ul>
+    </aside>
+    <main id="detail" class="detail">
+      <p class="empty muted">Loading sessions…</p>
+    </main>
+  </body>
+</html>

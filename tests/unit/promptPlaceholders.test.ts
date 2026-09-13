@@ -156,3 +156,20 @@ describe('the edge function renders grounding, not just receives it', () => {
     );
   });
 });
+
+describe("the cue review tool's prompt builder fills like production", () => {
+  // scripts/admin/prompt.ts rebuilds the coaching prompt for copying into
+  // other models. It cannot import the edge function's private fillTemplate,
+  // so it is held to the same placeholder contract here instead.
+  const source = read('scripts/admin/prompt.ts');
+
+  it('fills every coaching placeholder', () => {
+    const supplied = filledKeys(source, 'fillTemplate(sport.coachingPrompt, {');
+    const missing = COACHING_PLACEHOLDERS.filter((p) => !supplied.includes(p));
+    expect(missing).toEqual([]);
+  });
+
+  it('renders grounding with the single-sourced groundingSection', () => {
+    expect(source).toContain('GROUNDING: groundingSection(records)');
+  });
+});
