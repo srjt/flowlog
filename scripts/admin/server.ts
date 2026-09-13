@@ -38,10 +38,12 @@ import {
   UNKNOWN_VERSION_FACTS,
   groundingFunnel,
   injectedRecords,
+  latestRun,
   recordTrail,
   toSummary,
   versionKey,
   type RecordRow,
+  type SessionPromptRecord,
   type SessionRow,
   type VersionFacts,
   type VoteRow,
@@ -202,13 +204,32 @@ async function listSessions() {
   };
 }
 
+/**
+ * Prompts exactly as sent (#121). Null when the log cannot be read at all —
+ * migration 023 not applied yet — which the page reports as such rather than
+ * as "nothing recorded".
+ */
+async function sessionPrompts(
+  id: string,
+): Promise<SessionPromptRecord[] | null> {
+  try {
+    return await rest<SessionPromptRecord[]>(
+      'session_prompts?select=run_id,run,attempt,strict,produced_cue,provider,' +
+        `model,prompt,created_at&session_id=eq.${id}&order=created_at.asc,attempt.asc`,
+    );
+  } catch (err) {
+    console.warn(`  ! session_prompts unavailable: ${(err as Error).message}`);
+    return null;
+  }
+}
+
 async function sessionDetail(id: string) {
   const row = await sessionById(id);
   if (!row) return null;
 
   const ids = row.grounding_record_ids ?? [];
   const idList = ids.join(',');
-  const [records, votes, names, facts] = await Promise.all([
+  const [records, votes, names, facts, prompts] = await Promise.all([
     ids.length
       ? rest<RecordRow[]>(
           'coaching_records?select=id,position,prescription,why,detail,' +
@@ -224,6 +245,7 @@ async function sessionDetail(id: string) {
       `profiles?select=display_name&id=eq.${row.user_id}`,
     ),
     versionFacts([row.pipeline_version]),
+    sessionPrompts(id),
   ]);
   const versionFact =
     facts.get(versionKey(row.pipeline_version)) ?? UNKNOWN_VERSION_FACTS;
@@ -239,6 +261,10 @@ async function sessionDetail(id: string) {
     funnel: groundingFunnel(row, versionFact),
     records: injectedRecords(row.grounding_record_ids, records, votes),
     hasAudio: !!row.audio_storage_path,
+    prompts:
+      prompts === null
+        ? { available: false, latest: null }
+        : { available: true, latest: latestRun(prompts) },
   };
 }
 

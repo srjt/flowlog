@@ -49,10 +49,14 @@ trail, athlete.
 4. **Grounding.** The outcome, the funnel (candidates, then cleared the
    relevance gate, then injected), and the injected records in rank order with
    their _current_ review state.
-5. **Not recorded at generation time.** Skill level, recent mistakes, dominant
-   weakness, strict retry and provider were in the prompt but never saved.
-   They are listed as unknown rather than rebuilt from today's values. Logging
-   them is #121.
+5. **Prompt the model received.** The coaching prompt exactly as sent, from
+   `session_prompts` (#121, migration 023), with provider, model and a copy
+   button. It shows the attempt whose Cue the Session holds, from the latest
+   run (re-analysis adds a run). Earlier attempts the quality gate rejected
+   are collapsed below it; when the gate fell back to its safe Cue, the page
+   says no attempt produced it. Sessions generated before 023 show "not
+   recorded" and list the inputs that were never saved. If the table cannot be
+   read at all, the page says the migration is probably not applied.
 6. **Cue.** With quality gate result and the athlete's feedback.
 
 ### The record trail

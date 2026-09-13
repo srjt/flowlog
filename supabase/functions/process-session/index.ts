@@ -32,6 +32,8 @@ import {
 } from '../../../src/services/pagedSelect.ts';
 import { extract, generateCoaching, transcribe } from '../_shared/ai.ts';
 import { enforce } from '../_shared/quality-gate.ts';
+import { storeCoachingPrompts } from '../_shared/sessionPrompts.ts';
+import { recordAttempts } from '../../../src/services/promptLog.ts';
 import {
   dbInsert,
   dbSelect,
@@ -251,32 +253,27 @@ Deno.serve(async (req: Request) => {
         },
       );
       const reGrounding = reArm.outcome === 'grounded' ? reRelevant : [];
-      const initialCoaching = await generateCoaching(
-        extraction,
-        sport,
-        recentMistakes,
-        skillLevel,
-        dominantWeakness,
-        COACHING_CUE_MAX_WORDS,
-        false,
-        reGrounding,
+      // One path for every attempt, so each prompt is kept as sent (#121) —
+      // the gate's strict retries included.
+      const reCoaching = recordAttempts((strict: boolean) =>
+        generateCoaching(
+          extraction,
+          sport,
+          recentMistakes,
+          skillLevel,
+          dominantWeakness,
+          COACHING_CUE_MAX_WORDS,
+          strict,
+          reGrounding,
+        ),
       );
+      const initialCoaching = await reCoaching.coach(false);
       const gate = await enforce(
         initialCoaching,
         sport,
         COACHING_CUE_MAX_WORDS,
         QUALITY_GATE_RETRY_LIMIT,
-        (strict) =>
-          generateCoaching(
-            extraction,
-            sport,
-            recentMistakes,
-            skillLevel,
-            dominantWeakness,
-            COACHING_CUE_MAX_WORDS,
-            strict,
-            reGrounding,
-          ),
+        reCoaching.coach,
       );
 
       stage = 'reanalyze_persist';
@@ -330,6 +327,14 @@ Deno.serve(async (req: Request) => {
           reanalyzed_at: new Date().toISOString(),
           pipeline_version: PIPELINE_VERSION,
         },
+      );
+      // After the row holds this run's Cue, so the prompts stored describe the
+      // Cue the session now shows (#121). Earlier runs stay as history.
+      await storeCoachingPrompts(
+        reanalyzeSessionId,
+        'reanalysis',
+        reCoaching.attempts,
+        gate,
       );
       await updateUserTrends(user.id, existing.sport_key);
       return jsonResponse(outputFromRow(updated ?? existing, sport), 200);
@@ -609,16 +614,21 @@ Deno.serve(async (req: Request) => {
 
     // ── Stage 2b: coaching ──────────────────────────────────────────────────
     stage = 'coaching';
-    const initialCoaching = await generateCoaching(
-      extraction,
-      sport,
-      recentMistakes,
-      skillLevel,
-      dominantWeakness,
-      COACHING_CUE_MAX_WORDS,
-      false,
-      groundingRecords,
+    // One path for every attempt, so each prompt is kept as sent (#121) — the
+    // quality gate's strict retries included.
+    const coaching = recordAttempts((strict: boolean) =>
+      generateCoaching(
+        extraction,
+        sport,
+        recentMistakes,
+        skillLevel,
+        dominantWeakness,
+        COACHING_CUE_MAX_WORDS,
+        strict,
+        groundingRecords,
+      ),
     );
+    const initialCoaching = await coaching.coach(false);
 
     // ── Stage 3: quality gate (stricter retries, safe fallback) ─────────────
     stage = 'quality_gate';
@@ -627,17 +637,7 @@ Deno.serve(async (req: Request) => {
       sport,
       COACHING_CUE_MAX_WORDS,
       QUALITY_GATE_RETRY_LIMIT,
-      (strict) =>
-        generateCoaching(
-          extraction,
-          sport,
-          recentMistakes,
-          skillLevel,
-          dominantWeakness,
-          COACHING_CUE_MAX_WORDS,
-          strict,
-          groundingRecords,
-        ),
+      coaching.coach,
     );
 
     // ── Stage 4: persistence ────────────────────────────────────────────────
@@ -665,6 +665,10 @@ Deno.serve(async (req: Request) => {
     });
     if ('conflictOutput' in inserted) return inserted.conflictOutput;
     const session = inserted.row;
+
+    // Only once the row exists: a conflicting duplicate returned above, and
+    // its attempts must not be filed against the winning session (#121).
+    await storeCoachingPrompts(session.id, 'insert', coaching.attempts, gate);
 
     // Recompute trends so the NEXT session's coaching is trend-aware
     // (best-effort — never fail the request over this).

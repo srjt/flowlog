@@ -115,6 +115,30 @@ export async function dbInsert(
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
+/**
+ * PostgREST bulk insert. Returns nothing: its callers write records they never
+ * read back, so asking for a representation would only add payload.
+ */
+export async function dbInsertRows(
+  table: string,
+  rows: object[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const res = await fetch(`${baseUrl()}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: {
+      apikey: serviceKey(),
+      Authorization: `Bearer ${serviceKey()}`,
+      'content-type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) {
+    throw new Error(`DB insert failed: ${res.status} ${await safeText(res)}`);
+  }
+}
+
 /** PostgREST upsert (merge on the table's primary key). */
 export async function dbUpsert(
   table: string,

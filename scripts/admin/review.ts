@@ -350,3 +350,47 @@ export function groundingFunnel(row: SessionRow, facts: VersionFacts): Funnel {
     injected: row.grounding_records,
   };
 }
+
+// ── The prompt the model received (#121) ────────────────────────────────────
+
+/** A `session_prompts` row as the tool reads it. */
+export interface SessionPromptRecord {
+  run_id: string;
+  run: 'insert' | 'reanalysis';
+  attempt: number;
+  strict: boolean;
+  produced_cue: boolean;
+  provider: string;
+  model: string;
+  prompt: string;
+  created_at: string;
+}
+
+export interface RecordedRun {
+  run: 'insert' | 'reanalysis';
+  /** Every attempt of the run, first to last. */
+  attempts: SessionPromptRecord[];
+  /** The attempt whose Cue the row holds; null when the gate fell back. */
+  produced: SessionPromptRecord | null;
+  /** How many runs this session has had in total. */
+  runs: number;
+}
+
+/**
+ * The run behind the Cue the row holds now: the most recent one. Re-analysis
+ * adds a run and overwrites the Cue, so an earlier run describes a Cue that no
+ * longer exists.
+ */
+export function latestRun(rows: SessionPromptRecord[]): RecordedRun | null {
+  if (rows.length === 0) return null;
+  const newest = rows.reduce((a, b) => (b.created_at > a.created_at ? b : a));
+  const attempts = rows
+    .filter((r) => r.run_id === newest.run_id)
+    .sort((a, b) => a.attempt - b.attempt);
+  return {
+    run: newest.run,
+    attempts,
+    produced: attempts.find((a) => a.produced_cue) ?? null,
+    runs: new Set(rows.map((r) => r.run_id)).size,
+  };
+}
