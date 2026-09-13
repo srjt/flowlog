@@ -93,6 +93,16 @@ code {
   color: var(--muted);
 }
 
+.attempt {
+  margin-top: 8px;
+}
+
+.attempt summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
 .prompt {
   margin: 0;
   padding: 12px;

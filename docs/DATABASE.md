@@ -9,6 +9,7 @@
 | profiles    | Extends auth.users, stores sport and skill level | Enabled |
 | sessions    | Core session entity with full pipeline output    | Enabled |
 | user_trends | Computed trends, updated after each session      | Enabled |
+| session_prompts | The coaching prompt exactly as sent, one row per attempt (#121, migration 023). Service role only: grants revoked, because it carries coaching record text | Enabled, no client grants |
 
 ## Multi-Sport Design
 

@@ -522,6 +522,112 @@ function groundingSection(d, labels) {
   );
 }
 
+function copyButton(text, pre) {
+  const copy = h(
+    'button',
+    {
+      type: 'button',
+      onclick: async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          copy.textContent = 'Copied';
+        } catch {
+          // Clipboard refused: select the text so ⌘C still works.
+          const range = document.createRange();
+          range.selectNodeContents(pre);
+          getSelection().removeAllRanges();
+          getSelection().addRange(range);
+          copy.textContent = 'Selected, press ⌘C';
+        }
+        setTimeout(() => (copy.textContent = 'Copy prompt'), 2000);
+      },
+    },
+    'Copy prompt',
+  );
+  return copy;
+}
+
+const RECORDED_PROMPT = 'Prompt the model received';
+
+/** The logged prompt behind this Cue (#121), or why there is none to show. */
+function recordedPromptSection(p) {
+  if (!p.available) {
+    return section(
+      RECORDED_PROMPT,
+      h(
+        'p',
+        { class: 'callout warn' },
+        'The prompt log could not be read. Migration 023 (session_prompts) is probably not applied to this database yet.',
+      ),
+    );
+  }
+  if (!p.latest) {
+    return section(
+      RECORDED_PROMPT,
+      h(
+        'p',
+        { class: 'muted small' },
+        'Not recorded: this Cue was generated before prompt logging (#121). These inputs went into its prompt but were never saved:',
+      ),
+      h(
+        'ul',
+        { class: 'unknowns' },
+        NOT_RECORDED.map(([name, why]) =>
+          h('li', {}, h('strong', {}, name), ` (${why})`),
+        ),
+      ),
+    );
+  }
+
+  const { attempts, produced, run, runs } = p.latest;
+  const shown = produced ?? attempts[attempts.length - 1];
+  const pre = h('pre', { class: 'prompt' }, shown.prompt);
+  const label = (a) =>
+    `Attempt ${a.attempt}${a.strict ? ' (strict retry)' : ''}`;
+
+  return section(
+    RECORDED_PROMPT,
+    h(
+      'p',
+      { class: `callout ${produced ? 'ok' : 'warn'}` },
+      produced
+        ? `Exactly what the model received for the Cue below: ${label(shown).toLowerCase()} of ${attempts.length}.`
+        : `No attempt produced the Cue below: all ${attempts.length} failed the quality gate, which fell back to its safe Cue. Showing the last attempt.`,
+    ),
+    facts([
+      ['Model', `${shown.provider} · ${shown.model}`],
+      [
+        'Run',
+        run === 'reanalysis'
+          ? `Re-analysis${runs > 1 ? `, latest of ${runs} runs` : ''}`
+          : 'Original recording',
+      ],
+      ['Sent', dateTime(shown.created_at)],
+    ]),
+    h(
+      'div',
+      { class: 'actions' },
+      copyButton(shown.prompt, pre),
+      h(
+        'span',
+        { class: 'muted small' },
+        `${shown.prompt.length.toLocaleString()} characters`,
+      ),
+    ),
+    pre,
+    attempts
+      .filter((a) => a !== shown)
+      .map((a) =>
+        h(
+          'details',
+          { class: 'attempt' },
+          h('summary', {}, `${label(a)}, rejected by the quality gate`),
+          h('pre', { class: 'prompt' }, a.prompt),
+        ),
+      ),
+  );
+}
+
 function renderDetail(d) {
   const s = d.session;
   const labels = state.meta.positionLabels;
@@ -563,21 +669,7 @@ function renderDetail(d) {
       ]),
     ),
     groundingSection(d, labels),
-    section(
-      'Not recorded at generation time',
-      h(
-        'p',
-        { class: 'muted small' },
-        'These also went into the coaching prompt but were not saved, so they cannot be shown (#121).',
-      ),
-      h(
-        'ul',
-        { class: 'unknowns' },
-        NOT_RECORDED.map(([name, why]) =>
-          h('li', {}, h('strong', {}, name), ` (${why})`),
-        ),
-      ),
-    ),
+    recordedPromptSection(d.prompts),
     section(
       'Cue',
       s.coaching_cue

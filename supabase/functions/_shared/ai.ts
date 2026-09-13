@@ -14,6 +14,7 @@ import type {
   ExtractionOutput,
   TranscriptionResult,
 } from './types.ts';
+import type { SentPrompt } from '../../../src/services/promptLog.ts';
 
 const OPENAI_TRANSCRIPTION_URL =
   'https://api.openai.com/v1/audio/transcriptions';
@@ -266,7 +267,7 @@ export async function generateCoaching(
   maxWords: number,
   strict: boolean,
   groundingRecords: CoachingRecord[] = [],
-): Promise<CoachingOutput> {
+): Promise<CoachingOutput & { sent: SentPrompt }> {
   const base = fillTemplate(sport.coachingPrompt, {
     SKILL_LEVEL: skillLevel,
     KEY_MISTAKE: extraction.keyMistake,
@@ -286,8 +287,12 @@ export async function generateCoaching(
     MAX_WORDS: String(maxWords),
   });
   const prompt = base + (strict ? STRICT_RETRY_SUFFIX : '');
+  // Kept exactly as sent (#121): the prompt cannot be rebuilt later, because
+  // several of its inputs are never stored and record text is edited in place.
+  const provider = aiProvider();
+  const model = provider === 'gemini' ? geminiModel() : CLAUDE_MODEL;
   const text =
-    aiProvider() === 'gemini'
+    provider === 'gemini'
       ? await geminiGenerate([{ text: prompt }], 4096, true)
       : await claude(prompt, 512);
   const parsed = parseJson(text);
@@ -297,6 +302,7 @@ export async function generateCoaching(
     confidenceScore:
       typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0,
     isGeneric: parsed.isGeneric === true,
+    sent: { prompt, provider, model },
   };
 }
 
