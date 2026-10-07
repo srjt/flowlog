@@ -36,10 +36,29 @@ describe('generateCoaching reports what it sent', () => {
     expect(AI).toContain('sent: { prompt, provider, model }');
   });
 
-  it('names the model the request actually went to', () => {
-    expect(AI).toMatch(
-      /const model = provider === 'gemini' \? geminiModel\(\) : CLAUDE_MODEL/,
-    );
+  it('names the model the request actually went to, not the one intended', () => {
+    // Coaching runs on its own model (GEMINI_COACHING_MODEL), and a transient
+    // 503 on a preview model falls back to another. If the log kept the
+    // INTENDED model it would quietly misattribute every fallback cue — and
+    // this log is the record used to diagnose a bad cue, so a lie here is
+    // worse than no log.
+    expect(AI).toMatch(/let model = provider === 'gemini'/);
+    expect(AI).toMatch(/onModelUsed: \(m\) => \{/);
+  });
+
+  it('reports the model that answered, including after a fallback', () => {
+    // geminiGenerate must tell the caller which model replied, AFTER any
+    // retry — not before it.
+    const fn = AI.slice(AI.indexOf('async function geminiGenerate'));
+    const reported = fn.indexOf('opts.onModelUsed?.(model)');
+    const retried = fn.indexOf('model = fallback');
+    expect(retried).toBeGreaterThan(-1);
+    expect(reported).toBeGreaterThan(retried);
+  });
+
+  it('only falls back on a transient status, and never to itself', () => {
+    expect(AI).toMatch(/isTransient\(res\.status\)/);
+    expect(AI).toMatch(/fallback !== primary/);
   });
 });
 

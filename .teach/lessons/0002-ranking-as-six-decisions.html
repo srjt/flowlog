@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 2 — The ranking function, as six decisions</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="page">
+
+<header class="masthead col">
+  <p class="eyebrow">Flowlog pipeline · Lesson 2 · ~12 minutes · follows <a href="0001-two-pipelines-one-door.html">Lesson 1</a></p>
+  <h1>The ranking function, as six decisions</h1>
+  <p class="standfirst">Between your 5,574 records and the handful that reach the
+  prompt sit six choices. Five were made deliberately and the code argues for
+  each. The sixth was never made at all — and your own sessions show it
+  firing.</p>
+</header>
+
+<div class="col">
+
+<h2>The funnel, with your real numbers</h2>
+
+<p>Every number below is from your production database today, not an example.</p>
+
+<div class="funnel">
+  <div class="step">
+    <div class="n">5,574<small>records</small></div>
+    <div class="what"><b>The serving store</b>
+      <span>Across 42 canonical positions. Nine positions hold more than 200 records on their own.</span></div>
+  </div>
+  <div class="step">
+    <div class="n">1–3<small>positions</small></div>
+    <div class="what"><b>Candidate positions</b>
+      <span><code>candidatePositions()</code> — every position the extraction mentioned, normalised against the transcript for side.</span></div>
+  </div>
+  <div class="step accident">
+    <div class="n">≤200<small>hard slice</small></div>
+    <div class="what"><b>The database query — the decision nobody made</b>
+      <span><code>coaching_records?…&amp;limit=200</code>, with <strong>no <code>order by</code></strong>. Three of your sessions came back at exactly 200.</span></div>
+  </div>
+  <div class="step">
+    <div class="n">↓<small>gi filter</small></div>
+    <div class="what"><b>gi / no-gi</b>
+      <span>Applied before ranking so an inapplicable record cannot occupy a slot. The recording overrides the UI toggle.</span></div>
+  </div>
+  <div class="step">
+    <div class="n">≥2<small>gate</small></div>
+    <div class="what"><b>The relevance gate</b>
+      <span>A record must share at least two distinct meaningful terms with the key mistake, or it is dropped.</span></div>
+  </div>
+  <div class="step">
+    <div class="n">sort<small>4 keys</small></div>
+    <div class="what"><b>Certified → weighted → score → input order</b>
+      <span>The only place rarity and domain vocabulary are used.</span></div>
+  </div>
+  <div class="step">
+    <div class="n">20<small>cap</small></div>
+    <div class="what"><b>Into the prompt</b>
+      <span>Six of your eight grounded sessions landed on exactly 20 — the cap, not a coincidence.</span></div>
+  </div>
+</div>
+
+<h2>Decision 1 — what counts as a term</h2>
+
+<p>The match runs against the <strong>key mistake only</strong>. Not the
+transcript, not the opponent action, not the positions. Terms are runs of four
+or more letters, minus a stopword list of the connective words that appear in
+almost every extracted mistake (<code>practitioner</code>, <code>unable</code>,
+<code>opponent</code>, <code>while</code>…).</p>
+
+<p class="withnote">If that leaves zero terms, <code>rankRecords</code> returns
+an <strong>empty array</strong> rather than falling back to anything.
+<span class="sidenote">This is the same instinct as the extraction prompt
+returning <code>"unknown"</code> rather than guessing a side. Throughout this
+pipeline, the designed response to "I cannot tell" is to abstain, never to
+approximate.</span></p>
+
+<div class="callout">
+  <h4>Why abstain rather than fall back</h4>
+  <p>With nothing to match against you cannot tell relevance from irrelevance,
+  and injecting arbitrary records for the position is <em>precisely</em> what
+  the blind trial showed makes cues worse. No records is a better outcome than
+  wrong records.</p>
+</div>
+
+<h2>Decision 2 — the gate is a plain count</h2>
+
+<p>A record needs <code>GROUNDING_MIN_RELEVANCE = 2</code> distinct matched
+terms. Not a weighted score, not a similarity — a count.</p>
+
+<p>The value was bought with evidence. Injecting the top 20 records for a
+position made cues <strong>worse</strong>: a practitioner reading blind
+preferred the ungrounded cue two-to-one. The records were about the right
+position and the wrong problem, and the model dutifully built a confident,
+specific cue around a mechanic that answered a different question. Measured
+against the frozen baseline, a bar of 2 keeps 17 of 23 resolvable sessions
+grounded while cutting the median injected set from 25 to 4.</p>
+
+<p>You can see the gate biting in your own data. One session had
+<strong>137 candidate records</strong> for its positions and exactly
+<strong>one</strong> cleared the bar. That is the gate working, not failing.</p>
+
+<h2>Decision 3 — but the <em>order</em> is weighted</h2>
+
+<p>This is the distinction that repays understanding, and it is easy to read
+past: <strong>the gate is a count, the ordering is weighted.</strong> The same
+matched terms are used twice, scored two different ways.</p>
+
+<p>Ordering multiplies each matched term's inverse document frequency by 2 when
+the term is in the sport's own vocabulary. That second factor exists because of
+one specific failure:</p>
+
+<div class="callout">
+  <h4>The case that forced it</h4>
+  <p>For the mistake <em>"failed to secure the Kimura, allowing the opponent to
+  escape to Turtle"</em>, the words <code>allowing</code> and
+  <code>kimura</code> each appeared in exactly <strong>13 of 295</strong>
+  candidate records. Identical IDF. So <code>allowing+turtle</code> tied
+  <code>kimura+turtle</code>, nine records scored exactly 2, and
+  <strong>file order picked the winner</strong> — a record about hip connection
+  outranked the one naming the actual technique.</p>
+  <p>Rarity measures how unusual a word is. It does not measure how much the
+  word identifies a technique. <code>allowing</code> is rare because it is
+  connective tissue from the mistake sentence; <code>kimura</code> is rare
+  because few techniques are the Kimura. Only the sport vocabulary separates
+  them.</p>
+</div>
+
+<p>Note the direction of the problem: <strong>a bigger corpus makes this worse,
+not better.</strong> More records clear a low bar, so more of them pile into the
+tie, and the tiebreak was never meaningful. Yours has grown to 5,574.</p>
+
+<h2>Decision 4 — human review outranks keyword overlap</h2>
+
+<table>
+  <tr><th>Flag</th><th>Effect</th><th>Why that shape</th></tr>
+  <tr><td><code>rejected</code></td><td><strong>Gate</strong> — excluded outright</td>
+      <td>Matching is a weak signal; being wrong is not. No overlap score should rescue a record two reviewers called wrong.</td></tr>
+  <tr><td><code>contested</code></td><td><strong>Gate</strong> — excluded outright</td>
+      <td>Two black belts disagreeing is a finding about the mechanic. Building a confident cue on it is the exact failure grounding keeps producing.</td></tr>
+  <tr><td><code>certified</code></td><td><strong>Tiebreak</strong> — sorts first, does not gate</td>
+      <td>With 0 of 1,322 records certified, a gate would have grounded nothing at all. Review improves ranking smoothly instead of switching grounding off until the queue is done.</td></tr>
+</table>
+
+<h2>Decision 5 — the cap is about dilution, not cost</h2>
+
+<p>Twenty records is roughly 2,100 tokens on a prompt that is otherwise tiny, so
+money was never the constraint. The constraint is that burying the one relevant
+correction among 145 others makes the model choose badly.</p>
+
+<p>In your data the cap is binding on <strong>six of eight</strong> grounded
+sessions — they injected exactly 20 because 20 was the ceiling, not because
+20 was all that qualified. The other two injected 1 apiece. There is no middle.</p>
+
+<h2>Decision 6 — the one nobody made</h2>
+
+<p><em>Filed as <a href="https://github.com/srjt/flowlog/issues/114">srjt/flowlog#114</a> after this lesson was written.</em></p>
+
+<p>Before any of the above runs, the records have to be fetched:</p>
+
+<p><code>coaching_records?select=*&amp;sport_key=eq.bjj&amp;position=in.(…)&amp;limit=200</code></p>
+
+<p>That <code>limit=200</code> has no <code>order by</code> beside it. When a
+session's positions hold more than 200 records between them, Postgres returns
+<em>some</em> 200 of them and ranking never sees the rest.</p>
+
+<div class="stats">
+  <div class="stat"><b>5,574</b><span>records total</span></div>
+  <div class="stat warn"><b>9</b><span>positions over 200 alone</span></div>
+  <div class="stat warn"><b>1,114</b><span>records in <code>standing</code></span></div>
+  <div class="stat warn"><b>3</b><span>of your sessions hit exactly 200</span></div>
+</div>
+
+<p>The consequence is worse than "some records were missed", and it is worth
+being precise about why:</p>
+
+<ul>
+  <li><strong>The pool is arbitrary.</strong> Without <code>order by</code>,
+  which 200 rows come back is not specified by SQL. It is whatever the plan
+  produces.</li>
+  <li><strong>The weights are computed over that arbitrary pool.</strong> IDF in
+  <code>rankRecords</code> is measured against the candidate set, deliberately —
+  "the pool is already narrowed to a position and that is the set the choice is
+  actually made within". When the pool is a truncated slice of the real one, the
+  rarity of every term is measured against the wrong denominator. The
+  <em>ordering</em> shifts, not just the membership.</li>
+  <li><strong>It is silent.</strong> <code>grounding_candidates</code> records
+  200 and looks like a healthy pool. Nothing distinguishes "200 records existed"
+  from "at least 200 existed and we took some".</li>
+</ul>
+
+<div class="callout finding">
+  <h4>Measured, 2026-09-07 — how much of the corpus is unreachable</h4>
+  <p>The exact query the edge function issues, run against each of the nine
+  oversized positions:</p>
+  <table>
+    <tr><th>Position</th><th>Records</th><th>Reachable</th><th>Blind</th></tr>
+    <tr><td><code>standing</code></td><td>1,114</td><td>200</td><td><strong>82.0%</strong></td></tr>
+    <tr><td><code>closed-guard-bottom</code></td><td>712</td><td>200</td><td>71.9%</td></tr>
+    <tr><td><code>half-guard-bottom</code></td><td>652</td><td>200</td><td>69.3%</td></tr>
+    <tr><td><code>half-guard-top</code></td><td>447</td><td>200</td><td>55.3%</td></tr>
+    <tr><td><code>open-guard-bottom</code></td><td>445</td><td>200</td><td>55.1%</td></tr>
+    <tr><td><code>mount-top</code></td><td>268</td><td>200</td><td>25.4%</td></tr>
+    <tr><td><code>closed-guard-top</code></td><td>220</td><td>200</td><td>9.1%</td></tr>
+    <tr><td><code>back-mount-top</code></td><td>219</td><td>200</td><td>8.7%</td></tr>
+    <tr><td><code>mount-bottom</code></td><td>217</td><td>200</td><td>7.8%</td></tr>
+    <tr><td><strong>Total</strong></td><td><strong>4,294</strong></td><td><strong>1,800</strong></td><td><strong>58.1%</strong></td></tr>
+  </table>
+  <p>And a real session usually asks for <em>several</em> positions in one query
+  under the same single limit, so its blind rate is worse than any row above.</p>
+</div>
+
+<div class="callout">
+  <h4>Is it at least the same 200 every time? Yes — today</h4>
+  <p>Six consecutive runs of the identical query returned the same 200 ids in
+  the same order. So there is no determinism bug to report, and re-analysis is
+  not currently re-grounding sessions differently.</p>
+  <p>But that stability is not promised by anything. A query with no
+  <code>order by</code> may return rows in any order, and this one is stable
+  only because the plan and the heap happen to be stable. A vacuum, an update to
+  a record, a new publish, or a plan change can reshuffle it — and the day it
+  does, <a href="../../docs/adr/0011-correct-transcripts-after-the-cue.md">ADR
+  0011</a>'s promise that re-analysis must not change which records ground the
+  cue breaks silently. <strong>Stable by accident is not the same as stable.</strong></p>
+</div>
+
+<div class="callout">
+  <h4>One concrete skew worth seeing</h4>
+  <p>For <code>standing</code>, records published in the most recent batch are
+  reachable at <strong>7 of 422 — 1.7%</strong>, against 27.3% for the batch
+  before it. That is a real instance, but it is not a general law: for
+  <code>half-guard-bottom</code> the newest batches are tiny and fully
+  reachable. The bias depends on where rows sit in the heap, not on when they
+  were published. The <em>defensible</em> claim is the blind rate above; the
+  publish-recency story is an artefact you should not build on.</p>
+</div>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <p class="q">A session's key mistake yields zero usable terms. What does <code>rankRecords</code> return?</p>
+  <div class="opts">
+    <button>The top twenty records ranked by their overall quality</button>
+    <button>Every record that matches the position and gi context</button>
+    <button data-correct>Nothing at all, so the cue is written ungrounded</button>
+    <button>The records that two or more reviewers have certified</button>
+  </div>
+  <div class="why"><b>An empty array.</b> With no terms you cannot tell relevance
+  from irrelevance, and injecting arbitrary records for the position is exactly
+  what the blind trial showed makes cues worse. Abstaining is the designed
+  outcome, not a degraded one.</div>
+</div>
+
+<div class="quiz">
+  <p class="q">Two records both match exactly two terms. What decides which ranks higher?</p>
+  <div class="opts">
+    <button>Neither — a tie at the gate keeps the original input order</button>
+    <button data-correct>Rarity of the terms, doubled if in the vocabulary</button>
+    <button>Whichever record has more of its optional fields filled</button>
+    <button>The record whose position matches the session perspective</button>
+  </div>
+  <div class="why"><b>The gate is a count; the order is weighted.</b> Both clear
+  the gate at 2, then IDF over the candidate pool orders them, with a domain
+  term counting double. Input order is only the <em>last</em> tiebreak — and the
+  Kimura case is what happens when it becomes the first one that discriminates.</div>
+</div>
+
+<div class="quiz">
+  <p class="q">Why is <code>certified</code> a tiebreak rather than a requirement?</p>
+  <div class="opts">
+    <button>Because certification is advisory and reviewers often disagree</button>
+    <button>Because the ranking already accounts for reviewer confidence</button>
+    <button data-correct>Because zero records were certified, so nothing would ground</button>
+    <button>Because certifying a record is slower than mining a new one</button>
+  </div>
+  <div class="why"><b>It would have grounded nothing.</b> 0 of 1,322 records were
+  certified. Making it a gate switches grounding off entirely until the review
+  queue is finished; making it a tiebreak lets review improve ranking smoothly
+  from the first vote. Note that <code>rejected</code> and <code>contested</code>
+  <em>are</em> gates — the asymmetry is deliberate.</div>
+</div>
+
+<div class="quiz">
+  <p class="q">Why does a growing corpus make the ranking problem worse rather than better?</p>
+  <div class="opts">
+    <button>Because mining introduces contradictions between newer records</button>
+    <button data-correct>Because more records clear a low bar, inflating the ties</button>
+    <button>Because inverse document frequency degrades above a thousand rows</button>
+    <button>Because the twenty-record cap was calibrated on a smaller store</button>
+  </div>
+  <div class="why"><b>More records clear the bar.</b> The gate is a count of two,
+  so a bigger store means more records scoring exactly 2, more of them tied, and
+  the tiebreak deciding more often. That is why the Kimura collision surfaced
+  when the corpus grew rather than at the start.</div>
+</div>
+
+<div class="quiz">
+  <p class="q">Your session reports <code>grounding_candidates = 200</code>. What do you now know?</p>
+  <div class="opts">
+    <button>Two hundred records existed for the positions that session touched</button>
+    <button>The relevance gate removed everything beyond the first two hundred</button>
+    <button data-correct>At least two hundred existed, and ranking saw an arbitrary slice</button>
+    <button>The position resolved correctly and the corpus covers it thoroughly</button>
+  </div>
+  <div class="why"><b>At least 200, and the pool was cut.</b> 200 is the query's
+  own limit, so the number is a ceiling report, not a count. Worse, the IDF
+  weights were computed over that slice — so truncation changed the ordering of
+  what survived, not merely what was available.</div>
+</div>
+
+<p class="score" id="score">Answer the five above to see your recall score.</p>
+
+<h2>The knobs, ranked by what they'd buy</h2>
+
+<table>
+  <tr><th>Change</th><th>What it fixes</th><th>How you'd know it worked</th></tr>
+  <tr><td><strong>Order the fetch, or drop the limit</strong></td>
+      <td>Ranking finally sees the whole pool for the 9 big positions</td>
+      <td><code>grounding_candidates</code> stops clustering at exactly 200. 58% of the records in the nine biggest positions are currently unreachable — this is the largest single quality win available</td></tr>
+  <tr><td>Raise <code>GROUNDING_MIN_RELEVANCE</code> to 3</td>
+      <td>Fewer, sharper injections; less tie-breaking</td>
+      <td>Would have grounded fewer than 17 of 23 baseline sessions — measure before, not after</td></tr>
+  <tr><td>Lower <code>GROUNDING_RECORD_LIMIT</code> below 20</td>
+      <td>Dilution, which the cap exists for and is currently binding on 6 of 8</td>
+      <td>A blind read of paired cues. The mechanical metrics will not tell you</td></tr>
+  <tr><td>Match on more than <code>keyMistake</code></td>
+      <td>Sessions where the mistake is tersely worded and yields few terms</td>
+      <td>Risks the opposite failure — more terms means more records clear a count-based gate</td></tr>
+</table>
+
+<div class="callout win">
+  <h4>The habit to take from this</h4>
+  <p>Every constant in <code>grounding.ts</code> has a story attached in a
+  comment, and every story is a measurement. Before you change one, find its
+  story — the value you are about to replace was almost certainly the second
+  thing tried.</p>
+</div>
+
+<div class="footer">
+  <h2>Primary source</h2>
+  <p>Read <a href="../../src/sports/grounding.ts"><strong>src/sports/grounding.ts</strong></a>
+  end to end — it is 338 lines and roughly half of them are the reasoning. Pay
+  particular attention to <code>rankRecords</code>'s two <code>.map</code>
+  stages, where the count and the weight are computed side by side. Then read
+  <code>loadGroundingRecords</code> in
+  <a href="../../supabase/functions/process-session/index.ts">process-session/index.ts:604</a>
+  and notice that it carries no comparable argument for its 200.</p>
+
+  <h2>Next</h2>
+  <p>Lesson 3: <strong>measuring whether a change helped</strong> — the replay
+  harness, <code>blind-compare.sh</code>, and why
+  <code>docs/LOCAL_MINING.md</code> is built around a case where every
+  mechanical metric pointed the wrong way. That is the lesson that makes the
+  knobs above safe to turn.</p>
+
+  <h2>Reference</h2>
+  <p><a href="../reference/pipeline-map.html">The pipeline map &amp; grounding
+  glossary</a> — updated with the 200-row fetch limit.</p>
+
+  <div class="ask">
+    <strong>Ask me anything.</strong> Useful next questions: "run the same
+    candidate query twice and tell me if the ids differ", "show me the nine
+    positions and how often sessions actually hit them", or "what would the fix
+    to the fetch look like".
+  </div>
+</div>
+
+</div>
+</div>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>
