@@ -50,3 +50,6 @@ flowlog-records/
 *.records.json
 *.response.json
 *.prompt.txt
+
+# Personal learning material — kept local, never published.
+.teach/
