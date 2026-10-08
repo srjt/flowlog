@@ -47,6 +47,44 @@ function aiProvider(): string {
 function geminiModel(): string {
   return envOr('GEMINI_MODEL', 'gemini-2.5-flash');
 }
+
+/**
+ * The model that writes cues.
+ *
+ * Split from `GEMINI_MODEL` because the evidence only implicates coaching.
+ * Replaying real logged prompts, `gemini-2.5-flash` restated the goal — "secure
+ * a cross-collar grip" for an athlete whose mistake was *reaching for the
+ * collar* — while a Pro model answered "stop reaching, pull your knees to your
+ * chest". Same prompt, same records; the reasoning differed.
+ *
+ * Extraction is a structured-field task on a much longer prompt (the whole
+ * transcript) and shows no such failure, so it stays on `GEMINI_MODEL` and
+ * keeps its cost. Mirrors `GEMINI_TRANSCRIPTION_MODEL`, which already pins
+ * transcription independently.
+ */
+function geminiCoachingModel(): string {
+  return envOr('GEMINI_COACHING_MODEL', geminiModel());
+}
+
+/**
+ * Where to go when the primary model is unavailable.
+ *
+ * The coaching model is a *preview* model. Preview capacity is the first thing
+ * to go under load — mining hit `503 UNAVAILABLE` repeatedly on exactly this
+ * model — and a 503 here is not an abstraction: it is an athlete who recorded
+ * a session and got "the analysis service hiccuped".
+ *
+ * A slightly worse cue beats no cue. Falling back costs cue quality for one
+ * session; failing costs the recording.
+ */
+function geminiFallbackModel(): string {
+  return envOr('GEMINI_FALLBACK_MODEL', 'gemini-2.5-flash');
+}
+
+/** Transient on the provider's side: worth one retry elsewhere, not a defect. */
+function isTransient(status: number): boolean {
+  return status === 429 || status === 500 || status === 502 || status === 503;
+}
 function geminiTranscriptionModel(): string {
   // Transcription accuracy gates everything downstream (extraction and the
   // coaching cue), so it can run a stronger model than the text stages
@@ -290,10 +328,17 @@ export async function generateCoaching(
   // Kept exactly as sent (#121): the prompt cannot be rebuilt later, because
   // several of its inputs are never stored and record text is edited in place.
   const provider = aiProvider();
-  const model = provider === 'gemini' ? geminiModel() : CLAUDE_MODEL;
+  // Seeded with the intended model, then corrected to whatever answered — a
+  // fallback must be visible in the log, not inferred later from a bad cue.
+  let model = provider === 'gemini' ? geminiCoachingModel() : CLAUDE_MODEL;
   const text =
     provider === 'gemini'
-      ? await geminiGenerate([{ text: prompt }], 4096, true)
+      ? await geminiGenerate([{ text: prompt }], 4096, true, {
+          model: geminiCoachingModel(),
+          onModelUsed: (m) => {
+            model = m;
+          },
+        })
       : await claude(prompt, 512);
   const parsed = parseJson(text);
   return {
@@ -341,12 +386,21 @@ async function geminiGenerate(
   parts: any[],
   maxOutputTokens: number,
   jsonMode: boolean,
-  opts: { model?: string; temperature?: number } = {},
+  opts: {
+    model?: string;
+    temperature?: number;
+    /**
+     * Receives the model that actually answered. The prompt log records which
+     * model produced a cue (#121), and a silent fallback would make that log
+     * lie — which is precisely the record used to diagnose a bad cue.
+     */
+    onModelUsed?: (model: string) => void;
+  } = {},
 ): Promise<string> {
   const apiKey = requireSecret('GEMINI_API_KEY');
-  const url = `${GEMINI_BASE}/${opts.model ?? geminiModel()}:generateContent?key=${encodeURIComponent(
-    apiKey,
-  )}`;
+  const primary = opts.model ?? geminiModel();
+  const fallback = geminiFallbackModel();
+
   // deno-lint-ignore no-explicit-any
   const generationConfig: any = {
     maxOutputTokens,
@@ -354,11 +408,26 @@ async function geminiGenerate(
   };
   if (jsonMode) generationConfig.responseMimeType = 'application/json';
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts }], generationConfig }),
-  });
+  const call = async (model: string) => {
+    const url = `${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    return await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts }], generationConfig }),
+    });
+  };
+
+  let model = primary;
+  let res = await call(model);
+
+  if (!res.ok && isTransient(res.status) && fallback && fallback !== primary) {
+    console.warn(
+      `gemini ${primary} returned ${res.status}; retrying on ${fallback}`,
+    );
+    model = fallback;
+    res = await call(model);
+  }
+
   if (!res.ok) {
     const detail = await safeText(res);
     console.error('gemini call failed:', res.status, detail.slice(0, 500));
@@ -367,6 +436,7 @@ async function geminiGenerate(
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini returned no text content.');
+  opts.onModelUsed?.(model);
   return text;
 }
 

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 1 — Two pipelines, one door</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="page">
+
+<header class="masthead col">
+  <p class="eyebrow">Flowlog pipeline · Lesson 1 of ∞ · ~10 minutes</p>
+  <h1>Two pipelines, one door</h1>
+  <p class="standfirst">A BJJ video and a user's voice note never meet. They are
+  processed by two completely separate pipelines that touch at exactly one
+  place — and that place is a single string substitution.</p>
+</header>
+
+<div class="col">
+
+<h2>The idea worth keeping</h2>
+
+<p>Almost everyone who reads this codebase tries to hold it as <em>one</em> long
+chain: video goes in, cue comes out. That model makes the whole thing
+untraceable, because the two ends are separated by weeks, by different
+languages, by different machines, and by a deliberate legal boundary.</p>
+
+<p>Hold it as <strong>two pipelines and one door</strong> instead:</p>
+
+<div class="rail build">
+  <div class="rail-label">Build time — offline, once per instructional, on your Mac</div>
+  <div class="hops">
+    <div class="hop"><b>1. Video</b><span>~/Documents/BJJ Instructionals</span></div>
+    <div class="hop"><b>2. Transcript</b><span>scripts/transcribe.py</span></div>
+    <div class="hop"><b>3. Records</b><span>scripts/mining/mine.ts</span></div>
+    <div class="hop"><b>4. Repair</b><span>records.ts:309</span></div>
+    <div class="hop"><b>5. Enrich</b><span>mining/enrich.ts</span></div>
+    <div class="hop"><b>6. Review store</b><span>~/flowlog-records</span></div>
+    <div class="hop"><b>7. Publish</b><span>mining/publish.ts</span></div>
+  </div>
+</div>
+
+<div class="door">▼ &nbsp; THE DOOR &nbsp; · &nbsp; <code>public.coaching_records</code> &nbsp; · &nbsp; ▼</div>
+
+<div class="rail run">
+  <div class="rail-label">Run time — per user session, ~10 seconds, in a Deno edge function</div>
+  <div class="hops">
+    <div class="hop"><b>1. Audio</b><span>expo-av / MediaRecorder</span></div>
+    <div class="hop"><b>2. Transcript</b><span>Whisper + vocabulary</span></div>
+    <div class="hop"><b>3. Extraction</b><span>strict JSON, no advice</span></div>
+    <div class="hop"><b>4. Grounding</b><span>sports/grounding.ts</span></div>
+    <div class="hop"><b>5. Coaching</b><span>25-word cue</span></div>
+    <div class="hop"><b>6. Quality gate</b><span>quality-gate.ts</span></div>
+    <div class="hop"><b>7. Persist</b><span>sessions row</span></div>
+  </div>
+</div>
+
+<p>Nothing crosses that door except distilled mechanics. Not the video, not the
+transcript, not the quote, not the instructor's name, not a timestamp. That is
+not tidiness — it is the reason the project is legally safe to run, and
+<a href="../../scripts/mining/publish.ts"><code>publish.ts</code></a> physically
+refuses to run when something tries to sneak through.</p>
+
+<div class="callout">
+  <h4>The boundary, in three lines of code</h4>
+  <p><code>DROPPED_FIELDS = ['quote', 'source', 'chapter']</code>
+  (<code>publish.ts:20</code>) — deleted.<br>
+  <code>scrubNames()</code> (<code>:116</code>) — partner names and "this
+  video" neutralised.<br>
+  <code>findLeaks()</code> (<code>:176</code>) — scans the <em>output</em> and
+  aborts the publish if any marker survived. It runs on what is about to ship,
+  not on what you meant to ship, which is why it catches leaks nobody
+  anticipated.</p>
+</div>
+
+<h2>What a "record" actually is</h2>
+
+<p>The unit that crosses the door is roughly <strong>60 words distilled from 90
+seconds of speech</strong>. On the build-time side it carries its evidence; on
+the serving side it has been stripped of it.</p>
+
+<table>
+  <tr><th>Field</th><th>Review store (local)</th><th>Serving store (Supabase)</th></tr>
+  <tr><td><code>prescription</code></td><td>what to do / not do</td><td>✓ (scrubbed)</td></tr>
+  <tr><td><code>why</code></td><td>the instructor's reasoning</td><td>✓ (scrubbed)</td></tr>
+  <tr><td><code>detail</code></td><td>the grip, angle, weight shift</td><td>✓ (scrubbed)</td></tr>
+  <tr><td><code>counter</code></td><td>how it gets beaten</td><td>✓ (scrubbed)</td></tr>
+  <tr><td><code>gi / level / opponent</code></td><td>when it applies</td><td>✓</td></tr>
+  <tr><td><code>quote</code></td><td>verbatim, 8+ words</td><td><strong>dropped</strong></td></tr>
+  <tr><td><code>source</code>, <code>chapter</code></td><td>instructor, volume, H:MM:SS</td><td><strong>dropped</strong></td></tr>
+  <tr><td><code>id</code></td><td><code>volume-slug-0429</code></td><td>opaque <code>uuid</code></td></tr>
+</table>
+
+<p class="withnote">Notice the <code>id</code> row. A serving id derived from
+the review id would itself be a citation, so publish maps between them through
+<code>id-mapping.json</code> — and that mapping is also what keeps a human's
+certification alive when a volume is re-mined.
+<span class="sidenote">There is deliberately <em>no</em> <code>mistake</code>
+field. Instructors state mistakes as prohibitions ("never bridge straight up"),
+so the mistake is already the negative half of the prescription. A separate
+field would be the model restating itself with no quote able to back it —
+see <code>records.ts:33</code>.</span></p>
+
+<h2>The door has a lock: three gates</h2>
+
+<p>Having records for a position is not enough to use them. Between the table
+and the prompt sit three filters, each added because the obvious behaviour was
+measured and found to be worse.</p>
+
+<table>
+  <tr><th>Gate</th><th>Where</th><th>Why it exists</th></tr>
+  <tr>
+    <td><strong>gi context</strong></td>
+    <td><code>process-session/index.ts:488</code></td>
+    <td>Applied <em>before</em> ranking, so a record that cannot apply never
+    occupies one of the 20 slots. What the recording says beats a stale UI
+    toggle.</td>
+  </tr>
+  <tr>
+    <td><strong>relevance ≥ 2</strong></td>
+    <td><code>grounding.ts:31</code></td>
+    <td>The one to remember. Injecting the top 20 records for a position made
+    cues <em>worse</em> — a blind trial preferred the ungrounded cue
+    two-to-one. Right position, wrong problem. The model built a confident,
+    specific cue around a mechanic answering a different question.</td>
+  </tr>
+  <tr>
+    <td><strong>review state</strong></td>
+    <td><code>grounding.ts:213</code></td>
+    <td><code>rejected</code> and <code>contested</code> records are excluded
+    outright; <code>certified</code> is only a <em>tiebreak</em>. With 0 of
+    1,322 records certified, making it a gate would have grounded nothing at
+    all.</td>
+  </tr>
+</table>
+
+<div class="callout win">
+  <h4>The sentence to take away</h4>
+  <p><strong>Specificity is worthless if it is aimed elsewhere.</strong> That is
+  the whole justification for the relevance gate, and it is the failure mode
+  you will look for first when a grounded cue is bad.</p>
+</div>
+
+<h2>And then: the door itself</h2>
+
+<p>All of that selection produces a list of records. One function turns that
+list into prompt text — <code>groundingSection()</code>, at
+<code>src/sports/grounding.ts:276</code>. It returns a block of guidance plus
+the mechanics, and it returns the <strong>empty string</strong> when there is
+nothing to inject, so an ungrounded cue is byte-identical to a cue from before
+grounding existed.</p>
+
+<p>That block reaches the model through exactly one substitution. In
+<code>src/sports/bjj/bjjPrompts.ts:150</code>, the coaching prompt ends:</p>
+
+<p><code>- Dominant weakness so far: {{DOMINANT_WEAKNESS}}{{GROUNDING}}</code></p>
+
+<p><strong>That placeholder is the door.</strong> Everything upstream — 88
+volumes, 40 hours of GPU transcription, 5,000 mined records, the splice repair,
+the enrichment pass, the leak guard, the certification votes — exists to put
+text into <code>{{GROUNDING}}</code>. If that one substitution does not happen,
+the entire build-time pipeline has no effect on any user, and nothing else in
+the system will tell you.</p>
+
+<div class="callout finding">
+  <h4>Finding — verify this yourself, it takes 30 seconds</h4>
+  <p>The client reference implementation fills it
+  (<code>src/providers/ai/ClaudeProvider.ts:89</code>).
+  The <strong>server</strong> — the one that actually serves users, per
+  <code>docs/PIPELINE.md</code> — does not.</p>
+  <p>In <code>supabase/functions/_shared/ai.ts</code>,
+  <code>generateCoaching</code> (line 260) takes a
+  <code>groundingRecords</code> parameter at line 268, imports
+  <code>groundingSection</code> at line 10 — and its <code>fillTemplate</code>
+  call at line 270 has no <code>GROUNDING</code> key. The parameter is never
+  read.</p>
+  <p>Run this:</p>
+  <p><code>grep -n "groundingRecords" supabase/functions/_shared/ai.ts</code></p>
+  <p>One line comes back: the parameter declaration. A value that is passed and
+  never read.</p>
+</div>
+
+<p>Work out the consequences before reading on — this is the exercise, and it is
+the exact reasoning the mission asks for. Then check yourself below.</p>
+
+<div class="quiz">
+  <p class="q">If <code>{{GROUNDING}}</code> is never substituted server-side, what does the live model receive?</p>
+  <div class="opts">
+    <button>The records, in a slightly different order than intended</button>
+    <button>The records, unranked and without the discard guidance</button>
+    <button data-correct>The literal characters, and no reference mechanics at all</button>
+    <button>Nothing at all, because the whole coaching call would fail</button>
+  </div>
+  <div class="why"><b>The literal text.</b> <code>fillTemplate</code> only
+  replaces keys it is given, so the seven characters of the placeholder are sent
+  to Claude verbatim as part of the prompt, and no mechanics follow them. The
+  call succeeds. The cue comes back. Nothing errors.</div>
+</div>
+
+<div class="quiz">
+  <p class="q">What does the <code>sessions</code> row then record for that cue?</p>
+  <div class="opts">
+    <button>An error state, since grounding did not actually happen</button>
+    <button>Nothing, because the columns are only written on success</button>
+    <button data-correct><code>grounded</code>, plus a count and the record ids</button>
+    <button>A null arm, because assignment happens after the call</button>
+  </div>
+  <div class="why"><b>It says <code>grounded</code>, and it is wrong.</b>
+  Selection, arm assignment and logging all happen in
+  <code>index.ts:486–504</code> and all succeed. The write at line 548 records
+  the arm, the count, and — since migration 018 — the exact
+  <code>grounding_record_ids</code>. Every one of those columns describes a
+  treatment that was never applied.</div>
+</div>
+
+<div class="quiz">
+  <p class="q">What does that do to the grounded-vs-withheld A/B experiment?</p>
+  <div class="opts">
+    <button>Weakens it, so the effect size reads smaller than it truly is</button>
+    <button>Nothing, since both arms are affected equally by it</button>
+    <button data-correct>Voids it: both arms got the identical ungrounded prompt</button>
+    <button>Inverts it, so the control arm now looks better than treatment</button>
+  </div>
+  <div class="why"><b>Both arms are the same arm.</b> The <code>withheld</code>
+  arm passes an empty array; the <code>grounded</code> arm passes a full one —
+  and both are discarded at the same line. Any difference measured between them
+  is noise. The experiment cannot be salvaged retrospectively, only re-run.</div>
+</div>
+
+<div class="quiz">
+  <p class="q">Which existing test suite would have caught this?</p>
+  <div class="opts">
+    <button>The grounding unit tests, which cover selection and rendering</button>
+    <button>The pipeline integration tests, which run all seven stages</button>
+    <button>The quality gate tests, which inspect the generated cue text</button>
+    <button data-correct>None — every test exercises the client, not the server</button>
+  </div>
+  <div class="why"><b>None of them.</b> <code>tests/unit/grounding.test.ts</code>
+  tests <code>groundingSection</code> in isolation and it works.
+  <code>tests/integration/FlowlogPipeline.test.ts</code> tests the <em>reference
+  implementation</em>, which fills the placeholder correctly. There is no Deno
+  test anywhere under <code>supabase/functions/</code>. The bug lives precisely
+  in the gap between "mirrored by hand" and "verified".</div>
+</div>
+
+<div class="quiz">
+  <p class="q">What is the general lesson this repo keeps re-learning?</p>
+  <div class="opts">
+    <button>Server and client code should always share one runtime</button>
+    <button>Prompt templates are too fragile to build programmatically</button>
+    <button data-correct>A stage can silently do nothing and still report success</button>
+    <button>Experiments need larger samples before they can be trusted</button>
+  </div>
+  <div class="why"><b>Silent no-ops.</b> This is the third instance on record.
+  Issue #75: transcripts without timestamps were skipped by the miner and the
+  series "mined successfully" while producing nothing — 415k words. The volume
+  numbering collision: 13 transcripts were invisible to every mining run, for as
+  long as the corpus existed. And now this. In all three, every step reported
+  success. <strong>Whenever you add a stage here, ask what its output looks like
+  when it does nothing — and make that look different from working.</strong></div>
+</div>
+
+<p class="score" id="score">Answer the five above to see your recall score.</p>
+
+<h2>What you can now do</h2>
+
+<p>You can trace a cue in both directions. Forwards: a video becomes a
+transcript, becomes records with quotes, gets repaired and enriched, gets
+stripped and published as opaque rows. Backwards: a session row names its
+<code>grounding_record_ids</code>, those point at serving records, and
+<code>id-mapping.json</code> on your Mac maps them back to review records that
+carry a quote and an <code>H:MM:SS</code> into a specific volume.</p>
+
+<p>And you can name the one join between the halves — <code>{{GROUNDING}}</code>
+— which is where the next several lessons will live.</p>
+
+<div class="footer">
+  <h2>Primary source</h2>
+  <p>Read <a href="../../docs/LOCAL_MINING.md"><strong>docs/LOCAL_MINING.md</strong></a>
+  before the next lesson — the top third is enough. It is the highest-trust
+  document in this repo: a real experiment where every mechanical metric said
+  the local model won and a human reading twenty blind pairs said it lost, 14 to
+  3. The document says so plainly about its own earlier drafts. That is the
+  standard for how a measurement gets reported here.</p>
+
+  <h2>Next</h2>
+  <p>Lesson 2 will be <strong>the ranking function as a set of decisions</strong>
+  — why the relevance gate is 2 and not 1 or 3, why plain IDF scored
+  <code>allowing</code> and <code>kimura</code> identically, and what
+  <code>DOMAIN_TERM_WEIGHT = 2</code> bought. Every one of those is a knob you
+  could turn tomorrow to change cue quality.</p>
+
+  <h2>Reference</h2>
+  <p><a href="../reference/pipeline-map.html">The pipeline map &amp; grounding
+  glossary</a> — one page, print it. Every stage, every file, every gate, and
+  what each <code>grounding_*</code> column means.</p>
+
+  <div class="ask">
+    <strong>Ask me anything about this.</strong> I am your teacher for this
+    topic, and I have the whole repo open. Good questions right now: "show me
+    what the prompt actually looks like today", "what would the fix be", "why is
+    the relevance gate a count but the ordering weighted", or simply "I did not
+    follow the two-store thing".
+  </div>
+</div>
+
+</div>
+</div>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

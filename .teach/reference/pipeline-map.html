@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — Flowlog pipeline map</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .page { max-width: 60rem; }
+  .col { max-width: none; }
+  h2 { margin-top: 2.2rem; }
+  table { font-size: .82rem; }
+  td code { font-size: .78rem; }
+</style>
+</head>
+<body>
+<div class="page"><div class="col">
+
+<header class="masthead">
+  <p class="eyebrow">Flowlog · reference sheet · print me</p>
+  <h1>Pipeline map</h1>
+  <p class="standfirst">Every stage, the file that owns it, and the gate that
+  can silently drop your work.</p>
+</header>
+
+<h2>Build time — offline, once per instructional</h2>
+
+<table>
+  <tr><th>#</th><th>Stage</th><th>Owner</th><th>Gate / silent-failure mode</th></tr>
+  <tr><td>1</td><td>Video files</td><td><code>~/Documents/BJJ Instructionals/&lt;Instructor&gt;/&lt;Title&gt;</code></td>
+      <td>Filename must carry a volume number the batcher can see (<code>Vol.1</code>, trailing <code>4</code>). Otherwise: <strong>0 volumes found</strong>.</td></tr>
+  <tr><td>2</td><td>Transcribe</td><td><code>scripts/transcribe.py</code> — whisper.cpp + Metal, Silero VAD, local, free, slow</td>
+      <td><strong>Always <code>--timestamps</code>.</strong> Without <code>[h:mm:ss -&gt; …]</code> lines the miner does not recognise the file as a volume and skips it without complaint. Cost once: 415k words (#75).</td></tr>
+  <tr><td>3</td><td>Mine</td><td><code>scripts/mining/mine.ts</code> + <code>prompt.ts</code>; Gemini, Claude or Ollama. <strong>Costs money on Gemini.</strong></td>
+      <td><code>validateRecords</code> (<code>records.ts:441</code>) rejects a non-taxonomy position, empty prescription, or missing quote — loudly, with the offending value.</td></tr>
+  <tr><td>4</td><td>Repair quotes</td><td><code>repairQuote</code> (<code>records.ts:309</code>) — free, deterministic</td>
+      <td>Narrows a spliced quote to the longest contiguous transcript span that best supports the claim. Never rewrites. Floor: 8 words. Below it the record is <em>unverifiable</em>.</td></tr>
+  <tr><td>5</td><td>Enrich</td><td><code>scripts/mining/enrich.ts</code> — free</td>
+      <td>Fills empty <code>counter</code> and <code>applies-when</code> from the transcript. A proposal that is verbatim transcript is a pasted excerpt, not a condition — discarded.</td></tr>
+  <tr><td>6</td><td>Review store</td><td><code>~/flowlog-records</code> — outside the repo, gitignored, never uploaded</td>
+      <td>Holds verbatim third-party text. <strong>Never</strong> into the repo, a commit message, a PR body, or an issue.</td></tr>
+  <tr><td>7</td><td>Publish</td><td><code>scripts/mining/publish.ts</code></td>
+      <td>Drops <code>quote</code>/<code>source</code>/<code>chapter</code>, scrubs names, then <code>findLeaks()</code> scans the output and <strong>aborts</strong> if a marker survives. Publishes the <em>whole</em> review store, not just the title you mined.</td></tr>
+</table>
+
+<h2>Run time — per session, ~10 s, Deno edge function</h2>
+
+<table>
+  <tr><th>#</th><th>Stage</th><th>Owner</th><th>Rule</th></tr>
+  <tr><td>0</td><td>Sport context</td><td><code>getSportContext(sportKey)</code></td><td>No hardcoded sport logic downstream, ever.</td></tr>
+  <tr><td>1</td><td>Transcription</td><td>Whisper, primed with <code>sportContext.vocabulary</code></td><td>Rejects sub-minimum recordings and empty transcripts before any AI stage.</td></tr>
+  <tr><td>2a</td><td>Extraction</td><td><code>BJJ_EXTRACTION_PROMPT</code> → strict JSON</td><td>Extracts facts, <strong>gives no advice</strong>. Also decides <code>hasCoachableContent</code>, <code>perspective</code>, <code>statedGi</code> — each returns <code>unknown</code> rather than guessing.</td></tr>
+  <tr><td>2a½</td><td>Grounding</td><td><code>src/sports/grounding.ts</code> — single-sourced client + server</td><td>Runs <em>before</em> coaching: the coaching stage's own <code>targetPosition</code> arrives too late to inform the cue it is part of.</td></tr>
+  <tr><td>2b</td><td>Coaching</td><td><code>BJJ_COACHING_PROMPT</code> → one cue, ≤25 words</td><td>Receives <strong>structured JSON only</strong>, never the raw transcript.</td></tr>
+  <tr><td>3</td><td>Quality gate</td><td><code>_shared/quality-gate.ts</code></td><td>Word count, generic-phrase list, model's own <code>isGeneric</code>, confidence ≥ 0.6. Retries with a stricter prompt; on exhaustion returns a capped fallback and never surfaces an error.</td></tr>
+  <tr><td>4</td><td>Persist</td><td><code>sessions</code> row, tagged <code>pipeline_version</code></td><td>Audio upload failure degrades gracefully — the session still saves with a null audio path.</td></tr>
+</table>
+
+<h2>Grounding selection, in order</h2>
+
+<table>
+  <tr><th>Step</th><th>Code</th><th>What it does</th></tr>
+  <tr><td>1. Candidate positions</td><td><code>candidatePositions()</code> <code>grounding.ts:72</code></td>
+      <td>Normalises every position the extraction mentions. Uses key mistake + opponent action + <strong>raw transcript</strong> as context — the practitioner states their side far more often than the tidy summary does.</td></tr>
+  <tr><td>2. Load</td><td><code>loadGroundingRecords()</code> <code>index.ts:604</code></td>
+      <td>Service-role read of <code>coaching_records</code> for those positions, <strong><code>limit 200</code> with no <code>order by</code></strong>. <strong>Never throws</strong> — grounding is enrichment. The 200 is the one number in this path with no argument attached to it: 9 positions exceed it alone, and IDF is then computed over the truncated slice, so it shifts the ordering and not just the membership. <code>grounding_candidates = 200</code> means "at least 200", not "200".</td></tr>
+  <tr><td>3. gi filter</td><td><code>filterByGiContext()</code> <code>index.ts:488</code></td>
+      <td>Before ranking, so an inapplicable record cannot occupy a slot. Recording overrides the UI toggle (#60).</td></tr>
+  <tr><td>4. Rank</td><td><code>rankRecords()</code> <code>grounding.ts:179</code></td>
+      <td>Drop <code>rejected</code> + <code>contested</code> → gate on ≥2 distinct matched terms → order by IDF × domain weight → certified first → cap at 20.</td></tr>
+  <tr><td>5. Arm</td><td><code>assignGrounding()</code></td>
+      <td>Assigned <em>only</em> when records are available, so <code>withheld</code> means "had them, withheld them". Keyed on the idempotency id so a retry cannot flip the arm.</td></tr>
+  <tr><td>6. Render</td><td><code>groundingSection()</code> <code>grounding.ts:276</code></td>
+      <td>Guidance first, mechanics last. Returns <code>''</code> when empty, so an ungrounded prompt is byte-identical to the pre-grounding prompt.</td></tr>
+  <tr><td>7. Inject</td><td><code>{{GROUNDING}}</code> in <code>bjjPrompts.ts:150</code></td>
+      <td>The only door. Filled client-side at <code>ClaudeProvider.ts:89</code>. <strong>Not filled server-side</strong> — see lesson 1.</td></tr>
+</table>
+
+<h2>The magic numbers, and what bought them</h2>
+
+<table>
+  <tr><th>Constant</th><th>Value</th><th>Evidence</th></tr>
+  <tr><td><code>GROUNDING_RECORD_LIMIT</code></td><td>20</td><td>Cost is not the constraint (~2,100 tokens). <strong>Dilution</strong> is: <code>half-guard-bottom</code> alone has 145 records.</td></tr>
+  <tr><td><code>GROUNDING_MIN_RELEVANCE</code></td><td>2</td><td>Ungrounded beat top-20 grounded two-to-one in a blind trial. A bar of 2 keeps 17 of 23 sessions grounded while cutting the median injected set from 25 to 4.</td></tr>
+  <tr><td><code>DOMAIN_TERM_WEIGHT</code></td><td>2</td><td><code>allowing</code> and <code>kimura</code> each appeared in exactly 13 of 295 records — IDF scored them identically and file order picked the winner.</td></tr>
+  <tr><td><code>MIN_QUOTE_WORDS</code></td><td>8</td><td>Below it a quote is a fragment backing nothing. No repairable quote in either corpus came near the floor.</td></tr>
+  <tr><td>fetch <code>limit</code></td><td>200</td><td><strong>Nothing.</strong> The only constant here with no measurement behind it and no comment defending it. See lesson 2.</td></tr>
+  <tr><td>Cue word cap</td><td>25</td><td>Enforced in <em>both</em> <code>CoachingService.ts</code> and the system prompt. CLAUDE.md rule 6: change one, change both.</td></tr>
+</table>
+
+<h2>Glossary — the <code>sessions.grounding_*</code> columns</h2>
+
+<table>
+  <tr><th>Column</th><th>Meaning</th><th>What to do about it</th></tr>
+  <tr><td><code>grounding = 'grounded'</code></td><td>Records were injected.</td><td>—</td></tr>
+  <tr><td><code>= 'withheld'</code></td><td>Records were available; the experiment assigned the control arm.</td><td>The counterfactual for <code>grounded</code>. Nothing to fix.</td></tr>
+  <tr><td><code>= 'no_position'</code></td><td>The free-text position never resolved to a canonical id — usually the side was unknown, or it was a submission.</td><td>Fix the <strong>taxonomy or extraction</strong>. Mining more will not help.</td></tr>
+  <tr><td><code>= 'no_records'</code></td><td>The id resolved; the corpus has nothing for it.</td><td><strong>Mine that position.</strong> This is the mining backlog.</td></tr>
+  <tr><td><code>= 'declined'</code></td><td>The take had nothing coachable in it (#44). No cue was written.</td><td>Expected. <code>coaching_cue</code> is <code>NULL</code>, never <code>''</code>.</td></tr>
+  <tr><td><code>grounding_records</code></td><td>How many were actually injected.</td><td>0 unless <code>grounded</code>.</td></tr>
+  <tr><td><code>grounding_available</code></td><td>How many <em>could</em> have been. Same population in both arms — this is what makes them comparable.</td><td>—</td></tr>
+  <tr><td><code>grounding_candidates</code></td><td>Records for the position <em>before</em> gi + relevance filtering.</td><td>Distinguishes "corpus is empty" from "filters removed everything" (#58). <strong>Caps at 200</strong> — that exact value means the fetch was truncated, not that the pool was 200.</td></tr>
+  <tr><td><code>grounding_record_ids</code></td><td>The exact records injected, in rank order (migration 018).</td><td><strong><code>NULL</code> ≠ <code>{}</code>.</strong> NULL = unknown (pre-column). <code>{}</code> = we know nothing was injected.</td></tr>
+</table>
+
+<h2>The three silent no-ops on record</h2>
+
+<table>
+  <tr><th>What</th><th>Cost</th><th>Tell</th></tr>
+  <tr><td>Transcripts written without <code>--timestamps</code></td><td>415k words re-transcribed (#75)</td><td>Series "mined successfully", produced nothing.</td></tr>
+  <tr><td>Volume-number collision across a directory</td><td>13 transcripts invisible to every mining run, corpus-wide, forever</td><td>Scorer compared records to a <em>sibling</em> transcript; read as 1.4% fabrication.</td></tr>
+  <tr><td><code>{{GROUNDING}}</code> unfilled server-side</td><td>The whole build-time pipeline reaching no user; one voided A/B experiment</td><td><code>sessions.grounding</code> says <code>grounded</code>. Fixed in #112; pipeline 1.1.0 onward.</td></tr>
+  <tr><td>Candidate fetch truncated at 200 with no ordering</td><td>Ranking never sees most of the pool for the 9 largest positions, and weights the rest against the wrong denominator</td><td><code>grounding_candidates</code> reads exactly 200 and looks healthy.</td></tr>
+</table>
+
+<div class="ask">
+  <strong>Rule of thumb this earns:</strong> when you add a stage here, ask what
+  its output looks like when it does nothing — and make that look different from
+  working.
+</div>
+
+</div></div>
+</body>
+</html>
