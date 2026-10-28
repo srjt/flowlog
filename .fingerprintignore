@@ -1,0 +1,5 @@
+# @expo/fingerprint hashes the root .gitignore as a source ("bareGitIgnore"),
+# so an edit to it, like ignoring a local folder, moves the fingerprint and
+# looks like a native change. Before trusting a mismatch, see what moved:
+# npx eas-cli fingerprint:compare --build-id <id>  (docs/TESTFLIGHT.md)
+.gitignore
