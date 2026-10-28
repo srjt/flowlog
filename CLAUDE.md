@@ -138,8 +138,14 @@ unit-tested REFERENCE implementation the edge function mirrors. Sport content
 - Golf sport context content (structure exists, content is TODO)
 - Real audio recording (expo-av) — BUILT (web via MediaRecorder)
 - Supabase auth — BUILT (`src/services/AuthService.ts`); login/signup are real,
-  plus Google/Apple OAuth (PKCE, no client secrets) and password reset. OAuth
-  providers must be enabled in the Supabase dashboard (server/config side).
+  plus Google/Apple OAuth (PKCE, no client secrets). OAuth providers must be
+  enabled in the Supabase dashboard (server/config side).
+- Change password — BUILT (Profile row, `src/components/ChangePassword.tsx`;
+  re-verifies the current password by signing in, then `updateUser`; shown only
+  for accounts with the `email` provider, never in demo/local mode)
+- Password recovery — NOT BUILT. "Forgot password?" sends the reset email, but
+  no screen handles the emailed (or Supabase invite) link to set a new password,
+  so a lost password still needs the developer
 - Weekly re-engagement digest — BUILT (`DigestSettings` + `applyDigestPrefs`;
   local weekly notification summarizing focus area + recurring leak, opens
   Trends; summary baked from `computeTrends`, refreshed on Trends focus)

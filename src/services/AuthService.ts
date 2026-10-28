@@ -10,9 +10,26 @@ import type {
   SkillLevel,
   UserProfile,
 } from '@/types/user';
+import { logger } from '@/utils/logger';
 
 /** OAuth providers we offer. Apple is required on iOS when any social login exists. */
 export type OAuthProvider = 'google' | 'apple';
+
+/**
+ * Why a password change failed. The screen turns each into its own message;
+ * raw Supabase error text never reaches the athlete.
+ *  - `wrong-current`: the current password didn't sign in.
+ *  - `rejected`: the server refused the new password (too weak, or unchanged).
+ *  - `failed`: offline, or anything else.
+ */
+export type ChangePasswordFailure = 'wrong-current' | 'rejected' | 'failed';
+
+export class ChangePasswordError extends Error {
+  constructor(readonly reason: ChangePasswordFailure) {
+    super(`Password change failed: ${reason}`);
+    this.name = 'ChangePasswordError';
+  }
+}
 
 /** Deep link the OAuth/reset redirect returns to. Web uses the page origin. */
 function redirectUrl(): string {
@@ -123,6 +140,53 @@ export class AuthService {
       redirectTo: redirectUrl(),
     });
     if (error) throw new Error(error.message);
+  }
+
+  /**
+   * Change the signed-in account's password. Throws `ChangePasswordError`.
+   *
+   * Verify, then update: Supabase's `updateUser` doesn't ask for the current
+   * password, so signing in again with it first is what stops someone holding
+   * an unlocked phone from taking the account over. A failed sign-in leaves the
+   * existing session alone; a successful one replaces it with a fresh session
+   * for the same user, which also counts as a recent login should "secure
+   * password change" ever be turned on. Other devices' sessions are untouched.
+   */
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const email = session?.user.email;
+      if (!email) failPasswordChange('failed', 'no signed-in email');
+
+      const verify = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+      if (verify.error) {
+        failPasswordChange(
+          verify.error.code === 'invalid_credentials'
+            ? 'wrong-current'
+            : 'failed',
+          verify.error,
+        );
+      }
+
+      const update = await supabase.auth.updateUser({ password: newPassword });
+      if (update.error) {
+        const rejected =
+          update.error.code === 'weak_password' ||
+          update.error.code === 'same_password';
+        failPasswordChange(rejected ? 'rejected' : 'failed', update.error);
+      }
+    } catch (err) {
+      if (err instanceof ChangePasswordError) throw err;
+      failPasswordChange('failed', err); // offline throws rather than returns
+    }
   }
 
   /**
@@ -275,8 +339,25 @@ export class AuthService {
   }
 }
 
-function toAuthUser(user: { id: string; email?: string | null }): AuthUser {
-  return { id: user.id, email: user.email ?? null };
+function toAuthUser(user: {
+  id: string;
+  email?: string | null;
+  app_metadata?: { providers?: string[] };
+}): AuthUser {
+  return {
+    id: user.id,
+    email: user.email ?? null,
+    hasPassword: user.app_metadata?.providers?.includes('email') ?? false,
+  };
+}
+
+/** Log the cause (never the passwords) and throw the categorised reason. */
+function failPasswordChange(
+  reason: ChangePasswordFailure,
+  cause: unknown,
+): never {
+  logger.warn(`password change failed: ${reason}`, cause);
+  throw new ChangePasswordError(reason);
 }
 
 export const authService = new AuthService();

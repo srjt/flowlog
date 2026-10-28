@@ -32,4 +32,10 @@ export interface UserProfile {
 export interface AuthUser {
   id: string;
   email: string | null;
+  /**
+   * Whether the account can sign in with a password (it has Supabase's `email`
+   * provider). A Google-only account has no password to change. Unset for
+   * users not built from a Supabase user (the demo user), which reads as no.
+   */
+  hasPassword?: boolean;
 }

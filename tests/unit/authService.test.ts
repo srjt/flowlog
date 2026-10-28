@@ -28,7 +28,13 @@ describe('AuthService.getSessionUser', () => {
       error: null,
     });
     getUser.mockResolvedValue({
-      data: { user: { id: 'u1', email: 'a@b.com' } },
+      data: {
+        user: {
+          id: 'u1',
+          email: 'a@b.com',
+          app_metadata: { providers: ['email'] },
+        },
+      },
       error: null,
     });
 
@@ -36,7 +42,7 @@ describe('AuthService.getSessionUser', () => {
 
     expect(getSession).toHaveBeenCalled();
     expect(getUser).toHaveBeenCalled();
-    expect(user).toEqual({ id: 'u1', email: 'a@b.com' });
+    expect(user).toEqual({ id: 'u1', email: 'a@b.com', hasPassword: true });
   });
 
   it('returns null and never verifies when there is no persisted session', async () => {

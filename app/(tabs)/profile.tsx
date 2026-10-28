@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ChangePassword } from '@/components/ChangePassword';
 import { DigestSettings } from '@/components/DigestSettings';
 import { ReminderSettings } from '@/components/ReminderSettings';
 import { Button, Card, Text } from '@/components/ui';
@@ -20,9 +21,9 @@ import { logger } from '@/utils/logger';
 
 /**
  * Screen 5 — Profile / Settings. Lets the user switch active sport, set their
- * skill level, see account info, and sign out. Sport/skill changes update the
- * local store immediately and persist to the profile row in the background so
- * they survive reinstalls and other devices.
+ * skill level, see account info, change their password, and sign out.
+ * Sport/skill changes update the local store immediately and persist to the
+ * profile row in the background so they survive reinstalls and other devices.
  */
 export default function ProfileScreen() {
   const { authUser, activeSport, skillLevel, setActiveSport, setSkillLevel } =
@@ -33,6 +34,10 @@ export default function ProfileScreen() {
 
   const sportKeys = registeredSportKeys();
   const activeContext = getSportContext(activeSport);
+  // Demo / local-test runs as a fake user, so never touch real auth there
+  // (Delete account below follows the same rule). Google-only accounts have
+  // no password to change.
+  const realAccount = !isDemoMode && !isLocalPipeline;
 
   // Fire-and-forget server write; the local store is already updated so the
   // UI never blocks. On failure, tell the user their pick may not stick.
@@ -94,7 +99,11 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <ScrollView contentContainerClassName="gap-5 px-6 py-6">
+      <ScrollView
+        contentContainerClassName="gap-5 px-6 py-6"
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         <View className="flex-row items-center justify-between">
           <Text variant="title">Profile</Text>
           {isDemoMode ? (
@@ -207,9 +216,11 @@ export default function ProfileScreen() {
           onPress={() => router.push('/(onboarding)/tour?mode=replay')}
         />
 
+        {realAccount && authUser?.hasPassword ? <ChangePassword /> : null}
+
         <Button title="Sign out" variant="secondary" onPress={signOut} />
 
-        {!isDemoMode && !isLocalPipeline ? (
+        {realAccount ? (
           confirmDeleteAccount ? (
             <Card className="gap-3 border border-danger">
               <Text variant="body">
