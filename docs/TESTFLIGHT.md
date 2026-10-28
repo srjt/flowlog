@@ -186,6 +186,17 @@ and taken the core flow down.
 If the fingerprints differ, do not reason about whether the native change "looks
 safe". Build.
 
+**`.gitignore` is not a fingerprint source.** `@expo/fingerprint` hashes the
+root `.gitignore` by default, so ignoring a local folder used to fake a native
+change. `.fingerprintignore` excludes it. Builds up to and including 30 were
+fingerprinted with it included, so their hashes never match a local one again,
+and `fingerprint:compare` against them lists `.gitignore`. The next build
+starts clean. To see what actually moved, run:
+
+```bash
+npx eas-cli@latest fingerprint:compare --build-id <build id>   # lists each changed source
+```
+
 ## Quick reference
 
 ```bash
