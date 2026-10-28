@@ -17,7 +17,8 @@ to set up:
 1. **Install TestFlight** from the App Store (it's Apple's official beta app — free).
 2. **Tap this invite:** [TestFlight link]
    → tap **Accept**, then **Install** to get Flowlog.
-3. **Open Flowlog** and create an account (email + password, or Continue with Google).
+3. **Open Flowlog** and log in with your email and the temporary password I'll
+   text you. Then make it your own: **Profile → Change password**.
 4. After your next session, hit record and give it a try.
 
 **What I'd love from you:**
