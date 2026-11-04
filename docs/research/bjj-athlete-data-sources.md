@@ -178,6 +178,8 @@ partnership is theoretically possible but there is no public/self-serve API to b
 | **ADCC** | ADCC event results. | No structured public API; sporadic HTML. Elite-only, tiny coverage. | **Hard / niche.** |
 | **Digitsu BJJ Elo, BJJ Metrics, jits.gg, bjjlf.pro** | Third-party analytics/rankings sites that (like jiujitsu.net) **derive from IBJJF data**. `digitsu.com/bjj-elo-rankings`, `bjjmetrics.com`, `jits.gg` (youth), `bjjlf.pro/en/rankings`. **[verified they exist via search]** | Not inspected for APIs. Each carries the same upstream-IBJJF licensing question plus its own ToS. | **Unknown** — no advantage over jiujitsu.net, whose API we've already mapped and whose maintainers are approachable. |
 
+**Smoothcomp follow-up (2026-11-04, #93):** no public API, partner-only at best, ToS unread. See [`smoothcomp-api.md`](smoothcomp-api.md).
+
 ---
 
 ## Athlete-matching feasibility (mapping a Flowlog user → their record)
