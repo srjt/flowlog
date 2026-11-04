@@ -1,4 +1,5 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 
 const mockWhoAmI = jest.fn();
 const mockLoadQueue = jest.fn();
@@ -15,9 +16,28 @@ jest.mock('react-native-safe-area-context', () => {
   const RN = require('react-native');
   return { SafeAreaView: RN.View };
 });
+// Renders where a <Redirect> would send the visitor, so a test can read the
+// destination off the screen.
+jest.mock('expo-router', () => {
+  const { createElement } = require('react');
+  const { Text } = require('react-native');
+  return {
+    Redirect: ({ href }: { href: string }) =>
+      createElement(Text, { testID: 'redirect' }, href),
+  };
+});
 
 // eslint-disable-next-line import/first
 import ReviewScreen from '../../app/review/index';
+
+/**
+ * jest-expo runs as iOS. The bench is web-only (#125), so every bench test
+ * opts into the web explicitly; afterEach puts the platform back.
+ */
+const onPlatform = (os: typeof Platform.OS) =>
+  jest.replaceProperty(Platform, 'OS', os);
+
+afterEach(() => jest.restoreAllMocks());
 
 const record = (id: string, over: Record<string, unknown> = {}) => ({
   id,
@@ -44,8 +64,49 @@ const queue = (records: unknown[], extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-describe('ReviewScreen (#77)', () => {
+describe('ReviewScreen is web-only (#125)', () => {
   beforeEach(() => jest.clearAllMocks());
+
+  it.each(['ios', 'android'] as const)(
+    'on %s, sends the visitor to the entry route without checking reviewer access',
+    async (os) => {
+      // App Review 2.5.19: no screen in the native app that its UI cannot
+      // reach. The entry route then routes by sign-in and onboarding state,
+      // exactly as an app launch would.
+      onPlatform(os);
+      mockWhoAmI.mockResolvedValue({
+        state: 'reviewer',
+        identity: { id: 'r1', displayName: 'Ana', credential: 'black belt' },
+      });
+
+      const { getByTestId, queryByTestId } = render(<ReviewScreen />);
+      await act(async () => {});
+
+      expect(getByTestId('redirect').props.children).toBe('/');
+      expect(queryByTestId('review-card')).toBeNull();
+      // An athlete's native session must never query reviewer data.
+      expect(mockWhoAmI).not.toHaveBeenCalled();
+      expect(mockLoadQueue).not.toHaveBeenCalled();
+    },
+  );
+
+  it('on the web, checks reviewer access and opens the bench', async () => {
+    onPlatform('web');
+    mockWhoAmI.mockResolvedValue({ state: 'signed-out' });
+
+    const { findByTestId, queryByTestId } = render(<ReviewScreen />);
+
+    expect(await findByTestId('review-signed-out')).toBeTruthy();
+    expect(queryByTestId('redirect')).toBeNull();
+    expect(mockWhoAmI).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ReviewScreen (#77)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    onPlatform('web');
+  });
 
   it('tells a signed-out visitor to sign in, not that they lack access', async () => {
     mockWhoAmI.mockResolvedValue({ state: 'signed-out' });
@@ -214,7 +275,10 @@ describe('ReviewScreen (#77)', () => {
 });
 
 describe('ReviewScreen — reviewer notes (#84)', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    onPlatform('web');
+  });
 
   const asReviewer = () =>
     mockWhoAmI.mockResolvedValue({
