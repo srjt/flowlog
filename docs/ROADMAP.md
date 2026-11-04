@@ -153,20 +153,19 @@ graph LR
   I94 --> I96["#96"]
 ```
 
-## Decisions needed from you
+## Decisions _(settled 2026-11-04)_
 
-1. **Freeze the coaching path during the #137 window?** Recommended: yes, including
-   live corpus publishes (mine and dry-run, publish at close). Cost: #133 and #100
-   reach production about a month later.
-2. **#1 — which option?** Recommended: option 2 (compute it client-side in
-   `computeTrends`), split into two halves. Half A (Trends + digest Leak) goes now.
-   Half B (coaching input) waits until after the window, because it changes the
+1. **The coaching path is frozen during the #137 window.** The freeze covers live
+   corpus publishes: mine and dry-run during the window, then publish once at close.
+   Cost accepted: #133 and #100 reach production about a month later.
+2. **#1 is option 2**: compute the recurring Weakness client-side in
+   `computeTrends`, in two halves. Half A (Trends + digest Leak) goes in M2.
+   Half B (coaching input) goes in M3, after the window, because it changes the
    coaching prompt.
-3. **#132 — where verdicts live.** Recommended: a server-only table, locked down
-   like `session_prompts`. It is the only option that lets verdicts reach the
+3. **#132 verdicts live in a server-only table** (migration 025), locked down like
+   `session_prompts`. It is the only option that lets verdicts reach the
    per-record signal, which the issue calls the highest-value half.
-4. **Branching.** The parallel batch below wants one branch + PR per issue, so each
-   lands and deploys on its own.
+4. **Each issue gets one branch and one PR**, so each lands and deploys on its own.
 
 ## Housekeeping _(no code; do whenever)_
 
