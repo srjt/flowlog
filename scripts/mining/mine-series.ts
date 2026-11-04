@@ -16,8 +16,8 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 
+import { storeOrDie } from './stores.ts';
 import { volumeNumbersForDirectory } from './volumes.ts';
 
 function die(msg: string): never {
@@ -129,7 +129,9 @@ function main() {
   }
 
   const instructor = arg('--instructor') ?? 'Unknown';
-  const outDir = arg('--out') ?? join(homedir(), 'flowlog-records');
+  // Default: the canonical store, which must already exist. An explicit --out
+  // (a new experiment directory) is passed through and created by mine.ts.
+  const outDir = storeOrDie(arg('--out'), '--out').path;
   const force = has('--force');
   const dryRun = has('--dry-run');
   const mine = join(dirname(new URL(import.meta.url).pathname), 'mine.ts');
