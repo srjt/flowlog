@@ -4,7 +4,14 @@ import { ExtractionService } from '@/services/ExtractionService';
 import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
 import { COST_ESTIMATES } from '@/constants/pipelineConfig';
-import type { CoachingOutput, PipelineInput } from '@/types/pipeline';
+import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
+import { LocalTestStorageProvider } from '@/providers/storage/LocalTestStorageProvider';
+import type {
+  CoachingOutput,
+  ExtractionOutput,
+  ExtractionPerspective,
+  PipelineInput,
+} from '@/types/pipeline';
 import {
   MockAIProvider,
   MockStorageProvider,
@@ -1154,5 +1161,114 @@ describe('FlowlogPipeline — the relevance gate is measurable (#119)', () => {
 
     expect(storage.saved[0]?.groundingCandidates).toBeNull();
     expect(storage.saved[0]?.groundingGatePassed).toBeNull();
+  });
+});
+
+// ── The Session keeps the side Extraction reported (#130) ───────────────────
+// Without it a Session's Grounding cannot be replayed: side-dependent free text
+// ("half guard") resolves to no canonical position. These assert what ends up
+// on the row, on all four paths that write an Extraction.
+describe('FlowlogPipeline — the Session records its perspective (#130)', () => {
+  function sidePipeline(
+    perspective: ExtractionPerspective,
+    storage: IStorageProvider,
+    coachable = true,
+  ) {
+    const ai = new MockAIProvider(
+      {
+        perspective,
+        hasCoachableContent: coachable,
+        insufficientReason: coachable ? '' : 'no training was described',
+      },
+      [goodCue()],
+    );
+    return new FlowlogPipeline({
+      transcription: new TranscriptionService(new MockTranscriptionProvider()),
+      extraction: new ExtractionService(ai),
+      coaching: new CoachingService(ai),
+      qualityGate: new QualityGateService(),
+      storage,
+    });
+  }
+
+  const edited = {
+    sportKey: 'bjj' as const,
+    skillLevel: 'Blue Belt' as const,
+    editedTranscript:
+      'He passed to side control and I could not frame before the crossface landed.',
+  };
+
+  // 'unknown' included: Extraction abstained on purpose, and that abstention
+  // is a recorded finding, not a missing value.
+  it.each<ExtractionPerspective>(['top', 'bottom', 'unknown'])(
+    'saves the side Extraction reported: %s',
+    async (side) => {
+      const storage = new MockStorageProvider();
+      await sidePipeline(side, storage).run(input);
+      expect(storage.saved[0]?.perspective).toBe(side);
+    },
+  );
+
+  it('saves it on a declined take too', async () => {
+    const storage = new MockStorageProvider();
+    const result = await sidePipeline('top', storage, false).run(input);
+    expect(result.declined).toBe(true);
+    expect(storage.saved[0]?.coachingCue).toBeNull();
+    // No Cue, but still an Extraction — and it still says what side it read.
+    expect(storage.saved[0]?.perspective).toBe('top');
+  });
+
+  it('never saves a side the column would reject', async () => {
+    // A provider that reports 'neutral' (a property of a position, never of an
+    // Extraction). The column's constraint rejects it, which would fail the
+    // whole insert and lose the Session.
+    const storage = new MockStorageProvider();
+    await sidePipeline(
+      'neutral' as unknown as ExtractionOutput['perspective'],
+      storage,
+    ).run(input);
+    expect(storage.saved[0]?.perspective).toBe('unknown');
+  });
+
+  // Against a real store, so the assertion is on the row the second run left
+  // behind rather than on what was sent.
+  it('re-analysis overwrites it with the side of the edited transcript', async () => {
+    const storage = new LocalTestStorageProvider();
+    const userId = 'user-130-reanalysis';
+    const first = await sidePipeline('bottom', storage).run({
+      ...input,
+      userId,
+    });
+
+    await sidePipeline('top', storage).reanalyze({
+      ...edited,
+      sessionId: first.sessionId,
+      userId,
+    });
+
+    const [row] = await storage.listSessions(userId);
+    expect(row?.id).toBe(first.sessionId);
+    expect(row?.perspective).toBe('top');
+  });
+
+  it('a declined re-analysis overwrites it too', async () => {
+    const storage = new LocalTestStorageProvider();
+    const userId = 'user-130-declined-reanalysis';
+    const first = await sidePipeline('bottom', storage).run({
+      ...input,
+      userId,
+    });
+
+    const result = await sidePipeline('unknown', storage, false).reanalyze({
+      ...edited,
+      sessionId: first.sessionId,
+      userId,
+    });
+
+    expect(result.declined).toBe(true);
+    const [row] = await storage.listSessions(userId);
+    expect(row?.coachingCue).toBeNull();
+    // The edited transcript's abstention, not the superseded 'bottom'.
+    expect(row?.perspective).toBe('unknown');
   });
 });

@@ -85,31 +85,64 @@ export type Side = 'top' | 'bottom' | 'unknown';
 
 export interface SideInference {
   side: Side;
-  /** Where the side came from; null when it is unknown. */
-  source: 'stored records' | 'target position' | null;
+  /**
+   * Where the side came from.
+   *
+   *   recorded         `sessions.perspective` (migration 024): what Extraction
+   *                    reported. Its 'unknown' is a real finding — Extraction
+   *                    could not tell — and is used as is, as the pipeline did.
+   *   stored records   inferred, for a Session from before 024
+   *   target position  inferred, for a Session from before 024
+   *   null             not recorded and nothing to infer from. Unknown, and
+   *                    NOT "Extraction could not tell".
+   */
+  source: 'recorded' | 'stored records' | 'target position' | null;
+}
+
+/**
+ * The side this Session recorded, or null when it recorded none (#130).
+ *
+ * NULL — and an absent column, before 024 is applied — means the Session
+ * predates the column. It is never read as 'unknown': that value is Extraction's
+ * own recorded abstention, and conflating the two would hide whether to fix
+ * extraction or ignore the row.
+ */
+export function recordedPerspective(row: PromptSessionRow): Side | null {
+  const p = row.perspective;
+  return p === 'top' || p === 'bottom' || p === 'unknown' ? p : null;
 }
 
 /**
  * The side the athlete was on.
  *
- * Extraction's perspective was never stored, and without it side-dependent
- * positions ("De La Riva Guard", "half guard") resolve to nothing, so a session
- * the pipeline grounded in 18 records rebuilds with none. Two stand-ins, most
- * direct first:
+ * Without it side-dependent positions ("De La Riva Guard", "half guard")
+ * resolve to nothing, so a session the pipeline grounded in 18 records rebuilds
+ * with none. Most direct first:
  *
- *   1. The positions of the records this session was grounded in. The pipeline
+ *   1. The perspective the Session recorded (migration 024). What Extraction
+ *      actually reported, 'unknown' included: an abstention the pipeline also
+ *      had, so replaying it with a guessed side would rebuild a prompt the
+ *      pipeline never built.
+ *
+ * Sessions from before 024 recorded none, and fall back to two stand-ins:
+ *
+ *   2. The positions of the records this session was grounded in. The pipeline
  *      selected them using the perspective it had, so their side IS that
  *      perspective. Only trusted when they agree.
- *   2. The stored target position. Resolved from the Cue's target, so it is
+ *   3. The stored target position. Resolved from the Cue's target, so it is
  *      absent whenever the Cue named something that is not a canonical
  *      position ("Berimbolo").
  *
- * Neither available means unknown, never a guess.
+ * None available means unknown, never a guess — and `source: null` says it was
+ * not recorded, as opposed to Extraction recording that it could not tell.
  */
 export function inferredPerspective(
   row: PromptSessionRow,
   storedRecordPositions: string[] = [],
 ): SideInference {
+  const recorded = recordedPerspective(row);
+  if (recorded !== null) return { side: recorded, source: 'recorded' };
+
   const positions = sportFor(row).positions;
   const sideOf = (id: string): Side => {
     const p = positions.find((pos) => pos.id === id)?.perspective;
@@ -178,13 +211,20 @@ function fillTemplate(template: string, values: Record<string, string>) {
 
 function sideCaveat({ side, source }: SideInference): string {
   const lead = "Records are re-selected from today's corpus.";
+  const notRecorded =
+    'Perspective was not recorded for this session: it was written before Sessions stored it (migration 024)';
+  if (source === 'recorded') {
+    return side === 'unknown'
+      ? `${lead} Extraction recorded that it could not tell which side the athlete was on ("unknown"), so, as in the pipeline, positions that depend on a side may not resolve.`
+      : `${lead} Perspective "${side}" is the side Extraction recorded for this session.`;
+  }
   if (source === 'stored records') {
-    return `${lead} Perspective was never stored; it is taken as "${side}" from the records this session was grounded in.`;
+    return `${lead} ${notRecorded}; it is taken as "${side}" from the records this session was grounded in.`;
   }
   if (source === 'target position') {
-    return `${lead} Perspective was never stored; it is taken as "${side}" from the stored target position.`;
+    return `${lead} ${notRecorded}; it is taken as "${side}" from the stored target position.`;
   }
-  return `${lead} Perspective was never stored, and neither the stored records nor the target position carry a side, so positions that depend on a side may not resolve.`;
+  return `${lead} ${notRecorded}, and neither the stored records nor the target position carry a side, so positions that depend on a side may not resolve. This is a gap in the record, not Extraction failing to tell.`;
 }
 
 export function buildTodaysPrompt(

@@ -96,16 +96,22 @@ Extraction arrived now:
 | Coaching records                            | re-selected from today's corpus with the pipeline's ranking |
 
 It differs from what the model saw in known ways, all listed on the page:
-the quality gate's strict-retry wording is left out, records are injected as in
-the grounded arm, and **perspective was never stored**. Without a side,
-positions like "De La Riva Guard" resolve to nothing and the rebuild loses all
-of its grounding, so the side is inferred, most direct evidence first:
+the quality gate's strict-retry wording is left out, and records are injected
+as in the grounded arm. Without a side, positions like "De La Riva Guard"
+resolve to nothing and the rebuild loses all of its grounding, so the side is
+taken from the most direct evidence there is, and the page says which:
 
-1. **The positions of the records the Session was grounded in**, when they
-   agree. The pipeline selected them with the perspective it had.
-2. **The stored target position.** Often missing: a Cue that targets
+1. **The perspective the Session recorded** (`sessions.perspective`,
+   migration 024). What Extraction reported, used as is. A recorded `unknown`
+   means Extraction could not tell, and the rebuild keeps that abstention
+   rather than guessing a side the pipeline never had.
+2. Sessions from before 024 recorded none (NULL, which is never read as
+   "could not tell"). For those, **the positions of the records the Session
+   was grounded in**, when they agree. The pipeline selected them with the
+   perspective it had.
+3. **The stored target position.** Often missing: a Cue that targets
    "Berimbolo" never resolves to a canonical position.
-3. Otherwise **unknown**, never guessed.
+4. Otherwise **unknown**, never guessed, and labelled as not recorded.
 
 When the Session stored its record ids, the page compares them with today's
 selection. Replaying a Session that targeted "Berimbolo" with the side taken
