@@ -82,6 +82,7 @@ and dry-run clean; the #137 window has reached ~15 Sessions.
 | issue | what | owner | workstream |
 | --- | --- | --- | --- |
 | #137 | Report: model per attempt, fallback count, restatement rate (a human read), length vs median 22 / max 25, a recommendation on the cap | Mac agent + You | Coaching quality |
+| — | **Before any publish once votes exist:** stop the REST upload in `publish-cli.ts` from sending `contested`. With merge-duplicates it resets the flag that migration 014 derives from votes. Found during #131 (PR #143) | Cloud agent | Corpus |
 | — | **One batch publish** of #97, #133 and #100 via `flowlog-publish`, with the leak scan extended to Gordon Ryan series names; re-measure no-gi availability as *availability*, not coverage | Mac agent | Corpus |
 | #77 | Go-live: recruit black belts, cast the first real votes, verify vote upsert / RLS / trigger against a live session. The code is complete per #139 | You | Certification |
 | #132 | Build operator verdicts (migration 025 if it's a table) | Cloud agent | Coaching quality |
