@@ -45,6 +45,7 @@ content in `src/sports/` is single-sourced and imported by both.
 | Services       | `src/services/`   | Business logic. Uses providers via interfaces            |
 | Providers      | `src/providers/`  | External API implementations. Swappable via env          |
 | Sport Contexts | `src/sports/`     | All sport-specific config, vocabulary, prompts           |
+| Visualization  | `src/visualization/` | Sport-agnostic cue force diagrams (#135): grammar, keypoints, validator, renderer, spec stage. Pure and dependency-free, imported by the edge function too. Sport bases live in `src/sports/` |
 | Store          | `src/store/`      | Client state only. No async API calls                    |
 | Types          | `src/types/`      | Shared interfaces. No implementation                     |
 | Config         | `src/config/`     | Env vars and feature flags. Single source of truth       |

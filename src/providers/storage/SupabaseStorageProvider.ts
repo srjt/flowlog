@@ -9,6 +9,7 @@ import type {
   NewSession,
   Session,
   SessionAnalysisUpdate,
+  SessionDiagramFields,
   UserTrends,
 } from '@/types/session';
 import type { SportKey } from '@/types/sport';
@@ -129,6 +130,10 @@ export class SupabaseStorageProvider implements IStorageProvider {
         grounding_record_ids: session.groundingRecordIds ?? null,
         grounding_candidates: session.groundingCandidates ?? null,
         grounding_gate_passed: session.groundingGatePassed ?? null,
+        // The cue diagram spec and its provenance (#135 / migration 026).
+        // NULL when the caller recorded nothing: not recorded, never "no
+        // diagram", which is a recorded outcome of its own.
+        ...diagramColumns(session),
         target_position: session.targetPosition,
         quality_gate_passed: session.qualityGatePassed,
         pipeline_version: session.pipelineVersion,
@@ -189,6 +194,10 @@ export class SupabaseStorageProvider implements IStorageProvider {
         ...(update.perspective !== undefined && {
           perspective: update.perspective,
         }),
+        // Re-analysis regenerates the diagram with the cue, or clears it on a
+        // declined one (#135). Written as one group keyed on the outcome, so a
+        // spec can never be left beside another run's outcome or versions.
+        ...(update.diagramOutcome !== undefined && diagramColumns(update)),
       })
       .eq('id', sessionId)
       .select()
@@ -318,6 +327,17 @@ export class SupabaseStorageProvider implements IStorageProvider {
 
 // ── Row mappers ───────────────────────────────────────────────────────────
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/** The five diagram columns (#135), always together. */
+function diagramColumns(fields: SessionDiagramFields) {
+  return {
+    diagram_outcome: fields.diagramOutcome ?? null,
+    diagram_spec: fields.diagramSpec ?? null,
+    grammar_version: fields.grammarVersion ?? null,
+    base_library_version: fields.baseLibraryVersion ?? null,
+    spec_prompt_version: fields.specPromptVersion ?? null,
+  };
+}
+
 function mapSession(row: any): Session {
   return {
     id: row.id,
@@ -337,6 +357,12 @@ function mapSession(row: any): Session {
     // Null on rows from before migration 024: not recorded, which is NOT the
     // recorded abstention 'unknown' (#130).
     perspective: row.perspective ?? null,
+    // Null on rows from before migration 026: not recorded (#135).
+    diagramOutcome: row.diagram_outcome ?? null,
+    diagramSpec: row.diagram_spec ?? null,
+    grammarVersion: row.grammar_version ?? null,
+    baseLibraryVersion: row.base_library_version ?? null,
+    specPromptVersion: row.spec_prompt_version ?? null,
     targetPosition: row.target_position ?? null,
     qualityGatePassed: row.quality_gate_passed ?? false,
     thumbsUp: row.thumbs_up ?? null,

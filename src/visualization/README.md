@@ -6,8 +6,9 @@ as an annotation overlay on a **keypoint base**. Ported by hand from the #18
 prototype (`scripts/issue18/` on `feat/cue-image-generation`). That branch is
 never merged: it also carries the retired generative-image path.
 
-**Phase a (this directory): pure, unit-tested modules only. Nothing here ships
-in the UI yet, and it adds no dependency.**
+**Phase a: pure, unit-tested modules only. Nothing here ships in the UI yet,
+and it adds no dependency. Phase b (done): the best-effort pipeline stage that
+uses them, inert until phase c supplies certified bases.**
 
 | Module            | What it owns                                                                                                   |
 | ----------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -17,6 +18,7 @@ in the UI yet, and it adds no dependency.**
 | `svg.ts`          | A plain JSON SVG element tree and its deterministic string serializer                                          |
 | `renderer.ts`     | `renderForceDiagram(base, spec)` returns tree + SVG string, or `ok: false` (show the cue as text)              |
 | `specStage.ts`    | Spec-stage helpers: `buildSpecSchema`, `buildSpecPrompt`, `parseSpecResponse`, `SPEC_PROMPT_VERSION`           |
+| `diagramStage.ts` | The stage itself (phase b): `runDiagramStage` decides whether to call, calls under `SPEC_STAGE_TIMEOUT_MS`, and returns the `DiagramRecord` a Session stores (`DIAGRAM_OUTCOMES`, `NOT_ATTEMPTED`) |
 
 ## Rules these files keep
 
@@ -41,23 +43,39 @@ is complete on its own: concrete palette colours, no `<style>`, no `<marker>`,
 no `var()`. Animation is additive data only (`data-fd-anim` / `data-fd-dir`),
 which a component may layer on and which reduced motion ignores.
 
+## Phase b: the pipeline stage (done)
+
+A best-effort cue→spec stage after the quality gate, in `FlowlogPipeline`
+(through `DiagramSpecService`) and the `process-session` edge function
+(`cueDiagram`). Both call `runDiagramStage`, so the decisions are
+single-sourced; only the model call differs (`IAIProvider.generateDiagramSpec`
+on the client, `generateDiagramSpec` in `supabase/functions/_shared/ai.ts`).
+
+- It calls the model only when the gate passed with a real Cue and the sport's
+  library (`sportContext.diagram`, `src/sports/bjj/bjjDiagramBases.ts` for BJJ)
+  has a base for the Session's `target_position_id`. That library is empty, so
+  today every Session records `no_base` and nothing is called.
+- Migration 026 stores the spec, `diagram_outcome`, and `grammar_version`,
+  `base_library_version` and `spec_prompt_version` on `sessions`, on all four
+  Session writes. NULL means not recorded.
+- The schema from `buildSpecSchema` is built but not sent natively: the
+  providers use JSON mode, and `parseSpecResponse` is the floor.
+- The BJJ persona for `buildSpecPrompt` lives with the library, and a change
+  to it bumps the library version.
+
 ## Not here yet
 
 - **`CueDiagram` component.** This is deferred until a planned native build adds
   `react-native-svg`. A new native module cannot ship over the air, and adding
   it now would strand every open JS-only change.
-- **Phase b: the pipeline stage.** A best-effort cue→spec stage after the
-  quality gate in `FlowlogPipeline` and the `process-session` edge function,
-  using these helpers. It also adds a migration that stores the spec plus
-  `grammar_version`, `base_library_version` and `spec_prompt_version` on
-  `sessions`. Phase b also supplies the sport persona from `src/sports/bjj/`.
 - **Phase c: the base library.** This is blocked on posing (the 3D position
   builder, #136). Certified bases will be authored as TS modules (not JSON, so
-  Deno needs no import attributes) in `src/sports/bjj/`, each passing
-  `parseBase` in a test. They should key on canonical **sided** position ids
-  (`de-la-riva-bottom`), because `you` must be the practitioner's side. The four
-  #18 seeds are **uncertified** and live only in `tests/fixtures/forceDiagram/`.
-  Nothing that ships may import them.
+  Deno needs no import attributes) into `src/sports/bjj/bjjDiagramBases.ts`,
+  whose test already checks that each passes `parseBase`. They key on canonical
+  **sided** position ids (`de-la-riva-bottom`), with `id` equal to the key,
+  because `you` must be the practitioner's side. The four #18 seeds are
+  **uncertified** and live only in `tests/fixtures/forceDiagram/`. Nothing that
+  ships may import them, and a test checks that too.
 
 ## Known grammar gap
 

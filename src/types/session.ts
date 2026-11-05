@@ -2,12 +2,38 @@ import type { SportKey } from '@/types/sport';
 import type { GiSource } from '@/sports/giContext';
 import type { ExtractionPerspective } from '@/types/pipeline';
 import type { GiPreference } from '@/types/user';
+import type { DiagramOutcome } from '@/visualization/diagramStage';
+import type { Spec } from '@/visualization/grammar';
+
+/**
+ * The cue force-diagram spec and its provenance (#135 / migration 026), as
+ * written. One group: every Session write sets all five together, so a spec
+ * never sits beside another run's outcome or versions.
+ */
+export interface SessionDiagramFields {
+  /**
+   * Why there is or is not a spec. `null`/`undefined` means NOT RECORDED (a
+   * row from before migration 026), never "no diagram".
+   */
+  diagramOutcome?: DiagramOutcome | null;
+  /**
+   * The validated spec, present exactly when `diagramOutcome` is `spec`. A
+   * stored spec is re-validated against its base before it is drawn.
+   */
+  diagramSpec?: Spec | null;
+  /** `GRAMMAR_VERSION` that validated it; set whenever a prompt was built. */
+  grammarVersion?: string | null;
+  /** The sport's base library version; set whenever the library was consulted. */
+  baseLibraryVersion?: string | null;
+  /** `SPEC_PROMPT_VERSION` of the prompt sent; set whenever one was built. */
+  specPromptVersion?: string | null;
+}
 
 /**
  * Mirrors the `public.sessions` table — the core persisted entity.
  * camelCase here; the storage provider maps to/from snake_case columns.
  */
-export interface Session {
+export interface Session extends SessionDiagramFields {
   id: string;
   userId: string;
   sportKey: SportKey;
@@ -68,8 +94,11 @@ export interface Session {
   createdAt: string;
 }
 
-/** Shape written when persisting a freshly-processed session. */
-export interface NewSession {
+/**
+ * Shape written when persisting a freshly-processed session. The diagram
+ * fields (#135) are written on the declined path too, as `not_attempted`.
+ */
+export interface NewSession extends SessionDiagramFields {
   userId: string;
   sportKey: SportKey;
   sessionDate: string;
@@ -130,8 +159,12 @@ export interface NewSession {
  * Fields overwritten when a Session is re-analyzed in place (corrected
  * transcript → regenerated cue). The identity fields (user, sport, date,
  * audio) are untouched — this is the same reflection, freshly analyzed.
+ *
+ * The diagram fields (#135) are regenerated with the cue, or cleared to
+ * `not_attempted` on a declined re-analysis, so an old spec never describes a
+ * new cue. Omitting `diagramOutcome` leaves all five columns alone.
  */
-export interface SessionAnalysisUpdate {
+export interface SessionAnalysisUpdate extends SessionDiagramFields {
   rawTranscript: string;
   positionsVisited: string[];
   keyMistake: string;

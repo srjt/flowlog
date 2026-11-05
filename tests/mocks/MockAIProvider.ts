@@ -4,6 +4,7 @@ import type {
   ExtractionInput,
   ExtractionOutput,
   IAIProvider,
+  SpecRequest,
 } from '@/providers/ai/IAIProvider';
 
 const DEFAULT_EXTRACTION: ExtractionOutput = {
@@ -37,6 +38,22 @@ export class MockAIProvider implements IAIProvider {
   lastCoachingInput: CoachingInput | null = null;
   strictCallCount = 0;
 
+  // ── Cue -> spec (#135) ──
+  diagramSpecCalls = 0;
+  lastDiagramSpecInput: SpecRequest | null = null;
+  /**
+   * What `generateDiagramSpec` answers, in order; then `diagramSpecResponse`.
+   * Defaults to null (no response). Existing suites never reach it, because
+   * the real BJJ base library is empty and the stage makes no call.
+   */
+  diagramSpecQueue: unknown[] = [];
+  diagramSpecResponse: unknown = null;
+  /**
+   * Reject instead of answering. The real providers never throw; this checks
+   * that the stage survives one that does.
+   */
+  diagramSpecError: Error | null = null;
+
   public extraction: ExtractionOutput;
 
   constructor(
@@ -63,5 +80,14 @@ export class MockAIProvider implements IAIProvider {
     if (input.strict) this.strictCallCount++;
     const next = this.coachingQueue.shift();
     return next ?? this.defaultCoaching;
+  }
+
+  async generateDiagramSpec(input: SpecRequest): Promise<unknown> {
+    this.diagramSpecCalls++;
+    this.lastDiagramSpecInput = input;
+    if (this.diagramSpecError) throw this.diagramSpecError;
+    return this.diagramSpecQueue.length > 0
+      ? this.diagramSpecQueue.shift()
+      : this.diagramSpecResponse;
   }
 }
