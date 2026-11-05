@@ -29,8 +29,12 @@ The backlog splits by **where the work can physically run**, not just by topic:
 3. **Re-mine before reviewers vote.** #133 re-mints the ids that votes attach to.
    At zero votes that costs nothing; after go-live it costs reviewers' work. So the
    order is #131 → #133 → #77 go-live.
-4. **One migration number per issue, reserved now** so parallel branches don't collide:
-   `024` = #130 · `025` = #132 (if it becomes a table) · `026` = #135 spec columns.
+4. **Migration numbers are taken in merge order, never reserved ahead.**
+   `supabase db push` refuses a migration whose number sorts below one already
+   applied (without `--include-all`), so a reserved gap becomes a trap.
+   Assigned so far: `024` = #130 (PR #142) · `025` = #135 phase b (PR #149).
+   #132 takes the next free number when it's built. Two open branches that
+   both add a migration: the second to merge renumbers.
 5. **Hot files are serialized.** `supabase/functions/process-session/index.ts` and
    `src/pipeline/FlowlogPipeline.ts`: #130 first, the #135 spec stage after it, never
    at the same time. `CLAUDE.md`: only #125 edits it in M1.
@@ -85,7 +89,7 @@ and dry-run clean; the #137 window has reached ~15 Sessions.
 | — | **Before any publish once votes exist:** stop the REST upload in `publish-cli.ts` from sending `contested`. With merge-duplicates it resets the flag that migration 014 derives from votes. Found during #131 (PR #143) | Cloud agent | Corpus |
 | — | **One batch publish** of #97, #133 and #100 via `flowlog-publish`, with the leak scan extended to Gordon Ryan series names; re-measure no-gi availability as *availability*, not coverage | Mac agent | Corpus |
 | #77 | Go-live: recruit black belts, cast the first real votes, verify vote upsert / RLS / trigger against a live session. The code is complete per #139 | You | Certification |
-| #132 | Build operator verdicts (migration 025 if it's a table) | Cloud agent | Coaching quality |
+| #132 | Build operator verdicts (next free migration number if it's a table) | Cloud agent | Coaching quality |
 | #1 | Build half B: feed the Weakness into coaching `dominantWeakness`. This is a coaching-path change, so bump `pipeline_version` | Cloud agent | Product |
 
 **Exit:** the corpus is published; at least one record is certified by real votes;
@@ -107,7 +111,7 @@ and dry-run clean; the #137 window has reached ~15 Sessions.
 | --- | --- | --- | --- |
 | #136 | BJJ 3D Position Builder prototype (separate Vite + Three.js project, not the Expo app) | You + agent | none; start any time |
 | #135 a | Port grammar / keypoints / validator / renderer + `CueDiagram` from `scripts/issue18/` into tested `src/` modules (new files only) | Cloud agent | parallel-safe now |
-| #135 b | Post-gate spec stage in the pipeline + edge function, migration 026 | Cloud agent | after #130 merges |
+| #135 b | Post-gate spec stage in the pipeline + edge function, migration 025. **PR #149**, stacked on #142 + #144; inert until phase c | Cloud agent | merge after #142 and #144 |
 | #135 c | Base-library content (~20 positions) | — | blocked on #136 |
 | #15, #24, #25 | Parked; #24 and #25 are largely superseded by the 3D direction | — | revisit or close after #136 |
 
