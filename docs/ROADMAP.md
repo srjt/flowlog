@@ -167,7 +167,7 @@ graph LR
    `computeTrends`, in two halves. Half A (Trends + digest Leak) goes in M2.
    Half B (coaching input) goes in M3, after the window, because it changes the
    coaching prompt.
-3. **#132 verdicts live in a server-only table** (migration 025), locked down like
+3. **#132 verdicts live in a server-only table** (next free migration number), locked down like
    `session_prompts`. It is the only option that lets verdicts reach the
    per-record signal, which the issue calls the highest-value half.
 4. **Each issue gets one branch and one PR**, so each lands and deploys on its own.
