@@ -144,6 +144,11 @@ _Avoid_: strength, main position, weakness (Focus area is not a Weakness)
 A position or pattern the user recurrently *struggles* with — the thing the trend
 log is meant to surface and coaching should target. Distinct from Focus area:
 most-logged is not the same as most-troublesome.
+Computed client-side in `computeTrends` (#1). It is the canonical target
+position (`targetPositionId`) that the key mistake landed on most often, over
+the last 10 Sessions that have both. It needs at least 2 such Sessions, and a
+tie goes to the most recent. Free-text mistakes are not clustered by shared
+words. Nothing yet feeds it to coaching's `dominantWeakness` (#1 half B).
 _Avoid_: leak (see below), problem area, flaw
 
 **Leak**:

@@ -61,7 +61,8 @@ export default function RecordScreen() {
     if (takeGi === null) setTakeGi(giDefault);
   }, [takeGi, giDefault, setTakeGi]);
   const { trends, loading: trendsLoading } = useSessionTrends();
-  const dominantWeakness = trends?.focusArea ?? null;
+  // "Working on" is the Focus area (most-logged), not the Weakness (#1).
+  const focusArea = trends?.focusArea ?? null;
   const { minRecordingSeconds, maxRecordingSeconds } = PIPELINE_CONFIG;
   const idle = !recording && !tooShort && !review;
   // A capture is "active" while recording AND during the too-short paused
@@ -439,10 +440,10 @@ export default function RecordScreen() {
               })}
             </View>
           ) : null}
-          {dominantWeakness && idle ? (
+          {focusArea && idle ? (
             <View className="mt-2 rounded-full bg-accent/20 px-4 py-1">
               <Text variant="caption" className="text-accent">
-                Working on: {dominantWeakness}
+                Working on: {focusArea}
               </Text>
             </View>
           ) : null}

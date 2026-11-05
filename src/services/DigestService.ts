@@ -32,7 +32,12 @@ export interface WeeklyDigest {
   sport: SportKey;
   /** Most-worked position that week, or null if none noted. */
   focusArea: string | null;
-  /** Top recurring key mistake that week, or null if none flagged. */
+  /**
+   * The week's recurring Weakness: the position that week's key mistakes kept
+   * landing on (`SportTrends.weakness`), or null when none recurred. Digests
+   * stored before #1 hold that week's newest key mistake here instead. They are
+   * snapshots, so they are left as written.
+   */
   recurringLeak: string | null;
   /** Human-readable recap — identical in wording to the notification body. */
   body: string;
@@ -76,7 +81,7 @@ export function buildWeeklyDigest(
     weekStart,
     sport,
     focusArea: trends.focusArea,
-    recurringLeak: trends.recentMistakes[0] ?? null,
+    recurringLeak: trends.weakness?.label ?? null,
     body: buildDigestBody(trends),
   };
 }
