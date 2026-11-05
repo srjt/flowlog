@@ -6,14 +6,28 @@ import { env } from '@/config/env';
  * estimates used for cost monitoring.
  */
 /**
- * Bumped to 1.1.0 when the edge function started actually injecting grounding.
+ * The `pipeline_version` stamp the reference `FlowlogPipeline` writes on the
+ * rows it creates or re-analyses. Production rows come from the edge function;
+ * this value only reaches local-test mode (`EXPO_PUBLIC_LOCAL_PIPELINE`, an
+ * in-memory store) and tests.
  *
- * Kept in lockstep with `PIPELINE_VERSION` in
- * `supabase/functions/process-session/index.ts`. The bump is what makes every
- * session row state for itself whether its cue could have been grounded —
- * migration 019 reads exactly this value, so the two must not drift.
+ * It is a claim about behaviour, not a build number. Migrations 019–021 and
+ * the admin review's `recordTrail` decide what a row's grounding columns mean
+ * from this value, so it must name the behaviour of the code that wrote the
+ * row. The version history lives beside `PIPELINE_VERSION` in
+ * `supabase/functions/process-session/index.ts`; this pipeline mirrors that
+ * function, so the two values are identical:
+ *
+ *   1.2.0  `grounding_candidates` is an exact count, never a truncated fetch.
+ *          Client-side `getCoachingRecords` has no row cap to truncate at.
+ *   1.3.0  re-analysis writes the grounding columns it changes the truth of
+ *          and honours the inherited arm (#117 brought this to the client).
+ *
+ * `tests/unit/groundingFetch.test.ts` fails if the two values differ. When a
+ * fix bumps the edge version, make the same change here (or say why this
+ * pipeline does not do it) in the same commit.
  */
-export const PIPELINE_VERSION = '1.1.0';
+export const PIPELINE_VERSION = '1.3.0';
 
 export const PIPELINE_CONFIG = {
   /** Hard cap on coaching cue length. Enforced in service AND prompt. */

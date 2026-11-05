@@ -13,6 +13,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { PIPELINE_VERSION as CLIENT_PIPELINE_VERSION } from '@/constants/pipelineConfig';
 
 const SOURCE = join(
   __dirname,
@@ -149,6 +150,16 @@ describe('the pipeline version boundary', () => {
       'utf8',
     );
     expect(migration021).toContain(`before ${version}`);
+  });
+
+  // The reference `FlowlogPipeline` stamps its own rows. The two pipelines
+  // behave the same (#117 brought re-analysis grounding to the client), so the
+  // stamps must match too. Otherwise a client row reads as an older behaviour:
+  // migration 020 calls its candidate count a lower bound and `recordTrail`
+  // calls its record ids unverified. This drifted once (1.1.0 vs 1.3.0) when
+  // nothing checked it.
+  it('is the version the client reference pipeline stamps', () => {
+    expect(CLIENT_PIPELINE_VERSION).toBe(version);
   });
 });
 
