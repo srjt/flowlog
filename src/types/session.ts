@@ -6,14 +6,14 @@ import type { DiagramOutcome } from '@/visualization/diagramStage';
 import type { Spec } from '@/visualization/grammar';
 
 /**
- * The cue force-diagram spec and its provenance (#135 / migration 026), as
+ * The cue force-diagram spec and its provenance (#135 / migration 025), as
  * written. One group: every Session write sets all five together, so a spec
  * never sits beside another run's outcome or versions.
  */
 export interface SessionDiagramFields {
   /**
    * Why there is or is not a spec. `null`/`undefined` means NOT RECORDED (a
-   * row from before migration 026), never "no diagram".
+   * row from before migration 025), never "no diagram".
    */
   diagramOutcome?: DiagramOutcome | null;
   /**

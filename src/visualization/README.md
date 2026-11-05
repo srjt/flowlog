@@ -55,7 +55,7 @@ on the client, `generateDiagramSpec` in `supabase/functions/_shared/ai.ts`).
   library (`sportContext.diagram`, `src/sports/bjj/bjjDiagramBases.ts` for BJJ)
   has a base for the Session's `target_position_id`. That library is empty, so
   today every Session records `no_base` and nothing is called.
-- Migration 026 stores the spec, `diagram_outcome`, and `grammar_version`,
+- Migration 025 stores the spec, `diagram_outcome`, and `grammar_version`,
   `base_library_version` and `spec_prompt_version` on `sessions`, on all four
   Session writes. NULL means not recorded.
 - The schema from `buildSpecSchema` is built but not sent natively: the

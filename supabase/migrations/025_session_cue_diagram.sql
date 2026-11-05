@@ -93,7 +93,7 @@ alter table public.sessions
 comment on column public.sessions.diagram_outcome is
   $$Why this Session's Cue does or does not have a force-diagram spec (#135).
 
-    NULL means NOT RECORDED: the Session was written before migration 026. It
+    NULL means NOT RECORDED: the Session was written before migration 025. It
     is never "no diagram" and must not be counted as one. There is no backfill.
 
     spec           a validated spec is stored in diagram_spec
@@ -124,19 +124,19 @@ comment on column public.sessions.grammar_version is
   $$The annotation grammar version (#135) that validated the spec. Set whenever
     a prompt was built: diagram_outcome in (spec, empty, invalid, unavailable).
     NULL for no_base and not_attempted, where no grammar was involved, and on
-    every row from before migration 026.$$;
+    every row from before migration 025.$$;
 
 comment on column public.sessions.base_library_version is
   $$The sport's force-diagram base library version (#135) that was consulted:
     which bases existed, how they were posed, and the spec persona. Set for
     every outcome except not_attempted, so a no_base row says which library
     lacked the base. NULL for a sport with no library at all, and on every row
-    from before migration 026.$$;
+    from before migration 025.$$;
 
 comment on column public.sessions.spec_prompt_version is
   $$The cue -> spec prompt version (#135) that was sent. Set whenever a prompt
     was built: diagram_outcome in (spec, empty, invalid, unavailable). NULL for
     no_base and not_attempted, where no prompt was sent, and on every row from
-    before migration 026.$$;
+    before migration 025.$$;
 
 notify pgrst, 'reload schema';

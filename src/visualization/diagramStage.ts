@@ -38,7 +38,7 @@ import type { ValidatedSpec } from './validateSpec.ts';
 
 /**
  * Why a Session does or does not have a diagram spec. Exactly the values
- * `sessions.diagram_outcome` accepts (migration 026); a test holds the two
+ * `sessions.diagram_outcome` accepts (migration 025); a test holds the two
  * together, because a value the CHECK rejects fails the whole Session write.
  *
  *   spec           a validated spec is stored

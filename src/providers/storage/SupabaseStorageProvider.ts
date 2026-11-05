@@ -130,7 +130,7 @@ export class SupabaseStorageProvider implements IStorageProvider {
         grounding_record_ids: session.groundingRecordIds ?? null,
         grounding_candidates: session.groundingCandidates ?? null,
         grounding_gate_passed: session.groundingGatePassed ?? null,
-        // The cue diagram spec and its provenance (#135 / migration 026).
+        // The cue diagram spec and its provenance (#135 / migration 025).
         // NULL when the caller recorded nothing: not recorded, never "no
         // diagram", which is a recorded outcome of its own.
         ...diagramColumns(session),
@@ -357,7 +357,7 @@ function mapSession(row: any): Session {
     // Null on rows from before migration 024: not recorded, which is NOT the
     // recorded abstention 'unknown' (#130).
     perspective: row.perspective ?? null,
-    // Null on rows from before migration 026: not recorded (#135).
+    // Null on rows from before migration 025: not recorded (#135).
     diagramOutcome: row.diagram_outcome ?? null,
     diagramSpec: row.diagram_spec ?? null,
     grammarVersion: row.grammar_version ?? null,

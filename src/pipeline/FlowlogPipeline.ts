@@ -197,7 +197,7 @@ export class FlowlogPipeline {
           // read as "the gate rejected everything" (#119).
           groundingGatePassed: null,
           // No Cue, so nothing to draw and no model call (#135). Recorded,
-          // not left NULL: NULL means a row from before migration 026.
+          // not left NULL: NULL means a row from before migration 025.
           ...NOT_ATTEMPTED,
         });
         done('persistence');

@@ -1,6 +1,6 @@
 /**
  * The Session keeps its Cue's force-diagram spec and provenance (#135 phase b,
- * migration 026).
+ * migration 025).
  *
  * One seam: the persisted Session row. The EDGE FUNCTION half is a source scan,
  * for the reason `sessionPerspective` and `reanalysisProvenance` give: it is
@@ -55,7 +55,7 @@ const read = (rel: string) =>
 
 const EDGE = read('supabase/functions/process-session/index.ts');
 const AI = read('supabase/functions/_shared/ai.ts');
-const SQL = read('supabase/migrations/026_session_cue_diagram.sql');
+const SQL = read('supabase/migrations/025_session_cue_diagram.sql');
 
 const COLUMNS = [
   'diagram_outcome',
@@ -280,9 +280,9 @@ describe('the server call (_shared/ai.ts)', () => {
   });
 });
 
-// ── Migration 026 ───────────────────────────────────────────────────────────
+// ── Migration 025 ───────────────────────────────────────────────────────────
 
-describe('migration 026', () => {
+describe('migration 025', () => {
   const addColumns = slice(SQL, 'alter table public.sessions', ';');
   const outcome = slice(
     SQL,
@@ -445,7 +445,7 @@ describe('SupabaseStorageProvider maps the diagram columns', () => {
       expect(mockWrites[2]?.payload).not.toHaveProperty(column);
   });
 
-  it('reads a row from before migration 026 as not recorded', async () => {
+  it('reads a row from before migration 025 as not recorded', async () => {
     mockRowFromDb = { id: 'old', user_id: 'u1', sport_key: 'bjj' };
     const saved = await provider.saveSession(base);
     expect(saved).toMatchObject({

@@ -531,7 +531,7 @@ Deno.serve(async (req: Request) => {
       /**
        * The cue diagram spec and its provenance, or why there is none (#135).
        * Required, so the declined insert has to say `not_attempted` rather
-       * than leave the columns reading as a pre-026 row.
+       * than leave the columns reading as a pre-025 row.
        */
       diagram: DiagramRecord;
     }): Promise<{ row: any } | { conflictOutput: Response }> => {
@@ -809,7 +809,7 @@ async function cueDiagram(
 }
 
 /**
- * The five diagram columns (migration 026), always written together, so a
+ * The five diagram columns (migration 025), always written together, so a
  * spec never sits beside another run's outcome or versions.
  */
 function diagramColumns(d: DiagramRecord) {

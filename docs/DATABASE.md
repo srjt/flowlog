@@ -64,7 +64,7 @@ the position or the side could not be determined).
   (`docs/ADMIN.md`) reads it first and infers a side only for older Sessions.
   `process-session` writes it on every Session, so apply 024 before deploying
   that function.
-- The cue force-diagram columns on sessions (migration 026, #135):
+- The cue force-diagram columns on sessions (migration 025, #135):
   `diagram_spec` (jsonb, the validated spec), `diagram_outcome` (why there is
   or is not one: `spec`, `no_base`, `not_attempted`, `empty`, `invalid` or
   `unavailable`, enforced by a CHECK that a test holds equal to
@@ -72,7 +72,7 @@ the position or the side could not be determined).
   provenance `grammar_version`, `base_library_version` and
   `spec_prompt_version`, stored beside the spec rather than inside it so it
   stays re-renderable. **NULL means not recorded** (a Session written before
-  026), never "no diagram", so a coverage rate is `diagram_outcome = 'spec'`
+  025), never "no diagram", so a coverage rate is `diagram_outcome = 'spec'`
   over `diagram_outcome is not null`. A spec is present exactly when the
   outcome is `spec`; `base_library_version` is set whenever the library was
   consulted (every outcome but `not_attempted`); the grammar and prompt
@@ -83,7 +83,7 @@ the position or the side could not be determined).
   coachable Session reads `no_base`; grouped by `target_position_id`, those
   rows are the base-authoring backlog, as `no_records` is for mining.
   `pipeline_version` was not bumped. `process-session` writes these columns on
-  every Session, so apply 026 (and 024) before deploying that function.
+  every Session, so apply 025 (and 024) before deploying that function.
 - `quality_gate_passed` stored: dashboard can filter to high-confidence outputs only
 - `thumbs_up` field: binary user feedback, feeds quality monitoring pipeline
 - Audio stored in Supabase Storage (bucket `session-audio`), path referenced in
