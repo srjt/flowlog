@@ -45,6 +45,12 @@ export interface SessionRow {
   feedback_note: string | null;
   pipeline_version: string | null;
   gi: string | null;
+  /**
+   * Migration 024: the side Extraction reported. NULL means not recorded (a
+   * Session from before 024), never "Extraction could not tell"; that is
+   * 'unknown'. Optional: absent until that migration is applied.
+   */
+  perspective?: 'top' | 'bottom' | 'unknown' | null;
   grounding: GroundingOutcome | null;
   grounding_candidates: number | null;
   /** Migration 022. Optional: absent until that migration is applied. */

@@ -173,6 +173,9 @@ Deno.serve(async (req: Request) => {
             key_mistake: extraction.keyMistake,
             opponent_action: extraction.opponentAction,
             sentiment: extraction.sentiment,
+            // Overwritten, not kept (#130): the edited transcript is a new
+            // Extraction, and a declined one still says which side it read.
+            perspective: extraction.perspective,
             coaching_cue: null,
             target_position: null,
             target_position_id: null,
@@ -298,6 +301,10 @@ Deno.serve(async (req: Request) => {
           key_mistake: extraction.keyMistake,
           opponent_action: extraction.opponentAction,
           sentiment: extraction.sentiment,
+          // The side of the EDITED transcript (#130). Re-analysis regenerates
+          // the Extraction, so the old side may no longer be true — the same
+          // reasoning 021 applied to the grounding provenance below.
+          perspective: extraction.perspective,
           coaching_cue: gate.coaching.cue,
           target_position: reResolved.label ?? gate.coaching.targetPosition,
           target_position_id: reResolved.id,
@@ -510,6 +517,12 @@ Deno.serve(async (req: Request) => {
           key_mistake: extraction.keyMistake,
           opponent_action: extraction.opponentAction,
           sentiment: extraction.sentiment,
+          // The side Extraction reported (#130), here so that the declined
+          // insert writes it too. Without it the side was thrown away, and a
+          // Session's Grounding could not be replayed: side-dependent free text
+          // resolves to no canonical position. 'unknown' is a recorded
+          // abstention; only a pre-024 row is NULL.
+          perspective: extraction.perspective,
           coaching_cue: analysis.cue,
           target_position: analysis.targetPosition,
           target_position_id: analysis.targetPositionId,

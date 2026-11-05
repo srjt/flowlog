@@ -162,6 +162,8 @@ export class FlowlogPipeline {
           keyMistake: extraction.keyMistake,
           opponentAction: extraction.opponentAction,
           sentiment: extraction.sentiment,
+          // A declined Take still has an Extraction, and its side (#130).
+          perspective: extraction.perspective,
           coachingCue: null,
           targetPosition: null,
           targetPositionId: null,
@@ -268,6 +270,9 @@ export class FlowlogPipeline {
         keyMistake: extraction.keyMistake,
         opponentAction: extraction.opponentAction,
         sentiment: extraction.sentiment,
+        // Kept so this Session's Grounding can be replayed (#130): without the
+        // side, side-dependent free text resolves to no canonical position.
+        perspective: extraction.perspective,
         coachingCue: gate.coaching.cue,
         // Canonical label ("Side control (bottom)") when the position
         // resolved; otherwise keep what the model wrote.
@@ -351,6 +356,8 @@ export class FlowlogPipeline {
           keyMistake: extraction.keyMistake,
           opponentAction: extraction.opponentAction,
           sentiment: extraction.sentiment,
+          // Overwritten: the edited transcript is a new Extraction (#130).
+          perspective: extraction.perspective,
           coachingCue: null,
           targetPosition: null,
           targetPositionId: null,
@@ -441,6 +448,9 @@ export class FlowlogPipeline {
       keyMistake: extraction.keyMistake,
       opponentAction: extraction.opponentAction,
       sentiment: extraction.sentiment,
+      // The side of the EDITED transcript (#130). The old one may no longer be
+      // true, the reasoning 021 applied to the grounding provenance below.
+      perspective: extraction.perspective,
       coachingCue: gate.coaching.cue,
       targetPosition: resolved.label ?? gate.coaching.targetPosition,
       targetPositionId: resolved.id,

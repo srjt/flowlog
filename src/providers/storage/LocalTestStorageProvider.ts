@@ -43,6 +43,7 @@ export class LocalTestStorageProvider implements IStorageProvider {
       targetPositionId: session.targetPositionId,
       gi: session.gi ?? null,
       giSource: session.giSource ?? null,
+      perspective: session.perspective ?? null,
       targetPosition: session.targetPosition,
       qualityGatePassed: session.qualityGatePassed,
       thumbsUp: null,
@@ -72,6 +73,9 @@ export class LocalTestStorageProvider implements IStorageProvider {
       targetPosition: update.targetPosition,
       qualityGatePassed: update.qualityGatePassed,
       pipelineVersion: update.pipelineVersion,
+      ...(update.perspective !== undefined && {
+        perspective: update.perspective,
+      }),
     });
     return row;
   }

@@ -1,5 +1,6 @@
 import type { SportKey } from '@/types/sport';
 import type { GiSource } from '@/sports/giContext';
+import type { ExtractionPerspective } from '@/types/pipeline';
 import type { GiPreference } from '@/types/user';
 
 /**
@@ -31,6 +32,15 @@ export interface Session {
   gi: GiPreference | null;
   /** Where `gi` came from: the toggle, an explicit statement, or nothing (#60). */
   giSource: GiSource | null;
+  /**
+   * Which side of the position the athlete was on, as Extraction reported it
+   * (#130 / migration 024).
+   *
+   * `null` means NOT RECORDED — the row predates the column — and must never be
+   * read as "Extraction could not tell". That is `'unknown'`, a recorded
+   * abstention. Optional because rows read before 024 is applied lack it.
+   */
+  perspective?: ExtractionPerspective | null;
   targetPosition: string | null;
   qualityGatePassed: boolean;
   /**
@@ -69,6 +79,11 @@ export interface NewSession {
   keyMistake: string;
   opponentAction: string;
   sentiment: string;
+  /**
+   * The side Extraction reported (#130). Written on the declined path too: a
+   * Take with no cue still has an Extraction. Omitted means not recorded.
+   */
+  perspective?: ExtractionPerspective;
   /**
    * Null when the pipeline declined to produce a cue (issue #44) — the
    * recording had nothing coachable in it. A Session with no cue is still a
@@ -122,6 +137,12 @@ export interface SessionAnalysisUpdate {
   keyMistake: string;
   opponentAction: string;
   sentiment: string;
+  /**
+   * The side of the EDITED transcript (#130). Overwrites the stored value:
+   * re-analysis regenerates the Extraction, so the old side may no longer be
+   * true. Omitted leaves the column alone.
+   */
+  perspective?: ExtractionPerspective;
   /**
    * Null when the pipeline declined to produce a cue (issue #44) — the
    * recording had nothing coachable in it. A Session with no cue is still a

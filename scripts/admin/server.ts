@@ -31,6 +31,7 @@ import {
   compareWithStored,
   inferredPerspective,
   positionsToday,
+  recordedPerspective,
   toPoolRecord,
   type PromptSessionRow,
 } from './prompt.ts';
@@ -304,9 +305,12 @@ async function todaysPrompt(id: string) {
   if (!row) return null;
 
   const sportKey = encodeURIComponent(row.sport_key ?? 'bjj');
-  // The side the pipeline used lives in the positions of the records it
-  // grounded this session in — perspective itself was never stored.
-  const storedIds = row.grounding_record_ids ?? [];
+  // The side the Session recorded comes first (#130, migration 024). Only a
+  // Session from before that recorded none, and for those the side the
+  // pipeline used lives in the positions of the records it was grounded in.
+  // `select=*` above carries the column once 024 is applied.
+  const storedIds =
+    recordedPerspective(row) === null ? (row.grounding_record_ids ?? []) : [];
   const storedRecordPositions =
     storedIds.length > 0
       ? (

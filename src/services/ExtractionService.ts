@@ -3,8 +3,7 @@ import { aiProvider } from '@/providers/ai';
 import type { IAIProvider } from '@/providers/ai';
 import type { GiContext } from '@/sports/giContext';
 import type { ISportContext } from '@/sports/ISportContext';
-import type { Perspective } from '@/sports/positionTypes';
-import type { ExtractionOutput } from '@/types/pipeline';
+import type { ExtractionOutput, ExtractionPerspective } from '@/types/pipeline';
 import { logger } from '@/utils/logger';
 
 /**
@@ -97,7 +96,7 @@ export class ExtractionService {
    * one thing that must never happen is an invalid value being trusted through
    * and producing coaching aimed at the wrong side of the position.
    */
-  static normalisePerspective(value: unknown): Perspective | 'unknown' {
+  static normalisePerspective(value: unknown): ExtractionPerspective {
     return value === 'top' || value === 'bottom' ? value : 'unknown';
   }
 
