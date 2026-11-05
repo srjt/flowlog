@@ -4,11 +4,14 @@ import {
   classifyMappingDrift,
   findLeaks,
   parseContentRangeTotal,
+  REVIEW_STATE_COLUMNS,
+  buildUpsertSql,
   parsePublishArgs,
   preflight,
   reconcileWithLive,
   scrubNames,
   toServingRecord,
+  toUpsertRow,
   type ServingRecord,
 } from '../../scripts/mining/publish';
 
@@ -55,7 +58,7 @@ describe('toServingRecord', () => {
     expect(JSON.stringify(out)).not.toContain('gff-guard-retention');
   });
 
-  it('carries review state through — certification must survive a re-publish', () => {
+  it("carries the file's review state, for the pre-flight summary only", () => {
     const certified = { ...review, certified: true, contested: true };
     const out = toServingRecord(certified, 'x');
     expect(out.certified).toBe(true);
@@ -490,5 +493,83 @@ describe('parseContentRangeTotal', () => {
   it('returns null when there is no total, so the guard cannot pass on a guess', () => {
     expect(parseContentRangeTotal(null)).toBeNull();
     expect(parseContentRangeTotal('0-0/*')).toBeNull();
+  });
+});
+
+describe('a publish never writes review state (#145)', () => {
+  // Migration 014's trigger derives these from reviewers' votes. The file's
+  // values are always false, so writing them would reset what the votes said.
+  // A contested record would then go back to grounding cues.
+  const disputed: ServingRecord = {
+    ...toServingRecord(review, '00000000-0000-4000-8000-000000000001'),
+    certified: true,
+    contested: true,
+  };
+
+  it('the REST row carries no review-state column', () => {
+    const row = toUpsertRow(disputed) as Record<string, unknown>;
+    for (const column of REVIEW_STATE_COLUMNS) {
+      expect(row).not.toHaveProperty(column);
+    }
+  });
+
+  it('the REST row still carries every content column', () => {
+    expect(Object.keys(toUpsertRow(disputed))).toEqual([
+      'id',
+      'sport_key',
+      'position',
+      'prescription',
+      'why',
+      'detail',
+      'counter',
+      'gi',
+      'level',
+      'opponent',
+    ]);
+  });
+
+  it('the SQL path neither inserts nor updates review state', () => {
+    const sql = buildUpsertSql([disputed]);
+    const [insert, update] = sql.split('on conflict (id) do update set');
+    expect(update).toBeDefined();
+    for (const column of REVIEW_STATE_COLUMNS) {
+      // Named only in the explanatory header comment, never as a column.
+      const statement = (insert ?? '').replace(/^--.*$/gm, '');
+      expect(statement).not.toMatch(new RegExp(`\\b${column}\\b`));
+      expect(update).not.toMatch(new RegExp(`\\b${column}\\b`));
+    }
+  });
+
+  it('both paths write exactly the same columns, so they cannot drift apart', () => {
+    const sql = buildUpsertSql([disputed]);
+    const insertColumns =
+      /insert into public\.coaching_records\n {2}\(([^)]*)\)/
+        .exec(sql)?.[1]
+        ?.split(', ');
+    expect(insertColumns).toEqual(Object.keys(toUpsertRow(disputed)));
+  });
+
+  it('updates the content columns, never the identity columns', () => {
+    const update = buildUpsertSql([disputed]).split(
+      'on conflict (id) do update set',
+    )[1];
+    expect(update).toMatch(/prescription = excluded\.prescription/);
+    expect(update).toMatch(/updated_at = now\(\)/);
+    expect(update).not.toMatch(/\bid = /);
+    expect(update).not.toMatch(/sport_key = /);
+  });
+
+  it('escapes quotes and casts the id, as the SQL editor needs', () => {
+    const sql = buildUpsertSql([
+      { ...disputed, prescription: "Don't bridge straight up." },
+    ]);
+    expect(sql).toContain("'Don''t bridge straight up.'");
+    expect(sql).toContain(
+      "('00000000-0000-4000-8000-000000000001'::uuid, 'bjj',",
+    );
+  });
+
+  it('emits no statement for an empty publish', () => {
+    expect(buildUpsertSql([])).not.toMatch(/insert into/);
   });
 });

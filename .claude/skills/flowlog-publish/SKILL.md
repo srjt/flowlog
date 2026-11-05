@@ -80,6 +80,10 @@ leak check     clean — no source markers survive
   `id-mapping.json` in the canonical store, which is what keeps human
   certification alive. Never delete that file. A lost mapping would mint every
   id fresh, so it reads as 0% of live and refuses.
+- **Review state is never published.** `certified`, `contested` and `rejected`
+  come from reviewers' votes (migration 014's trigger), so neither the upload
+  nor `--sql` writes them (#145). A re-publish changes a record's mechanics,
+  never its verdict. New records start uncertified.
 - **`id mapping`** warns only when the mapping shares no id with the store,
   which means it belongs to a different store. A mapping that is merely
   shorter than the store is normal after mining: those records are new.
