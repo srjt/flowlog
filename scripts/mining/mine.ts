@@ -12,8 +12,9 @@
  * canonical position taxonomy directly rather than keeping a second copy.
  *
  * Requires ANTHROPIC_API_KEY for a real run. Records are written OUTSIDE the
- * repo (default ~/flowlog-records) — they contain verbatim instructional text
- * and must never be committed.
+ * repo (default: the canonical store, see `stores.ts`) — they contain verbatim
+ * instructional text and must never be committed. `--out <dir>` mines into any
+ * other directory, creating it, which is how experiments stay separate.
  */
 
 import {
@@ -24,8 +25,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 
+import { storeOrDie } from './stores.ts';
 import {
   assignIds,
   chapterCoverage,
@@ -612,7 +613,8 @@ async function main() {
   const instructor = arg('--instructor') ?? 'Unknown';
   const instructional = arg('--instructional') ?? basename(dirname(volumePath));
   const volume = Number(arg('--volume') ?? '1');
-  const outDir = arg('--out') ?? join(homedir(), 'flowlog-records');
+  // An explicit --out is created if missing; the canonical default never is.
+  const outDir = storeOrDie(arg('--out'), '--out').path;
 
   const lines = parseTranscript(readFileSync(volumePath, 'utf8'));
   if (lines.length === 0) die('transcript parsed to zero lines');
