@@ -6,6 +6,7 @@ import type {
   ExtractionInput,
   ExtractionOutput,
   IAIProvider,
+  SpecRequest,
 } from '@/providers/ai/IAIProvider';
 import { groundingSection } from '@/services/GroundingService';
 import { logCost } from '@/utils/cost';
@@ -14,6 +15,13 @@ import { logger } from '@/utils/logger';
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const EXTRACTION_COST_PER_CALL = 0.003;
 const COACHING_COST_PER_CALL = 0.002;
+/** Estimate: a ~2k-token prompt and a short JSON answer (#135). */
+const DIAGRAM_SPEC_COST_PER_CALL = 0.001;
+/**
+ * Generous for a short answer, because a thinking model spends part of this
+ * budget before it writes, and running out yields no text (#135).
+ */
+const DIAGRAM_SPEC_MAX_TOKENS = 8192;
 
 const STRICT_RETRY_SUFFIX = `
 
@@ -103,10 +111,46 @@ export class GeminiProvider implements IAIProvider {
     };
   }
 
+  /**
+   * Cue -> spec (#135). Never throws: any failure, including the deadline,
+   * resolves to null and the stage records `unavailable`.
+   *
+   * Runs on this provider's model, which is also the extraction model: a spec
+   * is a structured-field task, like extraction, not cue writing. Mirrors
+   * `generateDiagramSpec` in `supabase/functions/_shared/ai.ts`.
+   *
+   * JSON mode only. `input.schema` is NOT sent as `responseSchema`: that field
+   * takes a restricted OpenAPI subset which rejects `additionalProperties`,
+   * and the schema relies on it to forbid extra keys. The prompt already
+   * carries the role enum and the grammar, and `parseSpecResponse` validates
+   * every answer in code. Sending the schema natively is a later change, once
+   * it is checked against the live API.
+   */
+  async generateDiagramSpec(input: SpecRequest): Promise<unknown> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+    try {
+      const text = await this.complete(input.prompt, DIAGRAM_SPEC_MAX_TOKENS, {
+        signal: controller.signal,
+        // A spec is a classification of the cue onto named roles. The same
+        // cue should give the same spec, which the re-render A/B (#15) needs.
+        temperature: 0,
+      });
+      logCost('gemini:diagram-spec', DIAGRAM_SPEC_COST_PER_CALL);
+      return text;
+    } catch (err) {
+      logger.warn('GeminiProvider diagram spec failed; no spec', err);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // ── HTTP ──────────────────────────────────────────────────────────────────
   private async complete(
     prompt: string,
     maxOutputTokens: number,
+    opts: { signal?: AbortSignal; temperature?: number } = {},
   ): Promise<string> {
     if (!(await this.isAvailable())) {
       throw new Error(
@@ -128,9 +172,10 @@ export class GeminiProvider implements IAIProvider {
           generationConfig: {
             responseMimeType: 'application/json',
             maxOutputTokens,
-            temperature: 0.4,
+            temperature: opts.temperature ?? 0.4,
           },
         }),
+        signal: opts.signal,
       });
     } catch (err) {
       logger.error('GeminiProvider network error', err);

@@ -6,6 +6,7 @@ import type {
   ExtractionInput,
   ExtractionOutput,
   IAIProvider,
+  SpecRequest,
 } from '@/providers/ai/IAIProvider';
 import { groundingSection } from '@/services/GroundingService';
 import { logCost } from '@/utils/cost';
@@ -16,6 +17,8 @@ const ANTHROPIC_VERSION = '2023-06-01';
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const EXTRACTION_COST_PER_CALL = 0.004;
 const COACHING_COST_PER_CALL = 0.003;
+/** Estimate: a ~2k-token prompt and a short JSON answer (#135). */
+const DIAGRAM_SPEC_COST_PER_CALL = 0.003;
 
 /**
  * Universal strict-retry instruction appended when a coaching attempt is
@@ -104,8 +107,38 @@ export class ClaudeProvider implements IAIProvider {
     };
   }
 
+  /**
+   * Cue -> spec (#135). Never throws: any failure, including the deadline,
+   * resolves to null and the stage records `unavailable`. Mirrors
+   * `generateDiagramSpec` in `supabase/functions/_shared/ai.ts`.
+   *
+   * A plain text completion, parsed and validated in code by
+   * `parseSpecResponse`. The alternative is tool use with `input.schema` as
+   * the tool's input schema, which would enforce the role enum at the API.
+   * It is not used yet because it cannot be verified against the live API
+   * from here; the prompt carries the same constraints in words.
+   */
+  async generateDiagramSpec(input: SpecRequest): Promise<unknown> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+    try {
+      const text = await this.complete(input.prompt, 1024, controller.signal);
+      logCost('claude:diagram-spec', DIAGRAM_SPEC_COST_PER_CALL);
+      return text;
+    } catch (err) {
+      logger.warn('ClaudeProvider diagram spec failed; no spec', err);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // ── HTTP ──────────────────────────────────────────────────────────────────
-  private async complete(prompt: string, maxTokens: number): Promise<string> {
+  private async complete(
+    prompt: string,
+    maxTokens: number,
+    signal?: AbortSignal,
+  ): Promise<string> {
     if (!(await this.isAvailable())) {
       throw new Error(
         'ClaudeProvider unavailable: ANTHROPIC_API_KEY is not configured.',
@@ -129,6 +162,7 @@ export class ClaudeProvider implements IAIProvider {
           max_tokens: maxTokens,
           messages: [{ role: 'user', content: prompt }],
         }),
+        signal,
       });
     } catch (err) {
       logger.error('ClaudeProvider network error', err);

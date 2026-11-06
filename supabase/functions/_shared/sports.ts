@@ -20,6 +20,9 @@ import {
   normalizePosition as normalizeBjjPosition,
 } from '../../../src/sports/bjj/bjjPositions.ts';
 import { BJJ_VOCABULARY_FLAT } from '../../../src/sports/bjj/bjjVocabulary.ts';
+// The same base library the client registers (#135), not a copy.
+import { BJJ_DIAGRAM_LIBRARY } from '../../../src/sports/bjj/bjjDiagramBases.ts';
+import type { DiagramLibrary } from '../../../src/visualization/diagramStage.ts';
 import {
   BJJ_COACHING_PROMPT,
   BJJ_EXTRACTION_PROMPT,
@@ -45,6 +48,11 @@ export interface ServerSportContext {
   positions: SportPosition[];
   /** Maps free text onto `positions`; abstains rather than guessing. */
   normalizePosition: PositionNormalizer;
+  /**
+   * Force-diagram base library (#135). Absent for a sport without one, which
+   * then records `no_base` and makes no spec call.
+   */
+  diagram?: DiagramLibrary;
   minRecordingSeconds: number;
   maxRecordingSeconds: number;
 }
@@ -60,6 +68,8 @@ const bjj: ServerSportContext = {
   qualityGatePhrases: BJJ_QUALITY_GATE_PHRASES,
   positions: BJJ_POSITIONS,
   normalizePosition: normalizeBjjPosition,
+  // Empty until phase c (#136): every Session records `no_base`, no call.
+  diagram: BJJ_DIAGRAM_LIBRARY,
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };

@@ -65,6 +65,26 @@ the position or the side could not be determined).
   (`docs/ADMIN.md`) reads it first and infers a side only for older Sessions.
   `process-session` writes it on every Session, so apply 024 before deploying
   that function.
+- The cue force-diagram columns on sessions (migration 025, #135):
+  `diagram_spec` (jsonb, the validated spec), `diagram_outcome` (why there is
+  or is not one: `spec`, `no_base`, `not_attempted`, `empty`, `invalid` or
+  `unavailable`, enforced by a CHECK that a test holds equal to
+  `DIAGRAM_OUTCOMES` in `src/visualization/diagramStage.ts`), and the
+  provenance `grammar_version`, `base_library_version` and
+  `spec_prompt_version`, stored beside the spec rather than inside it so it
+  stays re-renderable. **NULL means not recorded** (a Session written before
+  025), never "no diagram", so a coverage rate is `diagram_outcome = 'spec'`
+  over `diagram_outcome is not null`. A spec is present exactly when the
+  outcome is `spec`; `base_library_version` is set whenever the library was
+  consulted (every outcome but `not_attempted`); the grammar and prompt
+  versions only when a prompt was built. All five are written together on
+  every Session write (the insert, the declined insert as `not_attempted`,
+  Re-analyze, which regenerates them, and the declined Re-analyze, which clears
+  them to `not_attempted`). Until phase c the base library is empty, so every
+  coachable Session reads `no_base`; grouped by `target_position_id`, those
+  rows are the base-authoring backlog, as `no_records` is for mining.
+  `pipeline_version` was not bumped. `process-session` writes these columns on
+  every Session, so apply 025 (and 024) before deploying that function.
 - `cue_verdicts` (migration 026, #132): the operator's verdict on a Cue,
   written only by the local cue review tool (`docs/ADMIN.md`) with the service
   role. RLS on, grants revoked from `anon` and `authenticated`, no policy, and

@@ -16,6 +16,7 @@ import { GeminiTranscriptionProvider } from '@/providers/transcription/GeminiTra
 import type { ITranscriptionProvider } from '@/providers/transcription/ITranscriptionProvider';
 import { WhisperProvider } from '@/providers/transcription/WhisperProvider';
 import { CoachingService } from '@/services/CoachingService';
+import { DiagramSpecService } from '@/services/DiagramSpecService';
 import { ExtractionService } from '@/services/ExtractionService';
 import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
@@ -176,6 +177,8 @@ export class PipelineClient {
         extraction: new ExtractionService(ai),
         coaching: new CoachingService(ai),
         qualityGate: new QualityGateService(),
+        // The local key, like every other stage here, not the env default.
+        diagramSpec: new DiagramSpecService(ai),
         storage: localTestStorage,
       });
     }

@@ -89,6 +89,42 @@ All downstream stages use this context — never hardcoded sport logic.
 - On max retry: log failure to monitoring, return a safe capped fallback, never
   crash or expose an error to the user
 
+## Stage 3b: Cue → diagram spec (#135, best-effort, inert until phase c)
+
+The Cue is to be shown beside a deterministic force diagram: a certified base
+pose of the position with the Cue's mechanic drawn over it from a small
+structured **spec**. This stage produces the spec. It is strictly additive: it
+runs after the gate on the Cue that will be saved, it can describe that Cue but
+never change it, and nothing it does can fail the Session.
+
+- Decisions: `runDiagramStage` in `src/visualization/diagramStage.ts`, shared
+  by `FlowlogPipeline` (through `DiagramSpecService`) and the edge function
+  (`cueDiagram`), so the two cannot disagree about when the model is called or
+  what the row records. The pure prompt, schema and parser are
+  `src/visualization/specStage.ts` (see `src/visualization/README.md`).
+- When it calls the model: only when the gate passed with a real Cue (not its
+  fallback) AND the sport's base library (`sportContext.diagram`, from
+  `src/sports/{sport}/`) has a base for the Session's canonical position
+  (`targetPositionId`). Bases are keyed by the sided id (`de-la-riva-bottom`).
+- The call: `IAIProvider.generateDiagramSpec` / `generateDiagramSpec` in
+  `supabase/functions/_shared/ai.ts`, on the extraction model (`GEMINI_MODEL`),
+  JSON mode, temperature 0, aborted after `SPEC_STAGE_TIMEOUT_MS` (6 s). The
+  structured-output schema is built but NOT sent natively (Gemini's
+  `responseSchema` rejects the `additionalProperties` it relies on), so the
+  constraints travel in the prompt and `parseSpecResponse` + `validateSpec`
+  are the floor in code. Providers never throw; a failure is `null`.
+- Output: `diagramOutcome` (`spec`, `no_base`, `not_attempted`, `empty`,
+  `invalid`, `unavailable`), the validated spec when there is one, and the
+  `GRAMMAR_VERSION` / base library version / `SPEC_PROMPT_VERSION` that
+  produced it. Written on all four Session writes (see `docs/DATABASE.md`).
+- **Inert today.** The BJJ base library (`src/sports/bjj/bjjDiagramBases.ts`)
+  is empty until certified poses exist (phase c, #136), so every Session records
+  `no_base` and no model call is made: zero cost, zero latency. The Cue, the
+  quality gate and Grounding are untouched, and `pipeline_version` was not
+  bumped. `no_base` grouped by `target_position_id` is phase c's authoring
+  backlog.
+- No processing step: the stage adds nothing to the UI's step list.
+
 ## Stage 4: Persistence
 
 - Audio uploaded via `storageProvider.uploadAudio` (failure degrades gracefully
@@ -100,8 +136,8 @@ All downstream stages use this context — never hardcoded sport logic.
 
 The cue is shown immediately after recording — there is no pre-cue review step.
 If a word was mis-heard, the user edits the saved session's transcript (on
-Session detail) and re-analyzes. Re-analysis re-runs Stages 2a → 3 (extraction →
-coaching → quality gate) on the edited text — **no transcription, no audio** —
+Session detail) and re-analyzes. Re-analysis re-runs Stages 2a → 3b (extraction →
+coaching → quality gate → diagram spec) on the edited text — **no transcription, no audio** —
 and **updates the same session row in place** (bumping `pipeline_version`), never
 inserting a new one. Reference entry point: `FlowlogPipeline.reanalyze(input)`;
 production: the `process-session` reprocess branch (`reanalyzeSessionId` +
