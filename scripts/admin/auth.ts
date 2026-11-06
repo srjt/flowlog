@@ -43,3 +43,51 @@ export function isLoopbackHost(
 ): boolean {
   return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
 }
+
+/** The one route that writes: an operator verdict on a Cue (#132). */
+export const WRITE_PATH = '/api/verdict';
+
+/**
+ * The method gate. Every route reads, except the one that writes, and that one
+ * only writes. HEAD, OPTIONS and the rest are refused everywhere; refusing
+ * OPTIONS is what makes the CORS preflight below fail.
+ */
+export function allowedMethods(path: string): string[] {
+  return path === WRITE_PATH ? ['POST'] : ['GET'];
+}
+
+export interface WriteHeaders {
+  host: string | undefined;
+  contentType: string | undefined;
+  origin: string | undefined;
+  secFetchSite: string | undefined;
+}
+
+/**
+ * Why a write must be refused, or null to let it through. Basic auth does not
+ * stop cross-site request forgery: the browser re-sends cached credentials to
+ * 127.0.0.1 with a form another site submits. So a write also needs:
+ *
+ *   - `Content-Type: application/json`. A form cannot send it, and a
+ *     cross-origin fetch that does must first pass a preflight, which this
+ *     server never approves (it answers no OPTIONS).
+ *   - An `Origin`, when there is one, equal to this tool's own origin. The
+ *     Host header has already been held to loopback, so this is the page
+ *     itself and nothing else.
+ *   - A `Sec-Fetch-Site`, when there is one, of `same-origin`.
+ */
+export function writeRefusal(
+  h: WriteHeaders,
+): { status: 403 | 415; reason: string } | null {
+  if (h.origin !== undefined && h.origin !== `http://${h.host}`) {
+    return { status: 403, reason: 'Cross-origin write refused' };
+  }
+  if (h.secFetchSite !== undefined && h.secFetchSite !== 'same-origin') {
+    return { status: 403, reason: 'Cross-site write refused' };
+  }
+  const mediaType = h.contentType?.split(';')[0]?.trim().toLowerCase();
+  if (mediaType !== 'application/json') {
+    return { status: 415, reason: 'Send application/json' };
+  }
+  return null;
+}

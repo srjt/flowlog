@@ -46,6 +46,8 @@ describe('cue review: the prompt the model received (#121)', () => {
     expect(run).toMatchObject({ run: 'reanalysis', runs: 2 });
     expect(run?.attempts).toHaveLength(1);
     expect(run?.produced?.prompt).toBe('corrected');
+    // The handle a verdict keeps on the run behind its Cue (#132).
+    expect(run?.runId).toBe('second');
   });
 
   it('reports no producing attempt when the gate fell back', () => {

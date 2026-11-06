@@ -8,10 +8,14 @@
  * ever assigned as HTML — `h()` builds text nodes only.
  */
 import {
+  CUE_VERDICTS,
   DEFAULT_FILTERS,
   GROUNDING_OUTCOMES,
+  WRONG_REASONS,
   filterSessions,
   isTrustworthy,
+  reviewCoverage,
+  withVerdicts,
 } from './review.js';
 
 // ── DOM helper ──────────────────────────────────────────────────────────────
@@ -78,6 +82,38 @@ const STATUS_LABEL = {
   unsettled: 'Unsettled',
 };
 
+/** Operator verdicts (#132): [label, badge tone]. */
+const VERDICT = {
+  sound: ['Sound', 'ok'],
+  shallow: ['Shallow', 'warn'],
+  wrong: ['Wrong', 'bad'],
+};
+
+/** Why a Cue is wrong: [short label, what it means]. Upstream first. */
+const REASON = {
+  transcript_misheard: [
+    'Transcript misheard',
+    'a vocabulary-priming problem upstream',
+  ],
+  extraction_wrong: ['Extraction wrong', 'the wrong mistake, position or side'],
+  records_wrong: ['A record is wrong', 'an injected record is itself wrong'],
+  records_misapplied: [
+    'Records misapplied',
+    'the records were right, the model misused them',
+  ],
+  off_target: ['Off target', 'sound jiu-jitsu aimed at the wrong problem'],
+  model_wrong: [
+    'Model wrong',
+    'no relevant records, and the model’s own jiu-jitsu was wrong',
+  ],
+};
+
+const verdictText = (v) =>
+  `${VERDICT[v.verdict][0]}${v.reason ? `: ${REASON[v.reason][0].toLowerCase()}` : ''}`;
+
+/** The hash that shows the records panel instead of a Session. */
+const RECORDS_VIEW = 'records';
+
 const NOT_RECORDED = [
   ['Skill level', 'only the profile’s current value exists'],
   ['Recent mistakes', 'built from earlier sessions at the time'],
@@ -98,19 +134,44 @@ const wordCount = (text) => text.trim().split(/\s+/).filter(Boolean).length;
 
 const state = {
   sessions: [],
-  meta: { athletes: [], positions: [], positionLabels: {}, reasons: [] },
+  meta: {
+    athletes: [],
+    positions: [],
+    positionLabels: {},
+    reasons: [],
+    verdictsAvailable: false,
+  },
   filters: { ...DEFAULT_FILTERS },
   selected: decodeURIComponent(location.hash.slice(1)) || null,
 };
+
+async function readJson(res) {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body;
+}
 
 async function getJson(url) {
   // Resolved against the origin, which never carries credentials: opened as
   // http://user:pass@127.0.0.1, a relative fetch inherits them and Chromium
   // refuses to construct the request.
-  const res = await fetch(new URL(url, location.origin));
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
-  return body;
+  return readJson(await fetch(new URL(url, location.origin)));
+}
+
+/**
+ * The one write: `POST /api/verdict`, as JSON, which a cross-site form cannot
+ * send. A same-origin fetch carries this page's own `Origin` and
+ * `Sec-Fetch-Site: same-origin`, which is exactly what the server's write
+ * guard admits (docs/ADMIN.md).
+ */
+async function postJson(url, body) {
+  return readJson(
+    await fetch(new URL(url, location.origin), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  );
 }
 
 // ── Filters ─────────────────────────────────────────────────────────────────
@@ -182,6 +243,17 @@ function renderFilters() {
         ['', 'Any'],
         ...athletes.map((a) => [a.id, `${a.name} · ${shortId(a.id)}`]),
       ]),
+      select('verdict', 'Operator verdict', [
+        ['any', 'Any'],
+        ['unjudged', 'Unjudged'],
+        ['judged', 'Judged'],
+        ...CUE_VERDICTS.map((v) => [v, VERDICT[v][0]]),
+        ['earlier', 'About an earlier Cue'],
+      ]),
+      select('verdictReason', 'Wrong because', [
+        ['', 'Any'],
+        ...WRONG_REASONS.map((r) => [r, REASON[r][0]]),
+      ]),
       h(
         'div',
         { class: 'field dates' },
@@ -231,10 +303,30 @@ function badge(text, tone = '') {
   return h('span', { class: `badge ${tone}` }, text);
 }
 
+/** How much of the log is judged, so a pattern can be told from a thin sample. */
+function renderCoverage(visible) {
+  const line = document.getElementById('coverage');
+  if (!state.meta.verdictsAvailable) {
+    line.textContent =
+      'Verdicts unavailable: migration 026 (cue_verdicts) is probably not applied.';
+    return;
+  }
+  const all = reviewCoverage(state.sessions);
+  const pct = all.cues === 0 ? 0 : Math.round((100 * all.judged) / all.cues);
+  let text = `Judged ${all.judged} of ${all.cues} Cues (${pct}%): ${all.sound} sound, ${all.shallow} shallow, ${all.wrong} wrong`;
+  if (all.earlier > 0) text += ` · ${all.earlier} about an earlier Cue`;
+  if (visible.length !== state.sessions.length) {
+    const here = reviewCoverage(visible);
+    text += ` · ${here.judged} of ${here.cues} in this view`;
+  }
+  line.textContent = text;
+}
+
 function renderList() {
   const visible = filterSessions(state.sessions, state.filters);
   document.getElementById('count').textContent =
     `${visible.length} of ${state.sessions.length}`;
+  renderCoverage(visible);
 
   const list = document.getElementById('list');
   if (visible.length === 0) {
@@ -278,6 +370,12 @@ function renderList() {
             s.gatePassed === false && badge('Fell back', 'warn'),
             !isTrustworthy(s.trail) && badge('⚠ Trail', 'warn'),
             s.reanalyzed && badge('Re-analysed'),
+            s.verdict &&
+              badge(
+                `Judged ${verdictText({ verdict: s.verdict, reason: s.verdictReason }).toLowerCase()}`,
+                VERDICT[s.verdict][1],
+              ),
+            s.earlierVerdicts > 0 && badge('Earlier Cue judged', 'warn'),
           ),
         ),
       ),
@@ -628,6 +726,346 @@ function recordedPromptSection(p) {
   );
 }
 
+// ── Operator verdict (#132) ─────────────────────────────────────────────────
+
+const VERDICT_TITLE = 'Operator verdict';
+
+/** After a write: the Session's verdicts as the server now holds them. */
+function applyVerdicts(d, result) {
+  d.verdicts = {
+    available: true,
+    current: result.current,
+    earlier: result.earlier,
+  };
+  state.sessions = state.sessions.map((s) =>
+    s.id === d.session.id ? withVerdicts(s, result.verdicts) : s,
+  );
+  renderList();
+}
+
+function verdictForm(d, onSaved, notice) {
+  const s = d.session;
+  const current = d.verdicts.current;
+  const status = h('p', { class: 'small', role: 'status' }, notice);
+  const name = `verdict-${s.id}`;
+
+  const reason = h(
+    'select',
+    { name: 'reason', 'aria-label': 'Why the Cue is wrong' },
+    h('option', { value: '' }, 'Choose a reason…'),
+    WRONG_REASONS.map((r) =>
+      h(
+        'option',
+        { value: r, selected: current?.reason === r },
+        `${REASON[r][0]}: ${REASON[r][1]}`,
+      ),
+    ),
+  );
+  const reasonField = h(
+    'label',
+    { class: 'field', hidden: current?.verdict !== 'wrong' },
+    h('span', {}, 'Wrong because (required)'),
+    reason,
+  );
+  const note = h(
+    'textarea',
+    { name: 'note', rows: 2, 'aria-label': 'Note', placeholder: 'Optional' },
+    current?.note ?? '',
+  );
+  const chosen = () =>
+    form.querySelector(`input[name="${name}"]:checked`)?.value ?? null;
+
+  const send = async (body, button) => {
+    button.disabled = true;
+    status.className = 'small';
+    status.textContent = 'Saving…';
+    try {
+      applyVerdicts(d, await postJson('/api/verdict', body));
+      onSaved(body.verdict === null ? 'Cleared.' : 'Saved.');
+    } catch (err) {
+      status.className = 'small error';
+      status.textContent = err.message;
+      button.disabled = false;
+    }
+  };
+
+  const save = h('button', { type: 'submit' }, 'Save verdict');
+  const form = h(
+    'form',
+    {
+      class: 'verdict-form',
+      onsubmit: (e) => {
+        e.preventDefault();
+        const verdict = chosen();
+        if (!verdict) {
+          status.className = 'small error';
+          status.textContent = 'Pick sound, shallow or wrong.';
+          return;
+        }
+        if (verdict === 'wrong' && !reason.value) {
+          status.className = 'small error';
+          status.textContent = 'A wrong Cue needs a reason.';
+          return;
+        }
+        void send(
+          {
+            sessionId: s.id,
+            cue: s.coaching_cue,
+            verdict,
+            reason: verdict === 'wrong' ? reason.value : null,
+            note: note.value,
+          },
+          save,
+        );
+      },
+    },
+    h(
+      'fieldset',
+      { class: 'choices' },
+      h('legend', {}, 'This Cue is'),
+      CUE_VERDICTS.map((v) =>
+        h(
+          'label',
+          { class: 'choice' },
+          h('input', {
+            type: 'radio',
+            name,
+            value: v,
+            checked: current?.verdict === v,
+            onchange: () => (reasonField.hidden = v !== 'wrong'),
+          }),
+          VERDICT[v][0],
+        ),
+      ),
+    ),
+    reasonField,
+    h('label', { class: 'field' }, h('span', {}, 'Note'), note),
+    h(
+      'div',
+      { class: 'actions' },
+      save,
+      current &&
+        h(
+          'button',
+          {
+            type: 'button',
+            onclick: (e) =>
+              void send(
+                { sessionId: s.id, cue: current.cue, verdict: null },
+                e.currentTarget,
+              ),
+          },
+          'Clear verdict',
+        ),
+    ),
+    status,
+  );
+  return form;
+}
+
+/** A verdict whose Cue was since replaced: shown, never as judging this one. */
+function earlierVerdict(d, v, onSaved) {
+  const status = h('p', { class: 'small error', role: 'status' });
+  const clear = h(
+    'button',
+    {
+      type: 'button',
+      onclick: async () => {
+        clear.disabled = true;
+        try {
+          applyVerdicts(
+            d,
+            await postJson('/api/verdict', {
+              sessionId: d.session.id,
+              cue: v.cue,
+              verdict: null,
+            }),
+          );
+          onSaved('Cleared.');
+        } catch (err) {
+          status.textContent = err.message;
+          clear.disabled = false;
+        }
+      },
+    },
+    'Clear this verdict',
+  );
+  return h(
+    'div',
+    { class: 'callout warn earlier' },
+    h(
+      'p',
+      {},
+      h('strong', {}, 'About an earlier Cue. '),
+      `You judged it ${verdictText(v).toLowerCase()} on ${dateTime(v.updated_at)}. The Session’s Cue has been replaced since, so this verdict does not judge the Cue above. The Cue it judged:`,
+    ),
+    h('blockquote', {}, v.cue),
+    v.note && h('p', { class: 'small' }, `Note: ${v.note}`),
+    h('div', { class: 'actions' }, clear),
+    status,
+  );
+}
+
+function verdictSection(d, notice = null) {
+  const s = d.session;
+  const v = d.verdicts;
+  let el;
+  const rerender = (message) => {
+    const next = verdictSection(d, message);
+    el.replaceWith(next);
+  };
+  if (!v.available) {
+    el = section(
+      VERDICT_TITLE,
+      h(
+        'p',
+        { class: 'callout warn' },
+        'Verdicts could not be read. Migration 026 (cue_verdicts) is probably not applied to this database yet.',
+      ),
+    );
+    return el;
+  }
+  el = section(
+    VERDICT_TITLE,
+    h(
+      'p',
+      { class: 'muted small' },
+      'Your judgement of the Cue above, kept apart from the athlete’s. An observation only: nothing in the app, Grounding or the certification queue reads it.',
+    ),
+    facts(
+      [
+        [
+          'Athlete said',
+          s.thumbs_up === null
+            ? 'Not rated'
+            : `${s.thumbs_up ? '👍' : '👎'}${s.feedback_reason ? ` ${s.feedback_reason}` : ''}`,
+        ],
+        ['You said', v.current ? verdictText(v.current) : 'Unjudged'],
+        v.current && ['Judged', dateTime(v.current.updated_at)],
+      ].filter(Boolean),
+    ),
+    s.coaching_cue
+      ? verdictForm(d, rerender, notice)
+      : h('p', { class: 'muted' }, 'No Cue to judge.', notice && ` ${notice}`),
+    v.earlier.map((e) => earlierVerdict(d, e, rerender)),
+  );
+  return el;
+}
+
+// ── Records behind wrong Cues (#132 story 6) ────────────────────────────────
+
+function sessionLink(id) {
+  const s = state.sessions.find((x) => x.id === id);
+  return h(
+    'button',
+    { type: 'button', class: 'link', onclick: () => selectSession(id) },
+    s ? `${dateTime(s.sessionDate)} · ${s.athlete}` : shortId(id),
+  );
+}
+
+function signalCard(entry, rank, labels) {
+  const reasons = WRONG_REASONS.filter((r) => entry.byReason[r] > 0)
+    .map((r) => `${REASON[r][0]} ${entry.byReason[r]}`)
+    .join(' · ');
+  const r = entry.record;
+  return h(
+    'li',
+    { class: 'record' },
+    h(
+      'div',
+      { class: 'record-head' },
+      h('span', { class: 'rank' }, `#${rank}`),
+      r
+        ? h('span', {}, labels[r.position] ?? r.position)
+        : h('span', { class: 'muted' }, 'No longer in coaching_records'),
+      entry.status && badge(STATUS_LABEL[entry.status], entry.status),
+      h(
+        'span',
+        { class: 'muted' },
+        `behind ${entry.wrong} wrong of ${entry.judged} judged`,
+      ),
+    ),
+    r && h('p', { class: 'prescription' }, r.prescription),
+    facts([
+      ['Wrong because', reasons],
+      [
+        'Sessions',
+        h(
+          'span',
+          { class: 'links' },
+          entry.sessionIds.map((id) => sessionLink(id)),
+        ),
+      ],
+      ['Id', h('code', {}, entry.recordId)],
+    ]),
+  );
+}
+
+function renderRecords(p) {
+  const main = document.getElementById('detail');
+  const head = h(
+    'header',
+    { class: 'detail-head' },
+    h('h1', {}, 'Records behind wrong Cues'),
+    h(
+      'p',
+      { class: 'muted' },
+      'Every Coaching record that sat behind a Cue you judged wrong. Most “a record is wrong” verdicts first, then most wrong verdicts, then fewest appearances. Counted from the records kept with each verdict, so a Re-analyze never moves them. An observation for choosing what to review: the certification queue does not read it yet.',
+    ),
+  );
+  if (!p.available) {
+    main.replaceChildren(
+      head,
+      h(
+        'p',
+        { class: 'callout warn' },
+        'Verdicts could not be read. Migration 026 (cue_verdicts) is probably not applied to this database yet.',
+      ),
+    );
+    return;
+  }
+  const w = p.wrong;
+  main.replaceChildren(
+    head,
+    section(
+      'Wrong verdicts',
+      h(
+        'p',
+        { class: 'funnel' },
+        `${w.total} wrong: ${w.traced} with a trusted record trail, counted below · ${w.noRecords} with no records behind them · ${w.untraced} whose trail could not say which records were behind them`,
+      ),
+      p.records.length === 0
+        ? h(
+            'p',
+            { class: 'muted' },
+            'No record has sat behind a Cue judged wrong yet.',
+          )
+        : h(
+            'ol',
+            { class: 'records' },
+            p.records.map((e, i) =>
+              signalCard(e, i + 1, state.meta.positionLabels),
+            ),
+          ),
+    ),
+  );
+  main.scrollTop = 0;
+}
+
+async function showRecords() {
+  state.selected = RECORDS_VIEW;
+  history.replaceState(null, '', `#${RECORDS_VIEW}`);
+  renderList();
+  const main = document.getElementById('detail');
+  main.replaceChildren(h('p', { class: 'empty muted' }, 'Loading…'));
+  try {
+    const p = await getJson('/api/verdicts/records');
+    if (state.selected === RECORDS_VIEW) renderRecords(p);
+  } catch (err) {
+    main.replaceChildren(h('p', { class: 'empty error' }, err.message));
+  }
+}
+
 function renderDetail(d) {
   const s = d.session;
   const labels = state.meta.positionLabels;
@@ -700,6 +1138,7 @@ function renderDetail(d) {
         ['Note', s.feedback_note],
       ]),
     ),
+    verdictSection(d),
   );
   main.scrollTop = 0;
 }
@@ -736,9 +1175,11 @@ async function boot() {
     );
     return;
   }
+  document.getElementById('records-link').onclick = () => void showRecords();
   renderFilters();
   renderList();
-  if (state.selected) void selectSession(state.selected);
+  if (state.selected === RECORDS_VIEW) void showRecords();
+  else if (state.selected) void selectSession(state.selected);
   else
     main.replaceChildren(h('p', { class: 'empty muted' }, 'Pick a session.'));
 }
