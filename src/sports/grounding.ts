@@ -10,6 +10,7 @@
  */
 
 import { normalizePosition } from './bjj/bjjPositions.ts';
+import { notPositional, type GroundingAssignment } from './experiment.ts';
 import type { Perspective } from './positionTypes.ts';
 
 /** Ceiling on how many records reach the prompt. */
@@ -47,6 +48,48 @@ export interface GroundableRecord {
   rejected?: boolean;
 }
 
+/**
+ * What the key mistake is about, as Extraction reports it (#153).
+ *
+ *   position    holding, escaping, passing, retaining or recovering a position,
+ *               defending a submission from one included
+ *   submission  failing to finish or secure the athlete's OWN submission
+ *   transition  executing a specific move, not controlling a position
+ *   unknown     Extraction could not tell, or said something else
+ *
+ * Exactly the values `sessions.mistake_concerns` accepts (migration 027).
+ */
+export type MistakeConcerns =
+  | 'position'
+  | 'submission'
+  | 'transition'
+  | 'unknown';
+
+export const MISTAKE_CONCERNS: readonly MistakeConcerns[] = [
+  'position',
+  'submission',
+  'transition',
+  'unknown',
+];
+
+/**
+ * Constrain the model's answer to the four values (#153). Shared by the client
+ * `ExtractionService` and the edge `extract`, so the two cannot disagree.
+ *
+ * Anything else becomes `'unknown'`, never `'position'` or `'submission'`.
+ * `'unknown'` grounds exactly as before this field existed, so a bad value can
+ * never cost a session its grounding, and no default can make grounding
+ * abstain. Exact match only, as `normalisePerspective` does: a value the
+ * prompt did not ask for is not trusted through by being close to one it did.
+ */
+export function normaliseMistakeConcerns(value: unknown): MistakeConcerns {
+  return value === 'position' ||
+    value === 'submission' ||
+    value === 'transition'
+    ? value
+    : 'unknown';
+}
+
 /** The extraction fields grounding reads. */
 export interface GroundableExtraction {
   positionsVisited: string[];
@@ -59,6 +102,51 @@ export interface GroundableExtraction {
    * without it a session resolves for storage but not for grounding.
    */
   rawTranscript: string;
+  /**
+   * What the key mistake is about (#153). Read only by `groundingScope`.
+   * Absent or null means not recorded (a replayed row from before migration
+   * 027) and grounds exactly as `'unknown'` does, which is as before.
+   */
+  mistakeConcerns?: MistakeConcerns | null;
+}
+
+/**
+ * Whether to ground at all, and against which positions (#153).
+ *
+ *   positions       look up records for `positionIds`, as grounding always
+ *                   has. An empty list is `no_position`, decided later.
+ *   not_positional  abstain. No ids exist on this variant, so a caller cannot
+ *                   look records up for a session grounding abstained on.
+ */
+export type GroundingScope =
+  | { kind: 'positions'; positionIds: string[] }
+  | { kind: 'not_positional'; assignment: GroundingAssignment };
+
+/**
+ * Decide whether this mistake is one grounding can serve, BEFORE any lookup.
+ *
+ * Grounding resolves every position in `positionsVisited`. When the key mistake
+ * is about finishing a submission or executing a transition, those positions
+ * were only co-mentioned: "couldn't finish the reverse triangle, they stacked
+ * me" with `["Side Control", "Reverse Triangle"]` grounded the cue in 9 records
+ * about escaping side control. Measured in #116, 3 of 16 grounded sessions
+ * received records for a different problem this way.
+ *
+ * `target_position_id` cannot be the signal: it is resolved from the coaching
+ * output, after the call these records are for. So Extraction reports it.
+ *
+ * Abstains ONLY on an explicit `submission` or `transition`. `position` and
+ * `unknown` (and an unrecorded value) behave exactly as before, so an unsure
+ * Extraction never quietly loses grounding.
+ */
+export function groundingScope(
+  extraction: GroundableExtraction,
+): GroundingScope {
+  const concerns = extraction.mistakeConcerns;
+  if (concerns === 'submission' || concerns === 'transition') {
+    return { kind: 'not_positional', assignment: notPositional() };
+  }
+  return { kind: 'positions', positionIds: candidatePositions(extraction) };
 }
 
 /**

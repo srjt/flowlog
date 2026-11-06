@@ -2,6 +2,10 @@ import { PIPELINE_CONFIG } from '@/constants/pipelineConfig';
 import { aiProvider } from '@/providers/ai';
 import type { IAIProvider } from '@/providers/ai';
 import type { GiContext } from '@/sports/giContext';
+import {
+  normaliseMistakeConcerns,
+  type MistakeConcerns,
+} from '@/sports/grounding';
 import type { ISportContext } from '@/sports/ISportContext';
 import type { ExtractionOutput, ExtractionPerspective } from '@/types/pipeline';
 import { logger } from '@/utils/logger';
@@ -51,6 +55,10 @@ export class ExtractionService {
 
     const statedGi = ExtractionService.normaliseStatedGi(extraction.statedGi);
 
+    const mistakeConcerns = ExtractionService.normaliseMistakeConcerns(
+      extraction.mistakeConcerns,
+    );
+
     const sufficiency = ExtractionService.judgeSufficiency(
       transcript,
       extraction.hasCoachableContent,
@@ -62,6 +70,7 @@ export class ExtractionService {
       sentiment,
       perspective,
       statedGi,
+      mistakeConcerns,
       hasCoachableContent: sufficiency.hasCoachableContent,
     });
 
@@ -70,6 +79,7 @@ export class ExtractionService {
       sentiment,
       perspective,
       statedGi,
+      mistakeConcerns,
       rawTranscript: transcript,
       ...sufficiency,
     };
@@ -98,6 +108,20 @@ export class ExtractionService {
    */
   static normalisePerspective(value: unknown): ExtractionPerspective {
     return value === 'top' || value === 'bottom' ? value : 'unknown';
+  }
+
+  /**
+   * Constrain what the model says the key mistake is about (issue #153).
+   *
+   * Anything unexpected becomes `'unknown'`, never `'position'` or
+   * `'submission'`. `'unknown'` grounds exactly as before the field existed,
+   * so a bad value can never cost a session its grounding, and no default can
+   * make grounding abstain. The rule itself lives in `src/sports/grounding.ts`,
+   * which the edge function's `extract` imports too, so the two sides cannot
+   * normalise differently.
+   */
+  static normaliseMistakeConcerns(value: unknown): MistakeConcerns {
+    return normaliseMistakeConcerns(value);
   }
 
   // ── Sufficiency (issue #44) ───────────────────────────────────────────────

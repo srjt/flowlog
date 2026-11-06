@@ -151,9 +151,11 @@ describe('the edge function renders grounding, not just receives it', () => {
   it('imports groundingSection from the single-sourced module', () => {
     // Not a local copy: the client and the server must build the same prompt,
     // or a cue measured in one place says nothing about the other.
+    // Alongside other names from it (the #153 normaliser), never a local copy.
     expect(source).toMatch(
-      /import \{ groundingSection \} from '\.\.\/\.\.\/\.\.\/src\/sports\/grounding\.ts'/,
+      /import \{[^}]*\bgroundingSection\b[^}]*\} from '\.\.\/\.\.\/\.\.\/src\/sports\/grounding\.ts'/,
     );
+    expect(source).not.toMatch(/function groundingSection\b/);
   });
 });
 

@@ -12,7 +12,8 @@ export type GroundingOutcome =
   | 'withheld'
   | 'no_position'
   | 'no_records'
-  | 'declined';
+  | 'declined'
+  | 'not_positional';
 
 export interface GroundingAssignment {
   outcome: GroundingOutcome;
@@ -20,6 +21,22 @@ export interface GroundingAssignment {
   inject: number;
   /** Records that matched the mistake and COULD have been injected. */
   available: number;
+}
+
+/**
+ * Grounding abstained: Extraction said the key mistake is about finishing a
+ * submission or executing a transition, not a position (#153).
+ *
+ * Eligibility, not an arm, like `no_position` and `no_records`. And it is never
+ * `no_position`: that one means the taxonomy failed to resolve a position, and
+ * it feeds the mining backlog as a taxonomy fix. An abstention is a decision
+ * about the mistake, not a gap in the corpus or the taxonomy.
+ *
+ * Built only by `groundingScope` in `grounding.ts`, the one place that decides
+ * to abstain, so the client and the edge function record it identically.
+ */
+export function notPositional(): GroundingAssignment {
+  return { outcome: 'not_positional', inject: 0, available: 0 };
 }
 
 /**
@@ -93,12 +110,13 @@ export function assignGrounding(
      * time of writing) the stored timestamp was never in the key, so rebuilding
      * the key from the row yields a different string and a different arm.
      *
-     * Only `grounded` and `withheld` are arms. `no_position`, `no_records` and
-     * `declined` are ELIGIBILITY, which depends on the current extraction and
-     * must be recomputed — a corrected transcript can resolve a position that
-     * previously did not — so they are ignored here and fall through to a fresh
-     * assignment. That split is the point: eligibility is a function of the
-     * text, assignment is a property of the session.
+     * Only `grounded` and `withheld` are arms. `no_position`, `no_records`,
+     * `declined` and `not_positional` are ELIGIBILITY, which depends on the
+     * current extraction and must be recomputed — a corrected transcript can
+     * resolve a position that previously did not, or turn out to be about a
+     * position after all — so they are ignored here and fall through to a
+     * fresh assignment. That split is the point: eligibility is a function of
+     * the text, assignment is a property of the session.
      *
      * Typed as a plain string because it arrives from a text column, and only
      * two of its values mean anything here. Narrowing it at the boundary would

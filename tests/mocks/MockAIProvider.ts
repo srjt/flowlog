@@ -17,6 +17,8 @@ const DEFAULT_EXTRACTION: ExtractionOutput = {
   insufficientReason: '',
   perspective: 'bottom',
   statedGi: 'unknown',
+  // A positional mistake, so suites that predate #153 ground exactly as before.
+  mistakeConcerns: 'position',
 };
 
 const DEFAULT_GOOD_COACHING: CoachingOutput = {

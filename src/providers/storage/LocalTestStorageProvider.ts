@@ -56,6 +56,7 @@ export class LocalTestStorageProvider implements IStorageProvider {
       gi: session.gi ?? null,
       giSource: session.giSource ?? null,
       perspective: session.perspective ?? null,
+      mistakeConcerns: session.mistakeConcerns ?? null,
       ...diagramFields(session),
       targetPosition: session.targetPosition,
       qualityGatePassed: session.qualityGatePassed,
@@ -88,6 +89,9 @@ export class LocalTestStorageProvider implements IStorageProvider {
       pipelineVersion: update.pipelineVersion,
       ...(update.perspective !== undefined && {
         perspective: update.perspective,
+      }),
+      ...(update.mistakeConcerns !== undefined && {
+        mistakeConcerns: update.mistakeConcerns,
       }),
       // As one group, like the Supabase mapping (#135).
       ...(update.diagramOutcome !== undefined && diagramFields(update)),

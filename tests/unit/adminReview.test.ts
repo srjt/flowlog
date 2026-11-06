@@ -7,6 +7,7 @@ import {
 } from '../../scripts/admin/auth';
 import {
   DEFAULT_FILTERS,
+  GROUNDING_OUTCOMES,
   compareVersions,
   filterSessions,
   groundingFunnel,
@@ -173,6 +174,36 @@ describe('cue review: filters', () => {
     expect(ids({})).toEqual(['d', 'b', 'a']);
     expect(ids({ grounding: 'all' })).toEqual(['d', 'c', 'b', 'a']);
     expect(ids({ grounding: 'declined' })).toEqual(['c']);
+  });
+
+  // #153: an abstention is listed as itself and found only as itself, never
+  // under no_position or no_records. Unlike a declined take it has a Cue, so
+  // the default view keeps it.
+  it('filters not_positional as its own outcome', () => {
+    const withAbstention = [
+      ...sessions,
+      summary({
+        id: 'e',
+        session_date: '2026-09-10T10:00:00Z',
+        grounding: 'not_positional',
+        grounding_candidates: null,
+        grounding_gate_passed: null,
+        grounding_available: 0,
+        grounding_records: 0,
+        grounding_record_ids: [],
+      }),
+    ];
+    const only = (grounding: (typeof GROUNDING_OUTCOMES)[number]) =>
+      filterSessions(withAbstention, { ...DEFAULT_FILTERS, grounding }).map(
+        (s) => s.id,
+      );
+    expect(GROUNDING_OUTCOMES).toContain('not_positional');
+    expect(only('not_positional')).toEqual(['e']);
+    expect(only('no_position')).toEqual([]);
+    expect(only('no_records')).toEqual([]);
+    expect(
+      filterSessions(withAbstention, DEFAULT_FILTERS).map((s) => s.id),
+    ).toEqual(['e', 'd', 'b', 'a']);
   });
 
   it('searches transcript, Cue and key mistake case-insensitively', () => {

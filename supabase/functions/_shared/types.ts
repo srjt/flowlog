@@ -2,6 +2,9 @@
 // `src/types/pipeline.ts` (kept in sync intentionally — the client and server
 // speak the same wire shapes).
 
+// Single-sourced with the client, like the grounding code that reads it.
+import type { MistakeConcerns } from '../../../src/sports/grounding.ts';
+
 export interface TranscriptionResult {
   transcript: string;
   confidence: number;
@@ -22,6 +25,11 @@ export interface ExtractionOutput {
   perspective: 'top' | 'bottom' | 'unknown';
   /** Explicit gi/no-gi statement, or 'unknown' (#60). */
   statedGi: 'gi' | 'no-gi' | 'unknown';
+  /**
+   * What the key mistake is about (#153). Grounding abstains on 'submission'
+   * and 'transition'; 'unknown' grounds as 'position' does.
+   */
+  mistakeConcerns: MistakeConcerns;
 }
 
 /** A distilled mechanic from the serving store (#57). No source link by design. */

@@ -56,6 +56,15 @@ const byDemand = (a: BacklogEntry, b: BacklogEntry) =>
   b.users - a.users ||
   a.position.localeCompare(b.position);
 
+/**
+ * Only `no_records` and `no_position` feed the three lists. Every other outcome
+ * is counted in `outcomes` and nowhere else, `not_positional` (#153) included:
+ * grounding abstained because the mistake is about a submission or a
+ * transition, which is a decision rather than a gap. Filing it under
+ * `no_position` would send its submission names to the taxonomy as positions
+ * to add, and filing it under `no_records` would ask for mining that cannot
+ * help. Its `grounding_candidates` is NULL for the same reason.
+ */
 export function rankBacklog(rows: SessionOutcomeRow[]): Backlog {
   const outcomes: Record<string, number> = {};
   for (const r of rows) {
