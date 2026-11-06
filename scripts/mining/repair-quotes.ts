@@ -6,6 +6,8 @@
  *   scripts/mining/repair-quotes.sh --write            # rewrite the records
  *   scripts/mining/repair-quotes.sh --records <dir> --write
  *
+ * Without `--records` it works on the canonical store (`stores.ts`).
+ *
  * Costs nothing. Runs no model.
  *
  * A spliced quote is two things the instructor said minutes apart, joined into
@@ -38,6 +40,7 @@ import { homedir } from 'node:os';
 import { parseTranscript } from './transcript.ts';
 import { applyCorrections } from './prompt.ts';
 import { repairQuote, type MinedRecord } from './records.ts';
+import { storeOrDie } from './stores.ts';
 import { volumeNumbersForDirectory } from './volumes.ts';
 
 function arg(flag: string): string | null {
@@ -95,7 +98,7 @@ function indexLibrary(root: string): Map<string, string> {
 }
 
 function main() {
-  const recordsDir = arg('--records') ?? join(homedir(), 'flowlog-records');
+  const recordsDir = storeOrDie(arg('--records'), '--records').path;
   const write = has('--write');
   const library = indexLibrary(
     join(homedir(), 'Documents', 'BJJ Instructionals'),

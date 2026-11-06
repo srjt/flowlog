@@ -7,6 +7,7 @@ import {
   type MinedRecord,
 } from '../../scripts/mining/records';
 import { applyCorrections } from '../../scripts/mining/prompt';
+import { canonicalStorePath, chooseStore } from '../../scripts/mining/stores';
 import {
   chapterAt,
   chaptersForVolume,
@@ -679,5 +680,41 @@ describe('parseChapterIndex — timestamp-first, space separated', () => {
   it('still reads the title-first range form', () => {
     const got = parseChapterIndex('Bridging\t1:25:21 - 1:33:00');
     expect(got[0]).toMatchObject({ startSeconds: 5121, endSeconds: 5580 });
+  });
+});
+
+describe('chooseStore — which review store a mining or publish command uses', () => {
+  const canonical = canonicalStorePath('/home/op');
+  const nothingExists = () => false;
+  const everythingExists = () => true;
+
+  it('defaults to the store the live serving store was published from', () => {
+    // #131: the default had drifted to the stale `~/flowlog-records`.
+    expect(canonical).toBe('/home/op/flowlog-records-local-all');
+    expect(
+      chooseStore(null, canonical, everythingExists, '--out'),
+    ).toMatchObject({ ok: true, path: canonical, isDefault: true });
+  });
+
+  it('fails loudly, naming the path, when the canonical store is missing', () => {
+    const choice = chooseStore(null, canonical, nothingExists, '--out');
+    expect(choice.ok).toBe(false);
+    expect(!choice.ok && choice.error).toContain(canonical);
+  });
+
+  it('takes an explicit new experiment directory as given', () => {
+    // Mining into a fresh `--out` is how model comparisons stay separate.
+    expect(
+      chooseStore(
+        '/home/op/flowlog-records-q32',
+        canonical,
+        nothingExists,
+        '--out',
+      ),
+    ).toMatchObject({
+      ok: true,
+      path: '/home/op/flowlog-records-q32',
+      isDefault: false,
+    });
   });
 });
