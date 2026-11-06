@@ -10,6 +10,33 @@ export interface Tally {
   count: number;
 }
 
+/**
+ * A recurring Weakness (#1; see `CONTEXT.md`): the position where the athlete's
+ * key mistake keeps landing. NOT the Focus area. Most-logged is not
+ * most-troublesome, and before #1 the trend log only ever surfaced most-logged
+ * plus the newest mistake.
+ *
+ * The signal is the Session's `targetPositionId`: the canonical,
+ * perspective-aware position Extraction tied that Session's key mistake to
+ * (`half-guard-bottom`, never "half guard"). Free-text mistakes are NOT
+ * clustered by shared words. "Got flattened" and "lost my frames" can be the
+ * same problem with no words in common, and the repo's findings log (#139)
+ * records how often keyword proxies misled. A canonical id either repeats or it
+ * does not.
+ */
+export interface Weakness {
+  /** Canonical position id, e.g. `half-guard-bottom`. */
+  positionId: string;
+  /** Display label as stored on the most recent Session that targeted it. */
+  label: string;
+  /** Sessions in the window whose key mistake targeted this position. */
+  count: number;
+  /** Sessions considered: the most recent ones with a mistake and a position. */
+  window: number;
+  /** The most recent key mistake at this position. */
+  latestMistake: string;
+}
+
 export interface SportTrends {
   sessionCount: number;
   streakDays: number;
@@ -17,6 +44,11 @@ export interface SportTrends {
   /** The position you log most — your current focus area. */
   focusArea: string | null;
   topPositions: Tally[];
+  /**
+   * The position your key mistakes keep coming back to, or null when none has
+   * recurred yet. See `Weakness`.
+   */
+  weakness: Weakness | null;
   /** Distinct recent key mistakes, newest first. */
   recentMistakes: string[];
   moodBreakdown: Tally[];
@@ -25,6 +57,19 @@ export interface SportTrends {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How many recent mistake-bearing Sessions a Weakness is judged over. Recent
+ * enough that a fixed problem drops out, long enough to see a pattern at a
+ * couple of sessions a week.
+ */
+export const WEAKNESS_WINDOW = 10;
+
+/**
+ * A position must carry the key mistake in at least this many Sessions of the
+ * window to count as recurring. One occurrence is an incident, not a pattern.
+ */
+export const WEAKNESS_MIN_RECURRENCE = 2;
 
 export function computeTrends(sessions: Session[]): SportTrends {
   const sorted = [...sessions].sort((a, b) =>
@@ -37,6 +82,7 @@ export function computeTrends(sessions: Session[]): SportTrends {
     lastSessionAt: sorted[0]?.sessionDate ?? null,
     focusArea: topTally(positionTallies(sorted))?.label ?? null,
     topPositions: positionTallies(sorted).slice(0, 5),
+    weakness: computeWeakness(sorted),
     recentMistakes: distinctRecentMistakes(sorted, 5),
     moodBreakdown: moodTallies(sorted),
     thumbsUpRate: computeThumbsUpRate(sorted),
@@ -78,6 +124,68 @@ function moodTallies(sessions: Session[]): Tally[] {
       counts.set(s.sentiment, (counts.get(s.sentiment) ?? 0) + 1);
   }
   return tallyArray(counts);
+}
+
+/**
+ * The recurring Weakness, from Sessions sorted newest first. Only Sessions that
+ * have both a key mistake and a canonical target position count:
+ * - a declined Take has neither;
+ * - a mistake about a submission or a transition resolves to no position (#116);
+ * - a Session from before position ids existed (migration 007) has none.
+ * None of these is evidence about a position, so none can make one recur.
+ *
+ * The most frequent position in the window wins if it reaches the recurrence
+ * floor. A tie goes to the position whose mistake is most recent, because that
+ * is the one still happening.
+ */
+function computeWeakness(sessions: Session[]): Weakness | null {
+  const window = sessions
+    .filter((s) => s.targetPositionId && s.keyMistake?.trim())
+    .slice(0, WEAKNESS_WINDOW);
+
+  // `window` is newest first, so the first Session seen for an id is its most
+  // recent occurrence: it supplies the label, the latest mistake and the
+  // recency used to break ties.
+  interface Candidate {
+    positionId: string;
+    count: number;
+    label: string;
+    latestMistake: string;
+    latestIndex: number;
+  }
+  const byPosition = new Map<string, Candidate>();
+  window.forEach((s, index) => {
+    const positionId = s.targetPositionId as string;
+    const seen = byPosition.get(positionId);
+    if (seen) {
+      seen.count += 1;
+      return;
+    }
+    byPosition.set(positionId, {
+      positionId,
+      count: 1,
+      label: s.targetPosition?.trim() || positionId,
+      latestMistake: (s.keyMistake as string).trim(),
+      latestIndex: index,
+    });
+  });
+
+  let best: Candidate | null = null;
+  for (const candidate of byPosition.values()) {
+    if (candidate.count < WEAKNESS_MIN_RECURRENCE) continue;
+    if (
+      !best ||
+      candidate.count > best.count ||
+      (candidate.count === best.count &&
+        candidate.latestIndex < best.latestIndex)
+    ) {
+      best = candidate;
+    }
+  }
+  if (!best) return null;
+
+  const { positionId, label, count, latestMistake } = best;
+  return { positionId, label, count, window: window.length, latestMistake };
 }
 
 function distinctRecentMistakes(sessions: Session[], limit: number): string[] {

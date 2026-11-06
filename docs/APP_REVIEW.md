@@ -33,7 +33,7 @@ inventory entry.
 | Feature tour | Four slides: Record, Log, Trends, Profile | `/tour` | After onboarding, and "Replay tour" in Profile |
 | Record | Record a 20 to 90 second reflection, play it back, re-record or Submit. Gi / no-gi toggle. A streak strip that opens the Log | `/record` | Record tab. Also where the app opens once onboarded, and where a training reminder opens |
 | Log | Past sessions grouped by week, with search and a "Needs review" filter | `/log` | Log tab, and "View log" on the result screen |
-| Trends | Streak, session count, focus area, most-worked positions, recurring mistakes, mood. A lighter view, with a note, before 10 sessions | `/trends` | Trends tab |
+| Trends | Streak, session count, focus area, recurring weakness, most-worked positions, recent mistakes, mood. A lighter view, with a note, before 10 sessions | `/trends` | Trends tab |
 | Profile | Sport, skill level, training reminders, weekly digest, "View weekly digests", "Replay tour", Change password (email accounts), Sign out, Delete account | `/profile` | Profile tab |
 | Processing | Uploads the recording and shows each processing step, with "Try again" and "Discard" on failure | `/processing` | "Submit" on Record |
 | Result | The coaching cue (25 words or fewer), a summary, cue rating (thumbs up or down, with a reason), "Review transcript", Done, View log. A one-time celebration after the first result | `/output` | Opens by itself when processing finishes |
@@ -143,7 +143,7 @@ EVERY FEATURE AND HOW TO REACH IT
 - Record tab: record, play back, re-record, Submit. A streak strip opens the Log.
 - Result screen (after Submit): the coaching cue, a summary, cue rating, "Review transcript", Done, View log.
 - Log tab: sessions by week, search, and a "Needs review" filter. Tap a session for its transcript, transcript editing and Re-analyze, cue rating, Share and Delete.
-- Trends tab: streak, session count, focus area, most-worked positions, recurring mistakes and mood. A lighter view is shown before 10 sessions.
+- Trends tab: streak, session count, focus area, recurring weakness, most-worked positions, recent mistakes and mood. A lighter view is shown before 10 sessions.
 - Profile tab: sport and skill level, training reminders, weekly digest, "View weekly digests", "Replay tour", Change password, Sign out, Delete account.
 - Training reminders (off until turned on in Profile): local notifications that open the Record tab.
 - Weekly digest (off until turned on in Profile): a weekly local notification that opens that week's summary. Past weeks are under "View weekly digests".

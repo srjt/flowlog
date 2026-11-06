@@ -48,6 +48,7 @@ function trends(partial: Partial<SportTrends> = {}): SportTrends {
     lastSessionAt: '2026-06-10T12:00:00.000Z',
     focusArea: 'Guard',
     topPositions: [{ label: 'Guard', count: 3 }],
+    weakness: null,
     recentMistakes: ['flat hips', 'hand placement'],
     moodBreakdown: [],
     thumbsUpRate: null,
@@ -57,16 +58,34 @@ function trends(partial: Partial<SportTrends> = {}): SportTrends {
 
 describe('DigestService — buildWeeklyDigest', () => {
   it('mirrors TrendsService output: focus, leak, and identical body', () => {
-    const t = trends();
+    const t = trends({
+      weakness: {
+        positionId: 'half-guard-bottom',
+        label: 'Half guard (bottom)',
+        count: 2,
+        window: 3,
+        latestMistake: 'flat hips',
+      },
+    });
     const digest = buildWeeklyDigest(t, '2026-06-08', 'bjj');
     expect(digest).toEqual({
       id: 'bjj-2026-06-08',
       weekStart: '2026-06-08',
       sport: 'bjj',
       focusArea: 'Guard',
-      recurringLeak: 'flat hips',
+      recurringLeak: 'Half guard (bottom)',
       body: buildDigestBody(t),
     });
+  });
+
+  it('never reports the newest mistake as a recurring leak (#1)', () => {
+    // A week with mistakes but no position that recurred has no Leak.
+    const digest = buildWeeklyDigest(
+      trends({ weakness: null, recentMistakes: ['flat hips'] }),
+      '2026-06-08',
+      'bjj',
+    );
+    expect(digest.recurringLeak).toBeNull();
   });
 
   it('carries nulls through when a week has no positions or mistakes', () => {
@@ -84,9 +103,14 @@ describe('DigestService — materializeDueDigests', () => {
   const now = new Date('2026-06-25T12:00:00.000Z');
 
   it('captures a snapshot for a newly-elapsed active week', () => {
+    const mountMistake = {
+      positionsVisited: ['Mount'],
+      targetPositionId: 'mount-bottom',
+      targetPosition: 'Mount (bottom)',
+    };
     const sessions = [
-      session({ positionsVisited: ['Mount'], keyMistake: 'slow escape' }),
-      session({ positionsVisited: ['Mount'], keyMistake: 'slow escape' }),
+      session({ ...mountMistake, keyMistake: 'slow escape' }),
+      session({ ...mountMistake, keyMistake: 'stayed flat' }),
       session({ positionsVisited: ['Guard'], keyMistake: 'flat hips' }),
     ];
     const out = materializeDueDigests(sessions, now, []);
@@ -94,7 +118,7 @@ describe('DigestService — materializeDueDigests', () => {
     const [d] = out;
     const t = computeTrends(sessions);
     expect(d?.focusArea).toBe('Mount'); // most-worked that week
-    expect(d?.recurringLeak).toBe(t.recentMistakes[0]);
+    expect(d?.recurringLeak).toBe('Mount (bottom)'); // where mistakes recurred
     expect(d?.body).toBe(buildDigestBody(t));
     expect(d?.sport).toBe('bjj');
   });

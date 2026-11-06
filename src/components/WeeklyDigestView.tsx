@@ -36,7 +36,7 @@ export function WeeklyDigestView({ digest }: { digest: WeeklyDigest }) {
       <Card className="gap-1 border border-accent">
         <Text variant="caption">RECURRING LEAK</Text>
         <Text variant="heading">
-          {digest.recurringLeak ?? 'Nothing flagged'}
+          {digest.recurringLeak ?? 'Nothing recurring yet'}
         </Text>
       </Card>
 
