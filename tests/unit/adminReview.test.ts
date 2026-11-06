@@ -1,4 +1,10 @@
-import { isAuthorized, isLoopbackHost } from '../../scripts/admin/auth';
+import {
+  WRITE_PATH,
+  allowedMethods,
+  isAuthorized,
+  isLoopbackHost,
+  writeRefusal,
+} from '../../scripts/admin/auth';
 import {
   DEFAULT_FILTERS,
   compareVersions,
@@ -10,6 +16,7 @@ import {
   type RecordRow,
   type SessionRow,
   type SessionSummary,
+  type VerdictRow,
   type VersionFacts,
 } from '../../scripts/admin/review';
 
@@ -45,8 +52,27 @@ const row = (o: Partial<SessionRow> = {}): SessionRow => ({
   ...o,
 });
 
-const summary = (o: Partial<SessionRow> = {}, facts = REACHED) =>
-  toSummary(row(o), { athlete: 'Ana', positionLabel: null, facts });
+const summary = (
+  o: Partial<SessionRow> = {},
+  facts = REACHED,
+  verdicts: VerdictRow[] = [],
+) =>
+  toSummary(row(o), { athlete: 'Ana', positionLabel: null, facts, verdicts });
+
+const verdict = (o: Partial<VerdictRow> = {}): VerdictRow => ({
+  id: 'v1',
+  session_id: 's1',
+  run_id: null,
+  cue: 'Get on your side and frame on the hip.',
+  verdict: 'sound',
+  reason: null,
+  note: null,
+  record_ids: [],
+  record_trail: 'trusted',
+  created_at: '2026-09-12T10:00:00Z',
+  updated_at: '2026-09-12T10:00:00Z',
+  ...o,
+});
 
 describe('cue review: record trail', () => {
   it('trusts ids written by a version that records re-analysis', () => {
@@ -175,6 +201,88 @@ describe('cue review: filters', () => {
   });
 });
 
+describe('cue review: filtering by the operator verdict (#132)', () => {
+  const CUE = 'Get on your side and frame on the hip.';
+  const sessions: SessionSummary[] = [
+    // Judged wrong, about the Cue it holds.
+    summary({ id: 'w', session_date: '2026-09-01T10:00:00Z' }, REACHED, [
+      verdict({ session_id: 'w', verdict: 'wrong', reason: 'off_target' }),
+    ]),
+    // Judged sound, and the athlete disagreed: two separate facts.
+    summary(
+      { id: 's', session_date: '2026-09-02T10:00:00Z', thumbs_up: false },
+      REACHED,
+      [verdict({ session_id: 's', verdict: 'sound' })],
+    ),
+    // Re-analysed since: the only verdict judged text it no longer holds.
+    summary(
+      {
+        id: 'e',
+        session_date: '2026-09-03T10:00:00Z',
+        coaching_cue: 'Frame first, then shrimp.',
+      },
+      REACHED,
+      [
+        verdict({
+          session_id: 'e',
+          cue: CUE,
+          verdict: 'wrong',
+          reason: 'extraction_wrong',
+        }),
+      ],
+    ),
+    // Never judged.
+    summary({ id: 'u', session_date: '2026-09-04T10:00:00Z' }),
+    // No Cue at all: nothing to judge, so never "unjudged" either.
+    summary({
+      id: 'n',
+      session_date: '2026-09-05T10:00:00Z',
+      coaching_cue: null,
+      grounding: 'declined',
+    }),
+  ];
+  const ids = (filters: Partial<typeof DEFAULT_FILTERS>) =>
+    filterSessions(sessions, {
+      ...DEFAULT_FILTERS,
+      grounding: 'all',
+      ...filters,
+    }).map((s) => s.id);
+
+  it('reads a verdict about an earlier Cue as no verdict on this one', () => {
+    const earlier = sessions.find((s) => s.id === 'e');
+    expect(earlier).toMatchObject({ verdict: null, earlierVerdicts: 1 });
+  });
+
+  it('keeps the athlete’s thumbs beside the verdict, never merged into it', () => {
+    expect(sessions.find((s) => s.id === 's')).toMatchObject({
+      verdict: 'sound',
+      thumbsUp: false,
+    });
+  });
+
+  it('finds unjudged Cues, including one whose verdict is about an earlier Cue', () => {
+    expect(ids({ verdict: 'unjudged' })).toEqual(['u', 'e']);
+  });
+
+  it('filters judged Cues, each verdict, and its reason', () => {
+    expect(ids({ verdict: 'judged' })).toEqual(['s', 'w']);
+    expect(ids({ verdict: 'wrong' })).toEqual(['w']);
+    expect(ids({ verdict: 'sound' })).toEqual(['s']);
+    expect(ids({ verdict: 'shallow' })).toEqual([]);
+    expect(ids({ verdictReason: 'off_target' })).toEqual(['w']);
+    // The reason belongs to the current Cue's verdict, so the earlier one is out.
+    expect(ids({ verdictReason: 'extraction_wrong' })).toEqual([]);
+  });
+
+  it('finds Sessions with a verdict about an earlier Cue', () => {
+    expect(ids({ verdict: 'earlier' })).toEqual(['e']);
+  });
+
+  it('shows everything by default', () => {
+    expect(ids({})).toEqual(['n', 'u', 'e', 's', 'w']);
+  });
+});
+
 describe('cue review: detail', () => {
   const record = (id: string, o: Partial<RecordRow> = {}): RecordRow => ({
     id,
@@ -249,5 +357,62 @@ describe('cue review: request gates', () => {
     expect(isLoopbackHost('evil.example:4321', 4321)).toBe(false);
     expect(isLoopbackHost('127.0.0.1:9999', 4321)).toBe(false);
     expect(isLoopbackHost(undefined, 4321)).toBe(false);
+  });
+
+  it('reads everywhere and writes only on the verdict route (#132)', () => {
+    expect(allowedMethods(WRITE_PATH)).toEqual(['POST']);
+    expect(allowedMethods('/api/sessions')).toEqual(['GET']);
+    expect(allowedMethods('/api/verdict/')).toEqual(['GET']);
+  });
+
+  describe('writes', () => {
+    const page = {
+      host: '127.0.0.1:4321',
+      contentType: 'application/json',
+      origin: 'http://127.0.0.1:4321',
+      secFetchSite: 'same-origin',
+    };
+
+    it('lets the page itself write JSON', () => {
+      expect(writeRefusal(page)).toBeNull();
+      expect(
+        writeRefusal({
+          ...page,
+          contentType: 'application/json; charset=utf-8',
+        }),
+      ).toBeNull();
+      // curl and other non-browser clients send neither header.
+      expect(
+        writeRefusal({ ...page, origin: undefined, secFetchSite: undefined }),
+      ).toBeNull();
+    });
+
+    it('refuses anything but JSON, which a form cannot send', () => {
+      for (const contentType of [
+        'application/x-www-form-urlencoded',
+        'multipart/form-data; boundary=x',
+        'text/plain',
+        undefined,
+      ]) {
+        expect(writeRefusal({ ...page, contentType })?.status).toBe(415);
+      }
+    });
+
+    it('refuses another origin, an opaque one, and a cross-site fetch', () => {
+      for (const origin of [
+        'http://evil.example',
+        'http://localhost:4321',
+        'https://127.0.0.1:4321',
+        'null',
+      ]) {
+        expect(writeRefusal({ ...page, origin })?.status).toBe(403);
+      }
+      expect(
+        writeRefusal({ ...page, secFetchSite: 'cross-site' })?.status,
+      ).toBe(403);
+      expect(writeRefusal({ ...page, secFetchSite: 'same-site' })?.status).toBe(
+        403,
+      );
+    });
   });
 });

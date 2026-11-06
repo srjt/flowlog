@@ -4,13 +4,17 @@
  *
  *   scripts/admin/serve.sh
  *
- * Read-only view of every Session: transcript in, Extraction, the Coaching
- * records that grounded it, Cue out. Local on purpose — it shows every
- * athlete's private voice dump, so it binds to 127.0.0.1, sits behind basic
- * auth, and reads Supabase with the service role key that never leaves this
- * process. The browser only ever talks to this server.
+ * A view of every Session: transcript in, Extraction, the Coaching records
+ * that grounded it, Cue out. Local on purpose — it shows every athlete's
+ * private voice dump, so it binds to 127.0.0.1, sits behind basic auth, and
+ * reads Supabase with the service role key that never leaves this process.
+ * The browser only ever talks to this server.
+ *
+ * It reads everything and writes one thing: the operator's verdict on a Cue
+ * (#132, migration 026), through the single route `POST /api/verdict`.
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import {
   createServer,
@@ -23,7 +27,13 @@ import { fileURLToPath } from 'node:url';
 
 import { FEEDBACK_REASONS } from '../../src/constants/feedback.ts';
 import { BJJ_POSITIONS } from '../../src/sports/bjj/bjjPositions.ts';
-import { isAuthorized, isLoopbackHost } from './auth.ts';
+import {
+  WRITE_PATH,
+  allowedMethods,
+  isAuthorized,
+  isLoopbackHost,
+  writeRefusal,
+} from './auth.ts';
 import {
   GROUNDING_COLUMNS,
   RECENT_MISTAKES_WINDOW,
@@ -37,15 +47,24 @@ import {
 } from './prompt.ts';
 import {
   UNKNOWN_VERSION_FACTS,
+  UUID_PATTERN,
+  VERDICT_COLUMNS,
   groundingFunnel,
   injectedRecords,
   latestRun,
+  parseVerdictRequest,
+  recordStatus,
   recordTrail,
+  recordsBehindWrongCues,
   toSummary,
+  verdictInsert,
+  verdictsFor,
   versionKey,
   type RecordRow,
   type SessionPromptRecord,
   type SessionRow,
+  type VerdictRequest,
+  type VerdictRow,
   type VersionFacts,
   type VoteRow,
 } from './review.ts';
@@ -54,7 +73,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const AUDIO_BUCKET = 'session-audio';
 const AUDIO_URL_TTL_SECONDS = 600;
 const PAGE_SIZE = 1000;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Ids per `in.(…)` filter, so a long list never becomes an overlong URL. */
+const ID_CHUNK = 100;
+/** A verdict body is a few hundred bytes; anything near this is not one. */
+const MAX_BODY_BYTES = 16 * 1024;
+const RECORD_COLUMNS =
+  'id,position,prescription,why,detail,counter,gi,level,opponent,certified,' +
+  'contested,rejected';
 
 function loadEnv(): void {
   const path = join(process.cwd(), '.env');
@@ -106,10 +131,13 @@ const serviceHeaders = {
   'Content-Type': 'application/json',
 };
 
-async function rest<T>(path: string, init?: RequestInit): Promise<T> {
+async function rest<T>(
+  path: string,
+  init?: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> },
+): Promise<T> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
-    headers: serviceHeaders,
+    headers: { ...serviceHeaders, ...init?.headers },
   });
   if (!res.ok) {
     throw new Error(
@@ -169,14 +197,51 @@ async function sessionById(id: string): Promise<SessionRow | null> {
   return rows[0] ?? null;
 }
 
+async function recordsById(ids: string[]): Promise<RecordRow[]> {
+  const rows: RecordRow[] = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const chunk = ids.slice(i, i + ID_CHUNK).join(',');
+    rows.push(
+      ...(await rest<RecordRow[]>(
+        `coaching_records?select=${RECORD_COLUMNS}&id=in.(${chunk})`,
+      )),
+    );
+  }
+  return rows;
+}
+
+/**
+ * Operator verdicts (#132). Null when the table cannot be read at all —
+ * migration 026 not applied yet — which the page reports as such rather than
+ * as "nothing judged".
+ */
+async function verdictRows(filter = ''): Promise<VerdictRow[] | null> {
+  try {
+    return await restAll<VerdictRow>(
+      `cue_verdicts?select=${VERDICT_COLUMNS}${filter}&order=id`,
+    );
+  } catch (err) {
+    console.warn(`  ! cue_verdicts unavailable: ${(err as Error).message}`);
+    return null;
+  }
+}
+
 // ── Routes ──────────────────────────────────────────────────────────────────
 
 async function listSessions() {
-  const [rows, names] = await Promise.all([
+  const [rows, names, verdicts] = await Promise.all([
     restAll<SessionRow>('sessions?select=*&order=session_date.desc,id'),
     athleteNames(),
+    verdictRows(),
   ]);
   const facts = await versionFacts(rows.map((r) => r.pipeline_version));
+  const verdictsBySession = new Map<string, VerdictRow[]>();
+  for (const v of verdicts ?? []) {
+    verdictsBySession.set(v.session_id, [
+      ...(verdictsBySession.get(v.session_id) ?? []),
+      v,
+    ]);
+  }
   const sessions = rows.map((row) =>
     toSummary(row, {
       athlete: names.get(row.user_id) ?? null,
@@ -185,6 +250,7 @@ async function listSessions() {
         : null,
       facts:
         facts.get(versionKey(row.pipeline_version)) ?? UNKNOWN_VERSION_FACTS,
+      verdicts: verdictsBySession.get(row.id) ?? [],
     }),
   );
 
@@ -202,6 +268,7 @@ async function listSessions() {
       .sort((a, b) => a.label.localeCompare(b.label)),
     positionLabels: POSITION_LABELS,
     reasons: FEEDBACK_REASONS,
+    verdictsAvailable: verdicts !== null,
   };
 }
 
@@ -230,13 +297,8 @@ async function sessionDetail(id: string) {
 
   const ids = row.grounding_record_ids ?? [];
   const idList = ids.join(',');
-  const [records, votes, names, facts, prompts] = await Promise.all([
-    ids.length
-      ? rest<RecordRow[]>(
-          'coaching_records?select=id,position,prescription,why,detail,' +
-            `counter,gi,level,opponent,certified,contested,rejected&id=in.(${idList})`,
-        )
-      : Promise.resolve([]),
+  const [records, votes, names, facts, prompts, verdicts] = await Promise.all([
+    recordsById(ids),
     ids.length
       ? restAll<VoteRow>(
           `record_votes?select=record_id,verdict&record_id=in.(${idList})`,
@@ -247,6 +309,7 @@ async function sessionDetail(id: string) {
     ),
     versionFacts([row.pipeline_version]),
     sessionPrompts(id),
+    verdictRows(`&session_id=eq.${id}`),
   ]);
   const versionFact =
     facts.get(versionKey(row.pipeline_version)) ?? UNKNOWN_VERSION_FACTS;
@@ -266,6 +329,85 @@ async function sessionDetail(id: string) {
       prompts === null
         ? { available: false, latest: null }
         : { available: true, latest: latestRun(prompts) },
+    // The operator's, shown beside the athlete's thumbs on `session`, never
+    // merged with them.
+    verdicts:
+      verdicts === null
+        ? { available: false, current: null, earlier: [] }
+        : { available: true, ...verdictsFor(row.coaching_cue, verdicts) },
+  };
+}
+
+/** The records that keep sitting behind wrong Cues (#132 story 6). */
+async function recordsBehindWrong() {
+  const verdicts = await verdictRows();
+  if (verdicts === null) return { available: false };
+  const signal = recordsBehindWrongCues(verdicts);
+  const records = await recordsById(signal.records.map((r) => r.recordId));
+  const byId = new Map(records.map((r) => [r.id, r]));
+  return {
+    available: true,
+    wrong: signal.wrong,
+    records: signal.records.map((s) => {
+      const record = byId.get(s.recordId) ?? null;
+      return { ...s, record, status: record ? recordStatus(record) : null };
+    }),
+  };
+}
+
+const md5 = (text: string) =>
+  createHash('md5').update(text, 'utf8').digest('hex');
+
+/**
+ * Upserts or clears one verdict, then answers with all of the Session's
+ * verdicts so the page can update without reloading.
+ *
+ * Recording is against the Session as stored NOW: the Cue the operator read
+ * must still be the one the row holds (409 if a Re-analyze replaced it), and
+ * the record trail, run and record ids are snapshotted here, server side,
+ * never taken from the page. Clearing works on any of the Session's verdicts,
+ * an earlier Cue's included.
+ */
+async function recordVerdict(
+  req: VerdictRequest,
+): Promise<{ status: number; body: unknown }> {
+  const row = await sessionById(req.sessionId);
+  if (!row) return { status: 404, body: { error: 'No such session' } };
+
+  if (req.verdict === null) {
+    const cleared = await rest<VerdictRow[]>(
+      `cue_verdicts?session_id=eq.${row.id}&cue_md5=eq.${md5(req.cue)}`,
+      { method: 'DELETE', headers: { Prefer: 'return=representation' } },
+    );
+    if (cleared.length === 0) {
+      return { status: 404, body: { error: 'No verdict on that Cue' } };
+    }
+  } else {
+    const [facts, prompts] = await Promise.all([
+      versionFacts([row.pipeline_version]),
+      sessionPrompts(row.id),
+    ]);
+    const trail = recordTrail(
+      row,
+      facts.get(versionKey(row.pipeline_version)) ?? UNKNOWN_VERSION_FACTS,
+    );
+    const runId = prompts ? (latestRun(prompts)?.runId ?? null) : null;
+    const shaped = verdictInsert(req, row, { trail, runId });
+    if (!shaped.ok) return { status: 409, body: { error: shaped.error } };
+    // No created_at, so changing a verdict keeps when it was first made.
+    await rest<VerdictRow[]>('cue_verdicts?on_conflict=session_id,cue_md5', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify([
+        { ...shaped.value, updated_at: new Date().toISOString() },
+      ]),
+    });
+  }
+
+  const verdicts = (await verdictRows(`&session_id=eq.${row.id}`)) ?? [];
+  return {
+    status: 200,
+    body: { verdicts, ...verdictsFor(row.coaching_cue, verdicts) },
   };
 }
 
@@ -392,6 +534,45 @@ const json = (res: ServerResponse, status: number, body: unknown) =>
 
 const staticFile = (name: string) => readFileSync(join(HERE, name), 'utf8');
 
+/** The body as text, or null when it is larger than any verdict could be. */
+async function readBody(req: IncomingMessage): Promise<string | null> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size <= MAX_BODY_BYTES) chunks.push(chunk as Buffer);
+  }
+  return size > MAX_BODY_BYTES ? null : Buffer.concat(chunks).toString('utf8');
+}
+
+const header = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? value.join(', ') : value;
+
+/** `POST /api/verdict`: the CSRF guard, then the validation the tests run. */
+async function writeVerdict(req: IncomingMessage, res: ServerResponse) {
+  const refusal = writeRefusal({
+    host: req.headers.host,
+    contentType: req.headers['content-type'],
+    origin: req.headers.origin,
+    secFetchSite: header(req.headers['sec-fetch-site']),
+  });
+  if (refusal) return send(res, refusal.status, refusal.reason, 'text/plain');
+
+  const raw = await readBody(req);
+  if (raw === null) return json(res, 413, { error: 'Body too large' });
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return json(res, 400, { error: 'Body is not JSON' });
+  }
+  const parsed = parseVerdictRequest(body);
+  if (!parsed.ok) return json(res, 400, { error: parsed.error });
+
+  const out = await recordVerdict(parsed.value);
+  return json(res, out.status, out.body);
+}
+
 async function handle(req: IncomingMessage, res: ServerResponse) {
   if (!isLoopbackHost(req.headers.host, PORT)) {
     return send(res, 403, 'Forbidden', 'text/plain');
@@ -401,11 +582,15 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       'WWW-Authenticate': 'Basic realm="Flowlog cue review", charset="UTF-8"',
     });
   }
-  if (req.method !== 'GET') {
-    return send(res, 405, 'Read-only', 'text/plain', { Allow: 'GET' });
-  }
 
   const path = new URL(req.url ?? '/', `http://${req.headers.host}`).pathname;
+  const allowed = allowedMethods(path);
+  if (!allowed.includes(req.method ?? '')) {
+    return send(res, 405, 'Method not allowed', 'text/plain', {
+      Allow: allowed.join(', '),
+    });
+  }
+  if (path === WRITE_PATH) return writeVerdict(req, res);
 
   if (path === '/') {
     return send(res, 200, staticFile('index.html'), 'text/html; charset=utf-8');
@@ -428,11 +613,16 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
 
   if (path === '/api/sessions') return json(res, 200, await listSessions());
+  if (path === '/api/verdicts/records') {
+    return json(res, 200, await recordsBehindWrong());
+  }
 
   const detail = path.match(/^\/api\/sessions\/([^/]+)(?:\/(audio|prompt))?$/);
   if (detail) {
     const [, id, sub] = detail;
-    if (!id || !UUID.test(id)) return json(res, 400, { error: 'Bad id' });
+    if (!id || !UUID_PATTERN.test(id)) {
+      return json(res, 400, { error: 'Bad id' });
+    }
     if (sub === 'audio') {
       const url = await audioUrl(id);
       return url

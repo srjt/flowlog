@@ -131,6 +131,11 @@ code {
   color: var(--bad);
 }
 
+/* `.field` and friends set display, which would otherwise beat the attribute. */
+[hidden] {
+  display: none !important;
+}
+
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 
 .sidebar {
@@ -150,6 +155,14 @@ code {
 
 .brand h1 {
   font-size: 16px;
+}
+
+.review-bar {
+  padding: 0 16px 8px;
+}
+
+.review-bar p {
+  margin: 0 0 4px;
 }
 
 .filters {
@@ -443,6 +456,75 @@ button.link {
 .unknowns {
   margin: 8px 0 0;
   padding-left: 20px;
+}
+
+/* ── Operator verdict ────────────────────────────────────────────────────── */
+
+.verdict-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.verdict-form p {
+  margin: 0;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choices legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  font: inherit;
+  color: var(--text);
+  resize: vertical;
+}
+
+.earlier {
+  margin-top: 12px;
+}
+
+.earlier p {
+  margin: 0;
+}
+
+.earlier blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid currentColor;
+  color: var(--text);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
 }
 
 audio {
