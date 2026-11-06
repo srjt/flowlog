@@ -21,6 +21,18 @@ export interface TranscriptionResult {
 }
 
 // ── Extraction (Stage 1) ────────────────────────────────────────────────────
+/**
+ * The sides Extraction can report (issue #48), and exactly the values
+ * `sessions.perspective` accepts (#130, migration 024).
+ *
+ * Narrower than `Perspective`: `neutral` describes a position ("standing"),
+ * never an Extraction, and `ExtractionService.normalisePerspective` turns it,
+ * like any other unexpected value, into `'unknown'`. Typed this way so the
+ * client cannot hand the column a value its CHECK constraint would reject, which
+ * would fail the whole insert and cost the athlete their Session.
+ */
+export type ExtractionPerspective = Exclude<Perspective, 'neutral'> | 'unknown';
+
 export interface ExtractionInput {
   transcript: string;
   sportContext: ISportContext;
@@ -46,9 +58,9 @@ export interface ExtractionOutput {
    * Which side of the position the practitioner was on, for the situation the
    * key mistake happened in (issue #48). `'unknown'` when the transcript never
    * says — never a guess, because a wrong side produces confident coaching
-   * aimed at the opposite situation.
+   * aimed at the opposite situation. Persisted on the Session (#130).
    */
-  perspective: Perspective | 'unknown';
+  perspective: ExtractionPerspective;
   /**
    * An explicit statement of gi/no-gi context, or `'unknown'` (issue #60).
    * Only ever narrows which reference records apply — never widens them — and

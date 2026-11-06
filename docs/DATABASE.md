@@ -49,6 +49,21 @@ the position or the side could not be determined).
   `public.grounding_reached_model(pipeline_version)` (migration 019) rather
   than re-typing the version — `record_feedback_signal` and
   `grounding_experiment` already do.
+- `perspective` on sessions (migration 024, #130): which side of the position
+  the athlete was on, as Extraction reported it. One of `top`, `bottom` or
+  `unknown`, enforced by a CHECK constraint. **NULL means not recorded** (a
+  Session written before 024) and is never read as "Extraction could not
+  tell"; that is `unknown`, a recorded abstention. So an abstention rate is
+  `perspective = 'unknown'` over `perspective is not null`, never over the
+  whole table. Written on every path that writes an Extraction (the insert,
+  the declined insert, Re-analyze and the declined Re-analyze), and
+  overwritten by Re-analyze, so it describes the Extraction the row holds now.
+  Not backfilled, and `pipeline_version` was not bumped for it. It is what
+  lets a Session's Grounding be replayed: side-dependent free text ("half
+  guard") resolves to no canonical position without it. The cue review tool
+  (`docs/ADMIN.md`) reads it first and infers a side only for older Sessions.
+  `process-session` writes it on every Session, so apply 024 before deploying
+  that function.
 - `quality_gate_passed` stored: dashboard can filter to high-confidence outputs only
 - `thumbs_up` field: binary user feedback, feeds quality monitoring pipeline
 - Audio stored in Supabase Storage (bucket `session-audio`), path referenced in
