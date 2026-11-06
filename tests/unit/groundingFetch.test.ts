@@ -14,6 +14,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { PIPELINE_VERSION as CLIENT_PIPELINE_VERSION } from '@/constants/pipelineConfig';
+import { PIPELINE_VERSION } from '@/constants/pipelineVersion';
+
 const SOURCE = join(
   __dirname,
   '../../supabase/functions/process-session/index.ts',
@@ -116,7 +119,35 @@ describe('what the session row records about the pool', () => {
 });
 
 describe('the pipeline version boundary', () => {
-  const version = source.match(/const PIPELINE_VERSION = '([^']+)'/)?.[1];
+  const version = PIPELINE_VERSION;
+
+  // The client reference and the edge function each used to keep their own
+  // copy behind a "kept in lockstep" comment, and they drifted: the client
+  // said 1.1.0 while the edge shipped 1.3.0. Now there is one definition,
+  // and both must take it rather than redeclare it.
+  it('is defined once and imported by the edge function, never redeclared', () => {
+    expect(source).toContain(
+      "import { PIPELINE_VERSION } from '../../../src/constants/pipelineVersion.ts';",
+    );
+    expect(source).not.toMatch(/const PIPELINE_VERSION\s*=/);
+  });
+
+  it('is the same value the client reference pipeline stamps', () => {
+    expect(CLIENT_PIPELINE_VERSION).toBe(PIPELINE_VERSION);
+    const config = readFileSync(
+      join(__dirname, '../../src/constants/pipelineConfig.ts'),
+      'utf8',
+    );
+    expect(config).not.toMatch(/PIPELINE_VERSION\s*=\s*'/);
+  });
+
+  it('stays importable by Deno: no dependencies at all', () => {
+    const shared = readFileSync(
+      join(__dirname, '../../src/constants/pipelineVersion.ts'),
+      'utf8',
+    );
+    expect(shared).not.toMatch(/^\s*import\b/m);
+  });
   const migration020 = readFileSync(
     join(
       __dirname,
