@@ -30,7 +30,9 @@ Tagline: "Talk. Reflect. Improve."
   `npx eas-cli update --channel testflight` — no EAS build needed. NEVER bump
   `app.json` `version` in a JS-only change (runtimeVersion policy is
   `appVersion`; a bump orphans shipped builds off the update stream). Version
-  bumps happen only alongside a planned EAS build.
+  bumps happen only alongside a planned EAS build. An App Store OTA carries
+  fixes only; a new feature or route needs a reviewed build (see "What an OTA
+  may carry" in `docs/TESTFLIGHT.md`).
 - **Toolchain (SDK 54 compatible):** `react-native@0.81`, `react@19.1`,
   `nativewind@^4.2`, `react-native-reanimated@~4.3.2` +
   `react-native-worklets@~0.8.3` (its worklet plugin must be last in
@@ -117,6 +119,10 @@ unit-tested REFERENCE implementation the edge function mirrors. Sport content
 - See all architecture decisions: `docs/adr/`
 - Architecture overview & layer rules: `docs/ARCHITECTURE.md`
 - Testing standards: `docs/TESTING.md`
+- Submitting to App Review (every screen and how to reach it, Notes for
+  Review): `docs/APP_REVIEW.md`. A new screen under `app/` must be added to
+  `src/config/routeInventory.ts` with the visible UI that opens it, or
+  `npm test` fails.
 
 ## Active Providers
 
@@ -126,6 +132,12 @@ unit-tested REFERENCE implementation the edge function mirrors. Sport content
 - Payments: `RevenueCatProvider` (stubbed)
 
 ## Feature Flags (all false in MVP)
+
+No shipped code reads these today: `featureFlags`, `isFeatureEnabled`,
+`canUseTrendAnalysis` and `canUseGameProfile` in `src/config/featureFlags.ts`
+have no callers in `app/` or `src/`, and the flags are not `EXPO_PUBLIC_`, so a
+client build cannot turn them on. They gate nothing (the flag debt ADR 0006
+predicts).
 
 - `FEATURE_TREND_ANALYSIS` — unlocks after 10 sessions
 - `FEATURE_GAME_PROFILE` — unlocks after 10 sessions
@@ -172,7 +184,8 @@ unit-tested REFERENCE implementation the edge function mirrors. Sport content
 - Video integration
 - Social or sharing features
 - Game profile (behind feature flag)
-- Trend analysis UI (behind feature flag)
+- Trend analysis UI — actually SHIPPED: the Trends tab (`app/(tabs)/trends.tsx`)
+  shows to every user, with a lighter view before 10 sessions. No flag gates it
 - Trend computation edge function (`supabase/functions/` — note: the
   `process-session` pipeline function IS built; trend recompute is not)
 - B2B coach dashboard

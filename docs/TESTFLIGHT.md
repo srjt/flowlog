@@ -186,6 +186,36 @@ and taken the core flow down.
 If the fingerprints differ, do not reason about whether the native change "looks
 safe". Build.
 
+**`.gitignore` is not a fingerprint source.** `@expo/fingerprint` hashes the
+root `.gitignore` by default, so ignoring a local folder used to fake a native
+change. `.fingerprintignore` excludes it. Builds up to and including 30 were
+fingerprinted with it included, so their hashes never match a local one again,
+and `fingerprint:compare` against them lists `.gitignore`. The next build
+starts clean. To see what actually moved, run:
+
+```bash
+npx eas-cli@latest fingerprint:compare --build-id <build id>   # lists each changed source
+```
+
+### What an OTA may carry
+
+The fingerprint answers "will it run?". App Review asks a second question:
+"was this feature reviewed?" Guideline 2.5.2 forbids downloaded code that
+introduces or changes features, and 2.5.19 forbids features App Review was not
+told about. So, by channel:
+
+- **App Store channel:** an OTA carries fixes and changes to existing features
+  only. A new user-facing feature or route ships in a new build, with Notes for
+  Review that describe it.
+- **TestFlight channel** (`testflight`): an OTA may carry new features, because
+  it's a beta. The same change must update the route inventory
+  (`src/config/routeInventory.ts`) and [`APP_REVIEW.md`](./APP_REVIEW.md), so
+  the next build submission describes the feature.
+
+`npm test` fails if a new route is missing from the inventory, or from
+`APP_REVIEW.md`. It cannot tell a new feature on an existing screen from a fix,
+so that call is yours.
+
 ## Quick reference
 
 ```bash

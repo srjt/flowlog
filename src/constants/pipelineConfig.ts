@@ -6,14 +6,10 @@ import { env } from '@/config/env';
  * estimates used for cost monitoring.
  */
 /**
- * Bumped to 1.1.0 when the edge function started actually injecting grounding.
- *
- * Kept in lockstep with `PIPELINE_VERSION` in
- * `supabase/functions/process-session/index.ts`. The bump is what makes every
- * session row state for itself whether its cue could have been grounded —
- * migration 019 reads exactly this value, so the two must not drift.
+ * Re-exported from its single definition, which the edge function imports too.
+ * See `pipelineVersion.ts` for what each version means and when to bump it.
  */
-export const PIPELINE_VERSION = '1.1.0';
+export { PIPELINE_VERSION } from './pipelineVersion';
 
 export const PIPELINE_CONFIG = {
   /** Hard cap on coaching cue length. Enforced in service AND prompt. */

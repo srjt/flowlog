@@ -1,5 +1,12 @@
+import { Redirect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Card, Text } from '@/components/ui';
@@ -19,18 +26,38 @@ import { logger } from '@/utils/logger';
 import { frameApplicability, framePosition } from '@/utils/positionFraming';
 
 /**
- * The certification bench (#77, notes added in #84).
+ * The certification bench (#77, notes added in #84). WEB ONLY (#125).
+ *
+ * In the iOS or Android app this route sends the visitor to the entry route,
+ * which routes them by sign-in and onboarding state like any app launch. App
+ * Review guideline 2.5.19 forbids hidden or undocumented screens, and the
+ * native app has no button or tab that leads here — only a `flowlog://review`
+ * deep link would. The check runs BEFORE the bench mounts, so an athlete's
+ * native session never calls `reviewService.whoAmI()` or queries reviewer data.
+ *
+ * A platform check here rather than an `index.web.tsx` split: Expo Router still
+ * requires a non-platform fallback file, and that fallback would ship to native
+ * anyway. `src/config/routeInventory.ts` lists this route as web-only, and its
+ * test checks this guard is still in place.
+ */
+export default function ReviewRoute() {
+  if (Platform.OS !== 'web') return <Redirect href="/" />;
+  return <ReviewScreen />;
+}
+
+/**
+ * The bench itself.
  *
  * A separate route rather than a tab: reviewers are black belts doing a favour,
- * not Flowlog users. Reaching /review directly skips the onboarding gate in
- * `app/index.tsx`, so nobody has to pick a belt level and prime a microphone to
- * judge a card.
+ * not Flowlog users. Reaching /review directly on the web skips the onboarding
+ * gate in `app/index.tsx`, so nobody has to pick a belt level and prime a
+ * microphone to judge a card.
  *
  * Reviewers see the SERVING record only — never the source quote. That is what
  * lets this page be shared with people outside the project: it holds no
  * verbatim instructional text.
  */
-export default function ReviewScreen() {
+function ReviewScreen() {
   const [access, setAccess] = useState<ReviewerAccess | undefined>(undefined);
   const reviewer = access?.state === 'reviewer' ? access.identity : null;
   const [records, setRecords] = useState<ReviewableRecord[]>([]);

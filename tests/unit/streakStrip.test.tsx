@@ -10,6 +10,7 @@ function trends(overrides: Partial<SportTrends> = {}): SportTrends {
     lastSessionAt: '2026-06-10T10:00:00.000Z',
     focusArea: 'Half guard',
     topPositions: [],
+    weakness: null,
     recentMistakes: [],
     moodBreakdown: [],
     thumbsUpRate: null,

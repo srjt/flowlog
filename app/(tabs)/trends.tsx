@@ -18,8 +18,9 @@ import { logger } from '@/utils/logger';
 
 /**
  * Trends — the "improve over time" screen. Aggregates the user's saved sessions
- * for the active sport into a streak, focus area, most-worked positions, recent
- * recurring mistakes, and mood. Computed client-side from the session history.
+ * for the active sport into a streak, focus area, recurring weakness (#1),
+ * most-worked positions, recent mistakes, and mood. Computed client-side from
+ * the session history.
  */
 export default function TrendsScreen() {
   const { authUser, activeSport, digestPrefs } = useUserStore();
@@ -89,6 +90,23 @@ export default function TrendsScreen() {
               </Card>
             ) : null}
 
+            {trends.weakness ? (
+              <Card
+                className="gap-1 border border-accent"
+                testID="trends-weakness"
+              >
+                <Text variant="caption">RECURRING WEAKNESS</Text>
+                <Text variant="heading">{trends.weakness.label}</Text>
+                <Text variant="caption">
+                  Where your key mistake landed in {trends.weakness.count} of
+                  your last {trends.weakness.window} {unit}s.
+                </Text>
+                <Text variant="body">
+                  Latest: {trends.weakness.latestMistake}
+                </Text>
+              </Card>
+            ) : null}
+
             {trends.topPositions.length > 0 ? (
               <Card className="gap-3">
                 <Text variant="heading">Most-worked positions</Text>
@@ -98,7 +116,7 @@ export default function TrendsScreen() {
 
             {trends.recentMistakes.length > 0 ? (
               <Card className="gap-2">
-                <Text variant="heading">Recurring mistakes</Text>
+                <Text variant="heading">Recent mistakes</Text>
                 {trends.recentMistakes.map((m, i) => (
                   <Text key={i} variant="body">
                     • {m}
