@@ -56,6 +56,10 @@ const GROUNDING = {
     'Declined',
     'The take had nothing coachable in it, so no Cue was written.',
   ],
+  not_positional: [
+    'Not positional',
+    'Extraction said the key mistake is about a submission or a transition, not a position, so grounding abstained and looked nothing up.',
+  ],
 };
 
 const TRAIL = {
@@ -584,7 +588,16 @@ function groundingSection(d, labels) {
   const [trailTone, trailText] = TRAIL[d.trail];
   const outcome = s.grounding ? GROUNDING[s.grounding] : null;
   const f = d.funnel;
-  const count = (value) => (value === null ? 'not recorded' : String(value));
+  // Null is unknown, except where the outcome says grounding never looked
+  // anything up: then it was not measured, and "not recorded" would misread it.
+  const lookedUp =
+    s.grounding !== 'declined' && s.grounding !== 'not_positional';
+  const count = (value) =>
+    value === null
+      ? lookedUp
+        ? 'not recorded'
+        : 'not looked up'
+      : String(value);
 
   return section(
     'Grounding',

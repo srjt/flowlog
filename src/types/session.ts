@@ -1,5 +1,6 @@
 import type { SportKey } from '@/types/sport';
 import type { GiSource } from '@/sports/giContext';
+import type { MistakeConcerns } from '@/sports/grounding';
 import type { ExtractionPerspective } from '@/types/pipeline';
 import type { GiPreference } from '@/types/user';
 import type { DiagramOutcome } from '@/visualization/diagramStage';
@@ -67,6 +68,16 @@ export interface Session extends SessionDiagramFields {
    * abstention. Optional because rows read before 024 is applied lack it.
    */
   perspective?: ExtractionPerspective | null;
+  /**
+   * What the key mistake is about, as Extraction reported it (#153 /
+   * migration 027). Grounding abstained, as `not_positional`, when it said
+   * `submission` or `transition`.
+   *
+   * `null` means NOT RECORDED — the row predates the column — and must never be
+   * read as `'unknown'`, which is Extraction's recorded abstention. Optional
+   * because rows read before 027 is applied lack it.
+   */
+  mistakeConcerns?: MistakeConcerns | null;
   targetPosition: string | null;
   qualityGatePassed: boolean;
   /**
@@ -113,6 +124,11 @@ export interface NewSession extends SessionDiagramFields {
    * Take with no cue still has an Extraction. Omitted means not recorded.
    */
   perspective?: ExtractionPerspective;
+  /**
+   * What the key mistake is about (#153). Written on the declined path too,
+   * like `perspective`. Omitted means not recorded.
+   */
+  mistakeConcerns?: MistakeConcerns;
   /**
    * Null when the pipeline declined to produce a cue (issue #44) — the
    * recording had nothing coachable in it. A Session with no cue is still a
@@ -176,6 +192,12 @@ export interface SessionAnalysisUpdate extends SessionDiagramFields {
    * true. Omitted leaves the column alone.
    */
   perspective?: ExtractionPerspective;
+  /**
+   * What the EDITED transcript's key mistake is about (#153). Overwrites the
+   * stored value, for the same reason as `perspective`. Omitted leaves the
+   * column alone.
+   */
+  mistakeConcerns?: MistakeConcerns;
   /**
    * Null when the pipeline declined to produce a cue (issue #44) — the
    * recording had nothing coachable in it. A Session with no cue is still a

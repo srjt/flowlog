@@ -348,3 +348,45 @@ describe("cue review: today's prompt", () => {
     );
   });
 });
+
+// ── The abstention, mirrored (#153, migration 027) ──────────────────────────
+// The rebuild is the prompt the pipeline WOULD send now, so it has to abstain
+// where the pipeline does, and only there.
+describe("cue review: today's prompt abstains like the pipeline", () => {
+  const reverseTriangle = (o: Partial<PromptSessionRow> = {}) =>
+    row({
+      positions_visited: ['Side Control', 'Reverse Triangle'],
+      key_mistake: 'Unable to finish the reverse triangle; he stacked me',
+      raw_transcript:
+        'Stuck under side control, then he stacked my reverse triangle',
+      target_position_id: null,
+      perspective: 'bottom',
+      ...o,
+    });
+
+  it.each(['submission', 'transition'] as const)(
+    'looks no records up when the Session recorded %s',
+    (concerns) => {
+      const r = reverseTriangle({ mistake_concerns: concerns });
+      expect(positionsToday(r, 'bottom')).toEqual([]);
+      const { caveats, selection } = buildTodaysPrompt(r, ctx(), []);
+      expect(selection.injected).toBe(0);
+      expect(caveats).toContain(
+        `Extraction recorded that the key mistake is about a ${concerns}, not a position, so, as in the pipeline, grounding abstains and no records are looked up.`,
+      );
+    },
+  );
+
+  // NULL is a Session from before 027: not recorded, never an abstention.
+  it.each([
+    ['position', 'position'],
+    ['unknown', 'unknown'],
+    ['not recorded', null],
+    ['absent before 027', undefined],
+  ] as const)('grounds as before when it recorded %s', (_label, concerns) => {
+    const r = reverseTriangle({ mistake_concerns: concerns });
+    expect(positionsToday(r, 'bottom')).toEqual(['side-control-bottom']);
+    const { caveats } = buildTodaysPrompt(r, ctx(), ['side-control-bottom']);
+    expect(caveats.join('\n')).not.toMatch(/grounding abstains/);
+  });
+});

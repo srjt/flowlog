@@ -1,10 +1,14 @@
 import {
   candidatePositions,
+  groundingScope,
+  MISTAKE_CONCERNS,
+  normaliseMistakeConcerns,
   rankRecordsWithStats,
   groundingSection,
   rankRecords,
   type GroundableExtraction,
   type GroundableRecord,
+  type MistakeConcerns,
 } from '@/sports/grounding';
 
 function rec(over: Partial<GroundableRecord> = {}): GroundableRecord {
@@ -573,5 +577,177 @@ describe('rankRecordsWithStats', () => {
     expect(rankRecordsWithStats(records, MISTAKE).records).toEqual(
       rankRecords(records, MISTAKE),
     );
+  });
+});
+
+// ── Whether to ground at all (#153) ─────────────────────────────────────────
+//
+// Grounding resolved every co-mentioned position even when the key mistake was
+// not about one. The fix is a single decision, made BEFORE any lookup, from
+// what Extraction says the mistake concerns.
+
+describe('normaliseMistakeConcerns', () => {
+  it.each(MISTAKE_CONCERNS)('keeps %p', (value) => {
+    expect(normaliseMistakeConcerns(value)).toBe(value);
+  });
+
+  // Never a default to 'position' or 'submission': 'unknown' grounds exactly
+  // as before, so junk can neither cost a session its grounding nor make
+  // grounding abstain.
+  it.each([
+    undefined,
+    null,
+    '',
+    'Submission',
+    'POSITION',
+    ' transition',
+    'submissions',
+    'technique',
+    'sweep',
+    'escape',
+    42,
+    true,
+    ['submission'],
+    { value: 'submission' },
+  ])('turns %p into unknown', (value) => {
+    expect(normaliseMistakeConcerns(value)).toBe('unknown');
+  });
+});
+
+describe('groundingScope', () => {
+  it.each<MistakeConcerns>(['submission', 'transition'])(
+    'abstains as not_positional on %s, with nothing to look up',
+    (concerns) => {
+      const scope = groundingScope(extraction({ mistakeConcerns: concerns }));
+      expect(scope).toEqual({
+        kind: 'not_positional',
+        assignment: { outcome: 'not_positional', inject: 0, available: 0 },
+      });
+      // No ids on this variant: a caller cannot fetch for it.
+      expect(scope).not.toHaveProperty('positionIds');
+    },
+  );
+
+  // `position` and `unknown` must behave EXACTLY as before the field existed,
+  // and so must a row that never recorded it.
+  it.each<[string, MistakeConcerns | null | undefined]>([
+    ['position', 'position'],
+    ['unknown', 'unknown'],
+    ['not recorded (null)', null],
+    ['not recorded (absent)', undefined],
+  ])('grounds as before on %s', (_label, concerns) => {
+    for (const over of [
+      {},
+      { positionsVisited: ['Side Control', 'Half Guard'] },
+      { perspective: 'top' as const },
+      { perspective: 'unknown' as const, keyMistake: 'lost position' },
+      { positionsVisited: ['Kimura', 'Berimbolo'] },
+    ]) {
+      const base = extraction(over);
+      expect(groundingScope({ ...base, mistakeConcerns: concerns })).toEqual({
+        kind: 'positions',
+        positionIds: candidatePositions(base),
+      });
+    }
+  });
+
+  it('keeps an empty position list as positions, for no_position to decide', () => {
+    // Abstaining is not the same as failing to resolve. Folding one into the
+    // other would file submissions as taxonomy gaps, or hide real ones.
+    expect(
+      groundingScope(
+        extraction({ positionsVisited: [], mistakeConcerns: 'position' }),
+      ),
+    ).toEqual({ kind: 'positions', positionIds: [] });
+  });
+});
+
+// The measured cases from #116 (comment of 2026-11-04). Each grounded on a
+// position that was only co-mentioned beside a submission mistake.
+describe('groundingScope — the measured cases (#116)', () => {
+  const MEASURED: {
+    session: string;
+    injected: string;
+    extraction: GroundableExtraction;
+  }[] = [
+    {
+      session: '5e78158b',
+      injected: 'side-control-bottom',
+      extraction: {
+        positionsVisited: ['Side Control', 'Reverse Triangle'],
+        keyMistake:
+          'Unable to finish the reverse triangle; the opponent stacked me and broke it.',
+        opponentAction: 'Stacked me and postured out of the reverse triangle.',
+        perspective: 'bottom',
+        rawTranscript:
+          'I got stuck under side control, then went for a reverse triangle but he stacked me.',
+      },
+    },
+    {
+      session: '1a5840aa',
+      injected: 'side-control-bottom',
+      extraction: {
+        positionsVisited: ['Side Control', 'Triangle Choke'],
+        keyMistake: 'Could not secure the triangle choke before he postured.',
+        opponentAction: 'Postured up and pulled his arm free.',
+        perspective: 'bottom',
+        rawTranscript:
+          'Under side control, recovered guard and threw up a triangle but could not lock it.',
+      },
+    },
+    {
+      session: '69df4bec',
+      injected: 'deep-half-guard-top',
+      extraction: {
+        positionsVisited: ['Deep Half Guard', 'Triangle Choke'],
+        keyMistake: 'Failed to finish the triangle choke.',
+        opponentAction: 'Pulled his arm out of the triangle.',
+        perspective: 'top',
+        rawTranscript:
+          'I was on top of his deep half and later had a triangle but could not finish it.',
+      },
+    },
+  ];
+
+  it.each(MEASURED)(
+    '$session: abstains when Extraction says submission',
+    ({ extraction: e }) => {
+      expect(groundingScope({ ...e, mistakeConcerns: 'submission' }).kind).toBe(
+        'not_positional',
+      );
+    },
+  );
+
+  // The other half of the owner's refinement: an unsure Extraction keeps the
+  // grounding it had, measured case included.
+  it.each(MEASURED)(
+    '$session: still grounds on $injected when Extraction says unknown',
+    ({ extraction: e, injected }) => {
+      expect(groundingScope({ ...e, mistakeConcerns: 'unknown' })).toEqual({
+        kind: 'positions',
+        positionIds: [injected],
+      });
+    },
+  );
+
+  // `947d9428`, "losing hips during Berimbolo", got 18 de-la-riva-bottom
+  // records, and #116 called that plausibly right: the berimbolo is entered
+  // from DLR. Pinned so the trade-off stays visible: an explicit `transition`
+  // abstains there too, by design, while `position` and `unknown` keep it.
+  it('947d9428: transition abstains, position keeps de-la-riva-bottom', () => {
+    const berimbolo: GroundableExtraction = {
+      positionsVisited: ['De La Riva Guard', 'Berimbolo'],
+      keyMistake: 'Lost my hips during the berimbolo.',
+      opponentAction: 'Sat back as I inverted.',
+      perspective: 'bottom',
+      rawTranscript:
+        'Played de la riva guard and went for the berimbolo but lost my hips.',
+    };
+    expect(
+      groundingScope({ ...berimbolo, mistakeConcerns: 'transition' }).kind,
+    ).toBe('not_positional');
+    expect(
+      groundingScope({ ...berimbolo, mistakeConcerns: 'position' }),
+    ).toEqual({ kind: 'positions', positionIds: ['de-la-riva-bottom'] });
   });
 });

@@ -15,12 +15,21 @@
 export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Every value `sessions.grounding` can hold (migration 027's CHECK).
+ *
+ * `not_positional` (#153) is its own outcome: grounding abstained because
+ * Extraction said the mistake is about a submission or a transition. It is
+ * neither `no_position` (a taxonomy gap) nor `no_records` (a corpus gap), and
+ * the filter lists it separately so it is never read as either.
+ */
 export type GroundingOutcome =
   | 'grounded'
   | 'withheld'
   | 'no_position'
   | 'no_records'
-  | 'declined';
+  | 'declined'
+  | 'not_positional';
 
 export const GROUNDING_OUTCOMES: GroundingOutcome[] = [
   'grounded',
@@ -28,6 +37,7 @@ export const GROUNDING_OUTCOMES: GroundingOutcome[] = [
   'no_position',
   'no_records',
   'declined',
+  'not_positional',
 ];
 
 /** The `sessions` columns the tool reads. */
@@ -56,6 +66,17 @@ export interface SessionRow {
    * 'unknown'. Optional: absent until that migration is applied.
    */
   perspective?: 'top' | 'bottom' | 'unknown' | null;
+  /**
+   * Migration 027: what Extraction said the key mistake is about (#153).
+   * NULL means not recorded (a Session from before 027), never 'unknown'.
+   * Optional: absent until that migration is applied.
+   */
+  mistake_concerns?:
+    | 'position'
+    | 'submission'
+    | 'transition'
+    | 'unknown'
+    | null;
   grounding: GroundingOutcome | null;
   grounding_candidates: number | null;
   /** Migration 022. Optional: absent until that migration is applied. */

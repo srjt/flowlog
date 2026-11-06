@@ -19,7 +19,7 @@ import { corsHeaders, jsonResponse } from '../_shared/cors.ts';
 import { getSportContext } from '../_shared/sports.ts';
 import type { ServerSportContext } from '../_shared/sports.ts';
 import {
-  candidatePositions,
+  groundingScope,
   rankRecordsWithStats,
 } from '../../../src/sports/grounding.ts';
 import {
@@ -172,6 +172,8 @@ Deno.serve(async (req: Request) => {
             // Overwritten, not kept (#130): the edited transcript is a new
             // Extraction, and a declined one still says which side it read.
             perspective: extraction.perspective,
+            // Same rule (#153): what the edited mistake is about.
+            mistake_concerns: extraction.mistakeConcerns,
             coaching_cue: null,
             target_position: null,
             target_position_id: null,
@@ -218,24 +220,34 @@ Deno.serve(async (req: Request) => {
       // Re-analysis regenerates the cue, so it needs the same grounding the
       // original run had — otherwise correcting a transcript would quietly
       // downgrade the cue from grounded to not.
-      const rePool = await loadGroundingRecords(
-        existing.sport_key,
-        candidatePositions(extraction),
-      );
-      const reRanked = rankRecordsWithStats(
-        filterByGiContext(
-          rePool.records,
-          // The context settled at capture time; re-analysis must not
-          // re-decide it, or correcting a typo could swap the record set.
-          existing.gi === 'gi' || existing.gi === 'no-gi' ? existing.gi : null,
-        ),
-        extraction.keyMistake,
-        undefined,
-        undefined,
-        // Same ranking as the original run, for the same reason: re-analysis
-        // must not quietly change which records ground the cue.
-        sport.vocabulary,
-      );
+      //
+      // Whether to ground at all is decided first, from the EDITED extraction
+      // (#153), exactly as on insert: an abstained session queries nothing.
+      const reScope = groundingScope(extraction);
+      const rePool =
+        reScope.kind === 'positions'
+          ? await loadGroundingRecords(existing.sport_key, reScope.positionIds)
+          : NOT_LOOKED_UP;
+      const reRanked =
+        reScope.kind === 'positions'
+          ? rankRecordsWithStats(
+              filterByGiContext(
+                rePool.records,
+                // The context settled at capture time; re-analysis must not
+                // re-decide it, or correcting a typo could swap the record set.
+                existing.gi === 'gi' || existing.gi === 'no-gi'
+                  ? existing.gi
+                  : null,
+              ),
+              extraction.keyMistake,
+              undefined,
+              undefined,
+              // Same ranking as the original run, for the same reason:
+              // re-analysis must not quietly change which records ground the
+              // cue.
+              sport.vocabulary,
+            )
+          : NOT_RANKED;
       const reRelevant = reRanked.records;
       // The arm is INHERITED, not re-drawn (#117). Re-analysis used to ground
       // unconditionally and never consult the experiment at all, so a session
@@ -248,14 +260,20 @@ Deno.serve(async (req: Request) => {
       // own recorded arm is the assignment. Eligibility is recomputed from the
       // NEW extraction, because a corrected transcript can resolve a position
       // that previously did not.
-      const reArm = assignGrounding(
-        existing.client_session_id ?? `${user.id}:reanalyze`,
-        reRelevant.length,
-        {
-          hasPosition: candidatePositions(extraction).length > 0,
-          inheritedArm: existing.grounding ?? null,
-        },
-      );
+      //
+      // An abstention is eligibility too, so it is never inherited: a row that
+      // read `not_positional` re-analyses into a fresh decision.
+      const reArm =
+        reScope.kind === 'positions'
+          ? assignGrounding(
+              existing.client_session_id ?? `${user.id}:reanalyze`,
+              reRelevant.length,
+              {
+                hasPosition: reScope.positionIds.length > 0,
+                inheritedArm: existing.grounding ?? null,
+              },
+            )
+          : reScope.assignment;
       const reGrounding = reArm.outcome === 'grounded' ? reRelevant : [];
       // One path for every attempt, so each prompt is kept as sent (#121) —
       // the gate's strict retries included.
@@ -307,6 +325,8 @@ Deno.serve(async (req: Request) => {
           // the Extraction, so the old side may no longer be true — the same
           // reasoning 021 applied to the grounding provenance below.
           perspective: extraction.perspective,
+          // Overwritten too (#153): it decided this run's grounding.
+          mistake_concerns: extraction.mistakeConcerns,
           coaching_cue: gate.coaching.cue,
           target_position: reResolved.label ?? gate.coaching.targetPosition,
           target_position_id: reResolved.id,
@@ -331,6 +351,7 @@ Deno.serve(async (req: Request) => {
           // Migration 020's `grounding_candidates_is_exact()` reads that stamp
           // to decide whether this column is a true count or a lower bound, so
           // a stale value under a fresh stamp would make the predicate lie.
+          // Null, not 0, when grounding abstained and looked nothing up (#153).
           grounding_candidates: rePool.total,
           grounding_gate_passed: reRanked.gatePassed,
           // The spec and its provenance for THIS run's Cue, or why there is
@@ -534,6 +555,11 @@ Deno.serve(async (req: Request) => {
           // resolves to no canonical position. 'unknown' is a recorded
           // abstention; only a pre-024 row is NULL.
           perspective: extraction.perspective,
+          // What the key mistake is about (#153), here for the same reason:
+          // the declined insert writes it too. It decided whether to ground,
+          // so an abstention can be audited against the target the cue then
+          // resolved to. 'unknown' is recorded; only a pre-027 row is NULL.
+          mistake_concerns: extraction.mistakeConcerns,
           coaching_cue: analysis.cue,
           target_position: analysis.targetPosition,
           target_position_id: analysis.targetPositionId,
@@ -615,7 +641,12 @@ Deno.serve(async (req: Request) => {
     // Grounding runs BEFORE coaching, from the extraction — the coaching
     // stage's own targetPosition arrives too late to inform the cue it is part
     // of. Extraction already reports both the positions and the side.
-    const groundingIds = candidatePositions(extraction);
+    //
+    // Whether to ground at all is decided first (#153). A mistake about
+    // finishing a submission or executing a transition is not about a
+    // position, and the positions co-mentioned beside it would ground the cue
+    // in a different problem. Abstained, nothing is looked up, ranked or drawn.
+    const scope = groundingScope(extraction);
     // Settle gi/no-gi first — it decides which records can apply at all. An
     // explicit statement in the recording beats a stale toggle (#60).
     const giResolution = resolveGiContext({
@@ -633,25 +664,35 @@ Deno.serve(async (req: Request) => {
     // Held separately from the filtered set: `no_records` must distinguish an
     // empty corpus (mine it) from records that existed and were filtered out
     // by gi context or the relevance gate (mining will not help) — #58.
-    const candidatePool = await loadGroundingRecords(sportKey, groundingIds);
-    const ranked = rankRecordsWithStats(
-      filterByGiContext(candidatePool.records, giResolution.gi),
-      extraction.keyMistake,
-      undefined,
-      undefined,
-      // Domain terms outrank generic ones of equal rarity. Without this a
-      // record matching "allowing" ties one matching "kimura".
-      sport.vocabulary,
-    );
+    const candidatePool =
+      scope.kind === 'positions'
+        ? await loadGroundingRecords(sportKey, scope.positionIds)
+        : NOT_LOOKED_UP;
+    const ranked =
+      scope.kind === 'positions'
+        ? rankRecordsWithStats(
+            filterByGiContext(candidatePool.records, giResolution.gi),
+            extraction.keyMistake,
+            undefined,
+            undefined,
+            // Domain terms outrank generic ones of equal rarity. Without this a
+            // record matching "allowing" ties one matching "kimura".
+            sport.vocabulary,
+          )
+        : NOT_RANKED;
     const relevantRecords = ranked.records;
     // Assigned only when records are actually available, so the control arm
     // means "had records, withheld them" — the counterfactual the comparison
     // needs. Keyed on the idempotency id so a retry cannot flip the arm.
-    const groundingArm = assignGrounding(
-      clientSessionId ?? `${user.id}:${sessionDate ?? ''}`,
-      relevantRecords.length,
-      { hasPosition: groundingIds.length > 0 },
-    );
+    // An abstention is not an arm: its outcome comes from the scope.
+    const groundingArm =
+      scope.kind === 'positions'
+        ? assignGrounding(
+            clientSessionId ?? `${user.id}:${sessionDate ?? ''}`,
+            relevantRecords.length,
+            { hasPosition: scope.positionIds.length > 0 },
+          )
+        : scope.assignment;
     const groundingRecords =
       groundingArm.outcome === 'grounded' ? relevantRecords : [];
 
@@ -714,7 +755,8 @@ Deno.serve(async (req: Request) => {
       groundingCandidates: candidatePool.total,
       // The count BEFORE the rank cap (#119), so the funnel reads
       // candidates -> gate_passed -> records instead of jumping from the pool
-      // straight to a number pinned at GROUNDING_RECORD_LIMIT.
+      // straight to a number pinned at GROUNDING_RECORD_LIMIT. Null when
+      // grounding abstained (#153): nothing was ranked, so the gate never ran.
       groundingGatePassed: ranked.gatePassed,
       diagram,
     });
@@ -822,6 +864,21 @@ function diagramColumns(d: DiagramRecord) {
 const GROUNDING_COLUMNS =
   'id,position,prescription,why,detail,counter,gi,level,opponent,' +
   'certified,contested,rejected';
+
+/**
+ * The funnel of a session grounding abstained on (#153): nothing was looked up
+ * and nothing was ranked. Null, meaning not measured, never 0 — 0 candidates
+ * reads as a corpus gap to mine (#58) and 0 gate-passers as "the gate rejected
+ * everything" (#119), and neither happened.
+ */
+const NOT_LOOKED_UP: { records: CoachingRecord[]; total: null } = {
+  records: [],
+  total: null,
+};
+const NOT_RANKED: { records: CoachingRecord[]; gatePassed: null } = {
+  records: [],
+  gatePassed: null,
+};
 
 /**
  * Instructional records for the positions a session touched (#57).

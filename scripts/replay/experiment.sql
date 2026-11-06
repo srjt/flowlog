@@ -2,7 +2,8 @@
 --
 -- Only 'grounded' and 'withheld' are in the experiment: both had matching
 -- records, and the arm decided whether they were used. The other outcomes are
--- excluded because both arms would have produced an identical cue.
+-- excluded because both arms would have produced an identical cue. That
+-- includes 'not_positional' (#153): grounding abstained before any arm.
 select
   grounding                                             as arm,
   count(*)                                              as sessions,
@@ -24,6 +25,7 @@ group by 1 order by 2 desc limit 20;
 
 -- Positions we could not identify at all — a taxonomy or extraction problem,
 -- NOT a mining one. Kept separate because the two have opposite fixes.
+-- 'not_positional' is in neither list: a deliberate abstention, not a gap.
 select target_position, count(*) as sessions
 from public.sessions
 where grounding = 'no_position'

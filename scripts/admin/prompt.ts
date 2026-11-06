@@ -17,7 +17,7 @@
 
 import { filterByGiContext } from '../../src/sports/giContext.ts';
 import {
-  candidatePositions,
+  groundingScope,
   groundingSection,
   rankRecords,
 } from '../../src/sports/grounding.ts';
@@ -164,15 +164,23 @@ export function inferredPerspective(
   return { side: 'unknown', source: null };
 }
 
-/** Canonical positions to fetch records for, as `process-session` derives them. */
+/**
+ * Canonical positions to fetch records for, as `process-session` derives them.
+ *
+ * None when the Session recorded that its mistake is about a submission or a
+ * transition (#153): the pipeline abstains on those and looks nothing up. A
+ * Session from before migration 027 recorded nothing, which grounds as before.
+ */
 export function positionsToday(row: PromptSessionRow, side: Side): string[] {
-  return candidatePositions({
+  const scope = groundingScope({
     positionsVisited: row.positions_visited ?? [],
     keyMistake: row.key_mistake ?? '',
     opponentAction: row.opponent_action ?? '',
     perspective: side,
     rawTranscript: row.raw_transcript ?? '',
+    mistakeConcerns: row.mistake_concerns ?? null,
   });
+  return scope.kind === 'positions' ? scope.positionIds : [];
 }
 
 export interface PromptContext {
@@ -276,6 +284,14 @@ export function buildTodaysPrompt(
   ];
   if (!ctx.skillLevel?.trim()) {
     caveats.push('The athlete has no skill level on their profile.');
+  }
+  if (
+    row.mistake_concerns === 'submission' ||
+    row.mistake_concerns === 'transition'
+  ) {
+    caveats.push(
+      `Extraction recorded that the key mistake is about a ${row.mistake_concerns}, not a position, so, as in the pipeline, grounding abstains and no records are looked up.`,
+    );
   }
   if (row.grounding === 'declined') {
     caveats.unshift(

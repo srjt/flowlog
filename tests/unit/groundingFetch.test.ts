@@ -16,6 +16,10 @@ import { join } from 'node:path';
 
 import { PIPELINE_VERSION as CLIENT_PIPELINE_VERSION } from '@/constants/pipelineConfig';
 import { PIPELINE_VERSION } from '@/constants/pipelineVersion';
+import {
+  compareVersions,
+  REANALYSIS_PROVENANCE_SINCE,
+} from '../../scripts/admin/review';
 
 const SOURCE = join(
   __dirname,
@@ -169,9 +173,14 @@ describe('the pipeline version boundary', () => {
     expect(excluded).not.toContain(version);
   });
 
-  // Migration 021 documents the 1.3.0 boundary in prose; it must name the
-  // version the code actually ships or the caveat points at nothing.
-  it('is the version migration 021 names as the re-analysis boundary', () => {
+  // Migration 021 documents the re-analysis boundary in prose, and the cue
+  // review tool encodes the same boundary as `REANALYSIS_PROVENANCE_SINCE`.
+  // This used to assert that 021 names the SHIPPED version, which held only
+  // while that was 1.3.0: the boundary is fixed history, the shipped version
+  // moves on (1.4.0 for #153). What must hold is that 021 and the tool name
+  // the same boundary, and that the code ships on the far side of it, or rows
+  // it writes would be classed as unverified re-analysis provenance.
+  it('names the same re-analysis boundary as the review tool, and ships past it', () => {
     const migration021 = readFileSync(
       join(
         __dirname,
@@ -179,7 +188,11 @@ describe('the pipeline version boundary', () => {
       ),
       'utf8',
     );
-    expect(migration021).toContain(`before ${version}`);
+    expect(REANALYSIS_PROVENANCE_SINCE).toBe('1.3.0');
+    expect(migration021).toContain(`before ${REANALYSIS_PROVENANCE_SINCE}`);
+    expect(
+      compareVersions(version, REANALYSIS_PROVENANCE_SINCE),
+    ).toBeGreaterThanOrEqual(0);
   });
 });
 

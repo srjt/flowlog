@@ -6,7 +6,7 @@ import { CoachingService } from '@/services/CoachingService';
 import { DiagramSpecService } from '@/services/DiagramSpecService';
 import { ExtractionService } from '@/services/ExtractionService';
 import {
-  candidatePositions,
+  groundingScope,
   rankRecordsWithStats,
 } from '@/services/GroundingService';
 import { assignGrounding, type GroundingAssignment } from '@/sports/experiment';
@@ -183,6 +183,8 @@ export class FlowlogPipeline {
           sentiment: extraction.sentiment,
           // A declined Take still has an Extraction, and its side (#130).
           perspective: extraction.perspective,
+          // ...and what its mistake is about (#153), though nothing grounds.
+          mistakeConcerns: extraction.mistakeConcerns,
           coachingCue: null,
           targetPosition: null,
           targetPositionId: null,
@@ -301,6 +303,9 @@ export class FlowlogPipeline {
         // Kept so this Session's Grounding can be replayed (#130): without the
         // side, side-dependent free text resolves to no canonical position.
         perspective: extraction.perspective,
+        // What decided whether to ground at all (#153), so an abstention can
+        // be audited against the target position the cue then resolved to.
+        mistakeConcerns: extraction.mistakeConcerns,
         coachingCue: gate.coaching.cue,
         // Canonical label ("Side control (bottom)") when the position
         // resolved; otherwise keep what the model wrote.
@@ -312,8 +317,9 @@ export class FlowlogPipeline {
         giSource: giResolution.source,
         grounding: assignment.outcome,
         groundingRecords: assignment.inject,
-        groundingCandidates:
-          groundingCandidates < 0 ? null : groundingCandidates,
+        // Null when nothing was looked up: a failed lookup, or an abstention
+        // (#153). Unknown, which the mining backlog excludes, never 0.
+        groundingCandidates,
         groundingAvailable: assignment.available,
         // Before the rank cap (#119). `groundingAvailable` above is
         // `min(this, GROUNDING_RECORD_LIMIT)`, so without it the funnel jumps
@@ -388,6 +394,7 @@ export class FlowlogPipeline {
           sentiment: extraction.sentiment,
           // Overwritten: the edited transcript is a new Extraction (#130).
           perspective: extraction.perspective,
+          mistakeConcerns: extraction.mistakeConcerns,
           coachingCue: null,
           targetPosition: null,
           targetPositionId: null,
@@ -488,6 +495,8 @@ export class FlowlogPipeline {
       // The side of the EDITED transcript (#130). The old one may no longer be
       // true, the reasoning 021 applied to the grounding provenance below.
       perspective: extraction.perspective,
+      // Overwritten too (#153): it decided this run's grounding.
+      mistakeConcerns: extraction.mistakeConcerns,
       coachingCue: gate.coaching.cue,
       targetPosition: resolved.label ?? gate.coaching.targetPosition,
       targetPositionId: resolved.id,
@@ -576,13 +585,37 @@ export class FlowlogPipeline {
   ): Promise<{
     records: CoachingRecord[];
     assignment: GroundingAssignment;
-    /** Records for the position BEFORE gi + relevance filtering (#58). */
-    candidates: number;
+    /**
+     * Records for the position BEFORE gi + relevance filtering (#58). Null
+     * when nothing was looked up, so the mining backlog never reads it as a gap.
+     */
+    candidates: number | null;
     /** Records that cleared the relevance gate, BEFORE the rank cap (#119). */
     gatePassed: number | null;
   }> {
     try {
-      const positionIds = candidatePositions(extraction);
+      // Whether to ground at all, decided BEFORE any lookup (#153). A mistake
+      // about finishing a submission or executing a transition is not about a
+      // position, and the positions co-mentioned beside it would ground the
+      // cue in a different problem. Shared with the edge function, so the two
+      // cannot disagree about which sessions abstain.
+      const scope = groundingScope(extraction);
+      if (scope.kind === 'not_positional') {
+        logger.debug('grounding', {
+          mistakeConcerns: extraction.mistakeConcerns,
+          outcome: scope.assignment.outcome,
+        });
+        return {
+          records: [],
+          assignment: scope.assignment,
+          // Nothing was looked up or ranked: not measured, so null. 0 would
+          // read as a corpus gap (#58) and as "the gate rejected everything"
+          // (#119), and neither happened.
+          candidates: null,
+          gatePassed: null,
+        };
+      }
+      const positionIds = scope.positionIds;
       const records =
         positionIds.length === 0
           ? []
@@ -630,7 +663,7 @@ export class FlowlogPipeline {
         assignment: { outcome: 'no_records', inject: 0, available: 0 },
         // A lookup failure is not a corpus gap. Null keeps it out of the
         // mining backlog rather than filing it as a position to mine.
-        candidates: -1,
+        candidates: null,
         // Nothing was ranked, so the gate was never applied. Unknown, not 0 —
         // 0 would read as "the gate rejected everything" (#119).
         gatePassed: null,

@@ -6,8 +6,12 @@
 // client. Mirrors the client providers in `src/providers/`.
 
 import type { ServerSportContext } from './sports.ts';
-// Single-sourced with the client: the two must build the same prompt.
-import { groundingSection } from '../../../src/sports/grounding.ts';
+// Single-sourced with the client: the two must build the same prompt, and
+// normalise the Extraction the same way.
+import {
+  groundingSection,
+  normaliseMistakeConcerns,
+} from '../../../src/sports/grounding.ts';
 import type {
   CoachingOutput,
   CoachingRecord,
@@ -252,6 +256,10 @@ export async function extract(
       parsed.statedGi === 'gi' || parsed.statedGi === 'no-gi'
         ? parsed.statedGi
         : 'unknown',
+    // What the key mistake is about (#153). Anything else becomes 'unknown',
+    // which grounds as before: never a default that makes grounding abstain.
+    // The same function the client's ExtractionService calls.
+    mistakeConcerns: normaliseMistakeConcerns(parsed.mistakeConcerns),
     ...judgeSufficiency(
       transcript,
       parsed.hasCoachableContent,

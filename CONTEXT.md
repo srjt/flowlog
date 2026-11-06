@@ -100,6 +100,9 @@ snippet
 Supplying the Coaching records most relevant to a Session's Key mistake to the
 coaching step, so the Cue rests on vetted mechanics rather than the model's
 general knowledge. Every Session either was grounded or records why it was not.
+Grounding abstains, as `not_positional`, when Extraction says the Key mistake is
+about finishing a submission or executing a transition rather than a position:
+the positions mentioned beside such a mistake are not what it is about.
 _Avoid_: RAG, retrieval, injection
 
 ### What a Session records
