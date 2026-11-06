@@ -3,6 +3,7 @@ import { STEP_LABELS } from '@/constants/pipelineSteps';
 import { storageProvider } from '@/providers/storage';
 import type { IStorageProvider } from '@/providers/storage';
 import { CoachingService } from '@/services/CoachingService';
+import { DiagramSpecService } from '@/services/DiagramSpecService';
 import { ExtractionService } from '@/services/ExtractionService';
 import {
   candidatePositions,
@@ -27,9 +28,15 @@ import type {
   PipelineOutput,
   ProcessingStep,
   ProcessingStepName,
+  QualityGateResult,
   ReanalyzeInput,
 } from '@/types/pipeline';
 import { logger, reportToMonitoring } from '@/utils/logger';
+import {
+  NOT_ATTEMPTED,
+  type DiagramLibrary,
+  type DiagramRecord,
+} from '@/visualization/diagramStage';
 
 export type { PipelineInput, PipelineOutput, ReanalyzeInput };
 
@@ -47,6 +54,14 @@ interface PipelineDeps {
   coaching?: CoachingService;
   qualityGate?: QualityGateService;
   storage?: IStorageProvider;
+  /** Stage 3b, cue -> force-diagram spec (#135). */
+  diagramSpec?: DiagramSpecService;
+  /**
+   * The force-diagram base library, in place of the sport context's (#135).
+   * Tests inject an uncertified fixture base here; production reads
+   * `sportContext.diagram`, which is empty until phase c, so no call is made.
+   */
+  diagramLibrary?: DiagramLibrary;
 }
 
 /**
@@ -62,6 +77,8 @@ export class FlowlogPipeline {
   private readonly qualityGate: QualityGateService;
   private readonly storage: IStorageProvider;
   private readonly groundingRollout: number;
+  private readonly diagramSpec: DiagramSpecService;
+  private readonly diagramLibrary: DiagramLibrary | undefined;
 
   constructor(deps: PipelineDeps = {}) {
     this.transcription = deps.transcription ?? new TranscriptionService();
@@ -71,6 +88,8 @@ export class FlowlogPipeline {
     this.storage = deps.storage ?? storageProvider;
     this.groundingRollout =
       deps.groundingRollout ?? PIPELINE_CONFIG.groundingRollout;
+    this.diagramSpec = deps.diagramSpec ?? new DiagramSpecService();
+    this.diagramLibrary = deps.diagramLibrary;
   }
 
   async run(
@@ -177,6 +196,9 @@ export class FlowlogPipeline {
           // Nothing was looked up or ranked here — unknown, not zero. 0 would
           // read as "the gate rejected everything" (#119).
           groundingGatePassed: null,
+          // No Cue, so nothing to draw and no model call (#135). Recorded,
+          // not left NULL: NULL means a row from before migration 025.
+          ...NOT_ATTEMPTED,
         });
         done('persistence');
 
@@ -254,6 +276,12 @@ export class FlowlogPipeline {
         extraction,
       );
 
+      // ── Stage 3b: cue -> force-diagram spec (#135) ──────────────────────
+      // Best-effort, after the gate, on the Cue being saved: it can describe
+      // that Cue, never change it. No model call unless the Cue is real and
+      // its position has a certified base, which until phase c is never.
+      const diagram = await this.loadDiagram(sportContext, gate, resolved.id);
+
       // ── Stage 4: persistence ────────────────────────────────────────────
       begin('persistence');
       const audioStoragePath = await this.safeUploadAudio(
@@ -294,6 +322,8 @@ export class FlowlogPipeline {
         // Sliced identically to `groundingRecords`, or the ids and the count
         // would disagree about the same prompt.
         groundingRecordIds: groundingRecords.map((r) => r.id),
+        // The spec and its provenance, or why there is none (#135).
+        ...diagram,
       });
       done('persistence');
 
@@ -375,6 +405,9 @@ export class FlowlogPipeline {
           // row. Null is unknown; 0 would read as a corpus gap (#58).
           groundingCandidates: null,
           groundingGatePassed: null,
+          // Cleared, not kept (#135): the previous run's spec describes a Cue
+          // this row no longer holds.
+          ...NOT_ATTEMPTED,
           reanalyzedAt: new Date().toISOString(),
           pipelineVersion: PIPELINE_VERSION,
         },
@@ -442,6 +475,10 @@ export class FlowlogPipeline {
       extraction,
     );
 
+    // Regenerated, because the Cue changed (#135): the old spec describes the
+    // old Cue, on what may now be another position.
+    const diagram = await this.loadDiagram(sportContext, gate, resolved.id);
+
     const session = await this.storage.updateSessionAnalysis(input.sessionId, {
       rawTranscript: transcript,
       positionsVisited: extraction.positionsVisited,
@@ -465,6 +502,7 @@ export class FlowlogPipeline {
       groundingRecordIds: groundingRecords.map((r) => r.id),
       groundingCandidates,
       groundingGatePassed,
+      ...diagram,
       reanalyzedAt: new Date().toISOString(),
       pipelineVersion: PIPELINE_VERSION,
     });
@@ -598,6 +636,26 @@ export class FlowlogPipeline {
         gatePassed: null,
       };
     }
+  }
+
+  /**
+   * The Session's diagram record (#135). Never throws: a failure here records
+   * `unavailable` and the Cue shows as text.
+   *
+   * Only a Cue that passed the gate on its own merits is diagrammed. The
+   * fallback is generic by design, so there is no mechanic in it to draw.
+   */
+  private loadDiagram(
+    sportContext: ISportContext,
+    gate: QualityGateResult,
+    positionId: string | null,
+  ): Promise<DiagramRecord> {
+    return this.diagramSpec.run({
+      library: this.diagramLibrary ?? sportContext.diagram,
+      cue: gate.coaching.cue,
+      coachable: gate.passed && !gate.usedFallback,
+      positionId,
+    });
   }
 
   private async loadHistory(

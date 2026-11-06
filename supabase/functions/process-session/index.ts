@@ -17,6 +17,7 @@
 
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts';
 import { getSportContext } from '../_shared/sports.ts';
+import type { ServerSportContext } from '../_shared/sports.ts';
 import {
   candidatePositions,
   rankRecordsWithStats,
@@ -30,8 +31,21 @@ import {
   RECORD_POOL_CEILING,
   selectAllPages,
 } from '../../../src/services/pagedSelect.ts';
-import { extract, generateCoaching, transcribe } from '../_shared/ai.ts';
+import {
+  extract,
+  generateCoaching,
+  generateDiagramSpec,
+  transcribe,
+} from '../_shared/ai.ts';
 import { enforce } from '../_shared/quality-gate.ts';
+import type { GateResult } from '../_shared/quality-gate.ts';
+// The cue -> spec stage's decisions, shared with the client reference (#135).
+import {
+  NOT_ATTEMPTED,
+  STAGE_FAILED,
+  runDiagramStage,
+} from '../../../src/visualization/diagramStage.ts';
+import type { DiagramRecord } from '../../../src/visualization/diagramStage.ts';
 import { storeCoachingPrompts } from '../_shared/sessionPrompts.ts';
 import { recordAttempts } from '../../../src/services/promptLog.ts';
 import { PIPELINE_VERSION } from '../../../src/constants/pipelineVersion.ts';
@@ -179,6 +193,9 @@ Deno.serve(async (req: Request) => {
             grounding_record_ids: [],
             grounding_candidates: null,
             grounding_gate_passed: null,
+            // Cleared, not kept (#135): the previous run's spec describes a
+            // Cue this row no longer holds. No Cue, so no model call.
+            ...diagramColumns(NOT_ATTEMPTED),
             reanalyzed_at: new Date().toISOString(),
             pipeline_version: PIPELINE_VERSION,
           },
@@ -275,6 +292,9 @@ Deno.serve(async (req: Request) => {
         id: reMatch.id,
         label: reMatch.id ? reMatch.label : null,
       };
+      // Regenerated, because the Cue changed (#135): the old spec describes the
+      // old Cue, possibly on another position. Best-effort; never throws.
+      const reDiagram = await cueDiagram(sport, gate, reResolved.id);
       const updated = await dbUpdate(
         `sessions?id=eq.${reanalyzeSessionId}&user_id=eq.${user.id}`,
         {
@@ -313,6 +333,9 @@ Deno.serve(async (req: Request) => {
           // a stale value under a fresh stamp would make the predicate lie.
           grounding_candidates: rePool.total,
           grounding_gate_passed: reRanked.gatePassed,
+          // The spec and its provenance for THIS run's Cue, or why there is
+          // none (#135).
+          ...diagramColumns(reDiagram),
           // The only marker that reaches these rows (021). The version stamp
           // cannot identify a re-analysed row, because re-analysis writes
           // whatever version was current at the time.
@@ -487,6 +510,12 @@ Deno.serve(async (req: Request) => {
        * row recorded 20.
        */
       groundingGatePassed: number | null;
+      /**
+       * The cue diagram spec and its provenance, or why there is none (#135).
+       * Required, so the declined insert has to say `not_attempted` rather
+       * than leave the columns reading as a pre-025 row.
+       */
+      diagram: DiagramRecord;
     }): Promise<{ row: any } | { conflictOutput: Response }> => {
       try {
         const row = await dbInsert('sessions', {
@@ -515,6 +544,7 @@ Deno.serve(async (req: Request) => {
           grounding_record_ids: analysis.groundingRecordIds,
           grounding_candidates: analysis.groundingCandidates,
           grounding_gate_passed: analysis.groundingGatePassed,
+          ...diagramColumns(analysis.diagram),
           gi: giResolution.gi,
           gi_source: giResolution.source,
           pipeline_version: PIPELINE_VERSION,
@@ -561,6 +591,8 @@ Deno.serve(async (req: Request) => {
         groundingCandidates: null,
         // Nothing was ranked either — unknown, not zero.
         groundingGatePassed: null,
+        // No Cue, so nothing to draw and no model call (#135).
+        diagram: NOT_ATTEMPTED,
       });
       if ('conflictOutput' in declinedRow) return declinedRow.conflictOutput;
       await updateUserTrends(user.id, sportKey);
@@ -651,9 +683,16 @@ Deno.serve(async (req: Request) => {
       coaching.coach,
     );
 
+    // ── Stage 3b: cue -> force-diagram spec (#135) ──────────────────────────
+    // Best-effort, after the gate, on the Cue being saved: it can describe
+    // that Cue, never change it. No model call unless the Cue is real and its
+    // position has a certified base, which until phase c is never: every
+    // Session records `no_base`. `cueDiagram` never throws.
+    const resolved = resolvePosition(gate.coaching.targetPosition);
+    const diagram = await cueDiagram(sport, gate, resolved.id);
+
     // ── Stage 4: persistence ────────────────────────────────────────────────
     stage = 'persistence';
-    const resolved = resolvePosition(gate.coaching.targetPosition);
     const inserted = await insertSession({
       cue: gate.coaching.cue,
       targetPosition: resolved.label ?? gate.coaching.targetPosition,
@@ -677,6 +716,7 @@ Deno.serve(async (req: Request) => {
       // candidates -> gate_passed -> records instead of jumping from the pool
       // straight to a number pinned at GROUNDING_RECORD_LIMIT.
       groundingGatePassed: ranked.gatePassed,
+      diagram,
     });
     if ('conflictOutput' in inserted) return inserted.conflictOutput;
     const session = inserted.row;
@@ -715,6 +755,54 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
+/**
+ * Stage 3b, cue -> force-diagram spec (#135), for one Session. Best-effort:
+ * NEVER throws, and cannot change the Cue, only describe it.
+ *
+ * The decisions live in `runDiagramStage`, shared with the client reference:
+ * it makes the model call only when the gate passed with a real Cue (not its
+ * fallback) AND the sport's library has a base for the Session's canonical
+ * position. The BJJ library is empty until phase c, so in production this
+ * records `no_base` and calls nothing. The try/catch is the backstop behind
+ * that function's own: whatever happens here, the Session is written.
+ */
+async function cueDiagram(
+  sport: ServerSportContext,
+  gate: GateResult,
+  positionId: string | null,
+): Promise<DiagramRecord> {
+  try {
+    const { record, detail } = await runDiagramStage({
+      library: sport.diagram,
+      cue: gate.coaching.cue,
+      coachable: gate.passed && !gate.usedFallback,
+      positionId,
+      call: generateDiagramSpec,
+    });
+    console.log(
+      `[flowlog] diagram ${record.diagramOutcome}: ${detail.join('; ')}`,
+    );
+    return record;
+  } catch (err) {
+    console.error('[flowlog] diagram stage failed (no spec):', err);
+    return { ...STAGE_FAILED };
+  }
+}
+
+/**
+ * The five diagram columns (migration 025), always written together, so a
+ * spec never sits beside another run's outcome or versions.
+ */
+function diagramColumns(d: DiagramRecord) {
+  return {
+    diagram_outcome: d.diagramOutcome,
+    diagram_spec: d.diagramSpec,
+    grammar_version: d.grammarVersion,
+    base_library_version: d.baseLibraryVersion,
+    spec_prompt_version: d.specPromptVersion,
+  };
+}
 
 /**
  * Rebuild the exact PipelineOutput wire shape from a persisted row, for the

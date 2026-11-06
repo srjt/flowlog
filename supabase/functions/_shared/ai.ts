@@ -15,6 +15,7 @@ import type {
   TranscriptionResult,
 } from './types.ts';
 import type { SentPrompt } from '../../../src/services/promptLog.ts';
+import type { SpecRequest } from '../../../src/visualization/diagramStage.ts';
 
 const OPENAI_TRANSCRIPTION_URL =
   'https://api.openai.com/v1/audio/transcriptions';
@@ -351,8 +352,64 @@ export async function generateCoaching(
   };
 }
 
+// ── Cue -> diagram spec (#135) ──────────────────────────────────────────────
+/**
+ * Send a cue -> spec prompt (built by `runDiagramStage`) and return the
+ * model's raw text. NEVER throws: on any failure (no key, network, HTTP, an
+ * empty body, or `request.timeoutMs` elapsing, which aborts the request) it
+ * returns null, and the stage records `unavailable`. Mirrors
+ * `IAIProvider.generateDiagramSpec` on the client.
+ *
+ * Runs on the EXTRACTION model (`GEMINI_MODEL`), not `GEMINI_COACHING_MODEL`:
+ * a spec is a structured-field task like extraction, not cue writing, and the
+ * coaching path is left exactly as it was. No new env var.
+ *
+ * ── Why JSON mode and not a native schema ──
+ * `request.schema` is NOT sent. Gemini's `responseSchema` takes a restricted
+ * OpenAPI subset that rejects `additionalProperties`, which the schema uses to
+ * forbid extra keys, and Claude's equivalent (tool use with the schema as the
+ * tool's input schema) has not been checked against the live API. A request
+ * field the API refuses would fail every call. So: JSON mode where the
+ * provider has one, the constraints in the prompt (the base's role enum and
+ * the grammar, from `buildSpecPrompt`), and `parseSpecResponse` +
+ * `validateSpec` as the floor in code for every answer. Sending the schema
+ * natively is a later change, once it is verified there.
+ */
+export async function generateDiagramSpec(
+  request: SpecRequest,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), request.timeoutMs);
+  try {
+    // 8192 as for extraction, though the answer is short: a thinking model
+    // spends part of the budget before it writes, and running out yields no
+    // text at all.
+    return aiProvider() === 'gemini'
+      ? await geminiGenerate([{ text: request.prompt }], 8192, true, {
+          model: geminiModel(),
+          // The same cue should give the same spec: it is a classification
+          // onto named roles, and the re-render A/B (#15) compares specs.
+          temperature: 0,
+          signal: controller.signal,
+        })
+      : await claude(request.prompt, 1024, controller.signal);
+  } catch (err) {
+    console.warn(
+      '[flowlog] diagram spec call failed; the cue shows as text:',
+      (err as Error)?.message,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── Claude ──────────────────────────────────────────────────────────────────
-async function claude(prompt: string, maxTokens: number): Promise<string> {
+async function claude(
+  prompt: string,
+  maxTokens: number,
+  signal?: AbortSignal,
+): Promise<string> {
   const apiKey = requireSecret('ANTHROPIC_API_KEY');
   const res = await fetch(ANTHROPIC_MESSAGES_URL, {
     method: 'POST',
@@ -366,6 +423,7 @@ async function claude(prompt: string, maxTokens: number): Promise<string> {
       max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
+    signal,
   });
   if (!res.ok) {
     const detail = await safeText(res);
@@ -395,6 +453,8 @@ async function geminiGenerate(
      * lie — which is precisely the record used to diagnose a bad cue.
      */
     onModelUsed?: (model: string) => void;
+    /** Aborts the request, fallback included (the spec stage's deadline). */
+    signal?: AbortSignal;
   } = {},
 ): Promise<string> {
   const apiKey = requireSecret('GEMINI_API_KEY');
@@ -414,6 +474,7 @@ async function geminiGenerate(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts }], generationConfig }),
+      signal: opts.signal,
     });
   };
 

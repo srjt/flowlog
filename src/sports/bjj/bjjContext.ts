@@ -1,4 +1,5 @@
 import type { ISportContext } from '@/sports/ISportContext';
+import { BJJ_DIAGRAM_LIBRARY } from '@/sports/bjj/bjjDiagramBases';
 import { BJJ_POSITIONS, normalizePosition } from '@/sports/bjj/bjjPositions';
 import { BJJ_VOCABULARY_FLAT } from '@/sports/bjj/bjjVocabulary';
 import {
@@ -27,6 +28,8 @@ export const bjjContext: ISportContext = {
   qualityGatePhrases: BJJ_QUALITY_GATE_PHRASES,
   positions: BJJ_POSITIONS,
   normalizePosition,
+  // Empty until phase c (#136): every Session records `no_base`, no call.
+  diagram: BJJ_DIAGRAM_LIBRARY,
   minRecordingSeconds: 20,
   maxRecordingSeconds: 90,
 };

@@ -1,5 +1,6 @@
 import type { PositionNormalizer, SportPosition } from '@/sports/positionTypes';
 import type { SportKey } from '@/types/sport';
+import type { DiagramLibrary } from '@/visualization/diagramStage';
 
 /**
  * The contract every sport implements. The pipeline is sport-agnostic: it
@@ -48,6 +49,14 @@ export interface ISportContext {
    * position or the side is unclear — callers abstain instead of guessing.
    */
   normalizePosition: PositionNormalizer;
+
+  /**
+   * The sport's force-diagram base library (#135): certified two-person bases
+   * keyed by canonical sided position id, its version, and the spec model's
+   * persona. Optional: a sport without one records `no_base` on every Session
+   * and the spec stage makes no model call.
+   */
+  diagram?: DiagramLibrary;
 
   /** Recording bounds for this sport (seconds). */
   minRecordingSeconds: number;
