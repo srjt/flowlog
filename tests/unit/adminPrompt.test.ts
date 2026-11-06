@@ -9,6 +9,7 @@ import {
   compareWithStored,
   inferredPerspective,
   positionsToday,
+  recordedPerspective,
   toPoolRecord,
   type PoolRecord,
   type PromptContext,
@@ -38,6 +39,9 @@ const row = (o: Partial<PromptSessionRow> = {}): PromptSessionRow => ({
   feedback_note: null,
   pipeline_version: '1.3.0',
   gi: 'gi',
+  // Not recorded, as on every Session from before migration 024. The
+  // fallbacks below are only reached for rows like this.
+  perspective: null,
   grounding: 'grounded',
   grounding_candidates: 3,
   grounding_available: 1,
@@ -144,7 +148,7 @@ describe("cue review: today's prompt", () => {
 
   const UNKNOWN = { side: 'unknown', source: null };
 
-  it('takes the side from the records the session was grounded in first', () => {
+  it('without a recorded side, takes it from the records the session was grounded in first', () => {
     // The live case that broke the rebuild: the Cue targeted "Berimbolo",
     // which never resolves, so the target position carried no side and "De La
     // Riva Guard" resolved to nothing — 18 grounded records rebuilt as zero.
@@ -204,6 +208,86 @@ describe("cue review: today's prompt", () => {
         'unknown',
       ),
     ).toEqual(['standing']);
+  });
+
+  // ── The recorded side (#130, migration 024) ──────────────────────────────
+
+  it('takes the recorded side over both fallbacks', () => {
+    // Records and target both say bottom; the Session recorded top. What
+    // Extraction actually reported wins over anything inferred from its output.
+    expect(
+      inferredPerspective(row({ perspective: 'top' }), ['half-guard-bottom']),
+    ).toEqual({ side: 'top', source: 'recorded' });
+  });
+
+  it('carries the side of a Berimbolo Session with no records to infer from', () => {
+    // The one case that defeats every inference: the Cue targeted something
+    // non-canonical, so the target position carries no side, and here no
+    // records were stored either.
+    const berimbolo = row({
+      perspective: 'bottom',
+      raw_transcript: 'Went for the berimbolo and lost the hips again',
+      key_mistake: 'Losing control of the hips during the berimbolo',
+      opponent_action: null,
+      target_position_id: null,
+      grounding_record_ids: null,
+      positions_visited: ['De La Riva Guard', 'Berimbolo', 'Leg Drag'],
+    });
+    const side = inferredPerspective(berimbolo);
+    expect(side).toEqual({ side: 'bottom', source: 'recorded' });
+    expect(positionsToday(berimbolo, side.side)).toEqual(['de-la-riva-bottom']);
+  });
+
+  it("uses a recorded 'unknown' as is instead of inferring a side", () => {
+    // Extraction abstained, and the pipeline grounded with that abstention.
+    // Guessing a side here would rebuild a prompt the pipeline never built.
+    const abstained = row({ perspective: 'unknown' });
+    const side = inferredPerspective(abstained, ['half-guard-bottom']);
+    expect(side).toEqual({ side: 'unknown', source: 'recorded' });
+    const { caveats } = buildTodaysPrompt(abstained, ctx(), [], side);
+    expect(caveats[1]).toMatch(/Extraction recorded that it could not tell/);
+    expect(caveats[1]).not.toMatch(/not recorded/);
+  });
+
+  it('still resolves a Session with no recorded side from its records', () => {
+    expect(
+      inferredPerspective(row({ perspective: null }), ['half-guard-bottom']),
+    ).toEqual({ side: 'bottom', source: 'stored records' });
+    // Before 024 is applied the column is absent altogether; same answer.
+    const { perspective: _absent, ...pre024 } = row();
+    expect(inferredPerspective(pre024, ['half-guard-bottom'])).toEqual({
+      side: 'bottom',
+      source: 'stored records',
+    });
+  });
+
+  it('never reads NULL as "Extraction could not tell"', () => {
+    expect(recordedPerspective(row({ perspective: null }))).toBeNull();
+    // Only the three recorded values count; anything else is not a record.
+    expect(
+      recordedPerspective(
+        row({ perspective: 'neutral' as unknown as 'unknown' }),
+      ),
+    ).toBeNull();
+
+    // Nothing recorded and nothing to infer from: unknown, but from no
+    // source, which is not the recorded abstention above.
+    const nothing = row({ perspective: null, target_position_id: null });
+    const side = inferredPerspective(nothing);
+    expect(side).toEqual(UNKNOWN);
+    expect(side.source).not.toBe('recorded');
+    const { caveats } = buildTodaysPrompt(nothing, ctx(), [], side);
+    expect(caveats[1]).toMatch(/Perspective was not recorded for this session/);
+    expect(caveats[1]).not.toMatch(/Extraction recorded/);
+  });
+
+  it('says when the side is the one Extraction recorded', () => {
+    const { caveats } = buildTodaysPrompt(
+      row({ perspective: 'top' }),
+      ctx(),
+      [],
+    );
+    expect(caveats[1]).toMatch(/"top" is the side Extraction recorded/);
   });
 
   it('names where the side came from in the caveats', () => {

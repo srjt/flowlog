@@ -34,6 +34,7 @@ import { extract, generateCoaching, transcribe } from '../_shared/ai.ts';
 import { enforce } from '../_shared/quality-gate.ts';
 import { storeCoachingPrompts } from '../_shared/sessionPrompts.ts';
 import { recordAttempts } from '../../../src/services/promptLog.ts';
+import { PIPELINE_VERSION } from '../../../src/constants/pipelineVersion.ts';
 import {
   dbInsert,
   dbSelect,
@@ -51,28 +52,9 @@ import type {
   ProcessingStep,
 } from '../_shared/types.ts';
 
-// The version is the boundary marker for every grounding fix, because a row
-// has to state for itself which pipeline wrote it — migrations 019 and 020
-// both segment on this value rather than on a timestamp.
-//
-//   1.0.0  wrote `grounding = 'grounded'` while sending the literal
-//          `{{GROUNDING}}` to the model: selected, never injected (019).
-//   1.1.0  first version whose prompt actually carries the grounding block,
-//          but whose candidate fetch was capped at 200 unordered rows, so
-//          `grounding_candidates` is a LOWER BOUND over those rows (#114).
-//   1.2.0  candidate pool is paged and ordered; `grounding_candidates` is the
-//          database's exact count (020).
-//   1.3.0  re-analysis writes the grounding provenance it changes the truth of,
-//          and honours the session's existing arm (021).
-//
-// So bumping it is part of the fix, not cosmetic.
-//
-// Note what the version can and cannot segment for 1.3.0: re-analysis stamps
-// the version CURRENT AT THE TIME, so a row re-analysed under 1.0.0 still reads
-// 1.0.0 and is indistinguishable from one never re-analysed. `reanalyzed_at`
-// (021) is the marker that actually reaches those rows; the version only
-// asserts that a row written by THIS code is consistent.
-const PIPELINE_VERSION = '1.3.0';
+// PIPELINE_VERSION is imported from its single definition, shared with the
+// client reference pipeline: src/constants/pipelineVersion.ts (what each
+// version means, and when to bump it).
 const COACHING_CUE_MAX_WORDS = 25;
 const QUALITY_GATE_RETRY_LIMIT = 2;
 const RECENT_MISTAKES_WINDOW = 5;
@@ -173,6 +155,9 @@ Deno.serve(async (req: Request) => {
             key_mistake: extraction.keyMistake,
             opponent_action: extraction.opponentAction,
             sentiment: extraction.sentiment,
+            // Overwritten, not kept (#130): the edited transcript is a new
+            // Extraction, and a declined one still says which side it read.
+            perspective: extraction.perspective,
             coaching_cue: null,
             target_position: null,
             target_position_id: null,
@@ -298,6 +283,10 @@ Deno.serve(async (req: Request) => {
           key_mistake: extraction.keyMistake,
           opponent_action: extraction.opponentAction,
           sentiment: extraction.sentiment,
+          // The side of the EDITED transcript (#130). Re-analysis regenerates
+          // the Extraction, so the old side may no longer be true — the same
+          // reasoning 021 applied to the grounding provenance below.
+          perspective: extraction.perspective,
           coaching_cue: gate.coaching.cue,
           target_position: reResolved.label ?? gate.coaching.targetPosition,
           target_position_id: reResolved.id,
@@ -510,6 +499,12 @@ Deno.serve(async (req: Request) => {
           key_mistake: extraction.keyMistake,
           opponent_action: extraction.opponentAction,
           sentiment: extraction.sentiment,
+          // The side Extraction reported (#130), here so that the declined
+          // insert writes it too. Without it the side was thrown away, and a
+          // Session's Grounding could not be replayed: side-dependent free text
+          // resolves to no canonical position. 'unknown' is a recorded
+          // abstention; only a pre-024 row is NULL.
+          perspective: extraction.perspective,
           coaching_cue: analysis.cue,
           target_position: analysis.targetPosition,
           target_position_id: analysis.targetPositionId,

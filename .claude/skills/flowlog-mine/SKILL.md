@@ -22,12 +22,28 @@ See `docs/LOCAL_MINING.md` for the measurements behind all three.
 
 ## Records must never be committed
 
-`~/flowlog-records` is outside the repo, deliberately. It holds **verbatim
+The review store is outside the repo, deliberately. It holds **verbatim
 instructional text** and this repository is **public**.
 
 Only the distilled half is published, and `publish.sh` refuses to run if any
 source marker survives the scrub. Never move records into the repo, never paste
 transcript text into a commit message, a PR body, or an issue.
+
+## Which store
+
+Every command here defaults to the **canonical store**,
+`~/flowlog-records-local-all`: the one the live serving store was published
+from. `scripts/mining/publish.sh --which-store` prints it, and it is defined
+once, in `scripts/mining/stores.ts`. It used to be `~/flowlog-records`, the
+earlier Gemini corpus. That store is no longer the default, but it has not been
+deleted (see the flowlog-publish skill, #131).
+
+- If the canonical store is missing, the commands stop and name the path
+  rather than creating an empty one.
+- **Experiments go in their own directory**: `--out ~/flowlog-records-<name>`.
+  An explicit `--out` to a new directory is created as before. The existing
+  experiment stores (`-q32`, `-gemma`, `-gemfix`, …) are the evidence behind
+  past comparisons, so leave them in place.
 
 ## 1. Dry run first — always
 
@@ -62,7 +78,7 @@ scripts/mining/mine-series.sh "<folder>" --instructor "<Instructor>"
   take the series down. Failures are listed at the end — re-run the same command
   to retry just those.
 - Slow. Use `run_in_background: true` and poll:
-  `ls ~/flowlog-records/*.records.json | wc -l`
+  `ls ~/flowlog-records-local-all/*.records.json | wc -l`
 
 ### Two failures that look alike and are not
 
@@ -106,8 +122,8 @@ indistinguishable from an invention at that point.
 **14.2% of the Gemini corpus was spliced.** All of it was repairable.
 
 ```bash
-scripts/mining/repair-quotes.sh --records ~/flowlog-records          # dry run
-scripts/mining/repair-quotes.sh --records ~/flowlog-records --write
+scripts/mining/repair-quotes.sh            # dry run, canonical store
+scripts/mining/repair-quotes.sh --write
 ```
 
 Dry-run by default and keeps a `.bak`, because it rewrites the review store and
@@ -121,8 +137,8 @@ local run and a paid one. Raw mining leaves `counter` empty on two records in
 three; the second pass roughly doubles it.
 
 ```bash
-scripts/mining/enrich.sh ~/flowlog-records --dry-run     # how many are missing
-scripts/mining/enrich.sh ~/flowlog-records
+scripts/mining/enrich.sh ~/flowlog-records-local-all --dry-run   # how many are missing
+scripts/mining/enrich.sh ~/flowlog-records-local-all
 ```
 
 Measured over 88 volumes: `counter` 21.6% -> **46.3%** (Gemini's raw mining
