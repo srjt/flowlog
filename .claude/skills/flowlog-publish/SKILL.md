@@ -17,7 +17,7 @@ serving store is reachable by the app.
 
 | store | where | holds |
 | --- | --- | --- |
-| review | `~/flowlog-records` (outside the repo) | verbatim quote, source, chapter, timestamps |
+| review | `~/flowlog-records-local-all`, the **canonical store** (outside the repo) | verbatim quote, source, chapter, timestamps |
 | serving | Supabase `coaching_records` | distilled mechanics only |
 
 `publish.sh` drops `quote`, `source` and `chapter`, scrubs person names, and
@@ -26,23 +26,67 @@ serving store is reachable by the app.
 Never move the review store into the repo. Never paste transcript text into a
 commit message, PR body, or issue.
 
+## Which review store is canonical
+
+```bash
+scripts/mining/publish.sh --which-store
+```
+
+Prints the canonical store: the one the live serving store was published
+from, and the default for every mining and publish command. It is defined
+once, in `scripts/mining/stores.ts`. Today that is `~/flowlog-records-local-all`
+(5,574 records, matching live exactly).
+
+**Why it is not `~/flowlog-records` (#131).** The serving store was
+re-published from the local re-mine. `~/flowlog-records` is the earlier Gemini
+corpus (1,874 records, a 1,637-entry mapping), and the defaults still pointed
+at it, so following these steps would have merged it over production. Nine
+stores exist on the mining machine. The other seven (`-q32`, `-gemma`,
+`-gemfix`, …) are the evidence behind past model comparisons. Leave all of
+them where they are, `~/flowlog-records` included.
+
+If the canonical store is missing, every command stops and names the path. It
+is never created empty.
+
 ## 1. Dry run
 
 ```bash
 scripts/mining/publish.sh --dry-run
 ```
 
-Read the summary before going further:
+The dry run counts the live store, so it needs `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY` (shell or `.env`) like a real publish. Read the
+summary before going further:
 
 ```
-review store   1637 records across 81 volumes
-serving store  1637 records  (315 new ids, 1322 reused — certification preserved)
+store          /Users/…/flowlog-records-local-all  (canonical)
+review store   5574 records across 110 volumes
+serving store  5574 records  (0 new ids, 5574 reused — certification preserved)
+id mapping     5574/5574 records already mapped
+live store     5574 records; this publish carries 5574 of them (100%)
 leak check     clean — no source markers survive
 ```
 
-- **`reused`** is the important half. Ids are stable across re-mines via
-  `~/flowlog-records/id-mapping.json`, which is what keeps human certification
-  alive. Never delete that file.
+- **`live store`** is the number that matters most. It is how much of what is
+  ALREADY live this publish accounts for. Below 90% the publish **refuses**,
+  dry-run included, and names both counts and the store path. That is what a
+  stale or partial store looks like: the review-store count and the reuse
+  count both look healthy, and only this line does not.
+- **A partial publish on purpose** takes a stated reason, which is printed:
+  `scripts/mining/publish.sh --partial-publish "<why>"`. It does not touch the
+  leak check, which still runs and still refuses. There is no flag that skips
+  the leak check.
+- **`reused`** is the other half. Ids are stable across re-mines via
+  `id-mapping.json` in the canonical store, which is what keeps human
+  certification alive. Never delete that file. A lost mapping would mint every
+  id fresh, so it reads as 0% of live and refuses.
+- **Review state is never published.** `certified`, `contested` and `rejected`
+  come from reviewers' votes (migration 014's trigger), so neither the upload
+  nor `--sql` writes them (#145). A re-publish changes a record's mechanics,
+  never its verdict. New records start uncertified.
+- **`id mapping`** warns only when the mapping shares no id with the store,
+  which means it belongs to a different store. A mapping that is merely
+  shorter than the store is normal after mining: those records are new.
 - **It publishes the WHOLE review store**, not just the title you mined. If
   probe volumes from other series are sitting there, they go too. Say so rather
   than letting the number surprise the user.

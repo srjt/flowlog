@@ -1,12 +1,39 @@
 import type { SportKey } from '@/types/sport';
 import type { GiSource } from '@/sports/giContext';
+import type { ExtractionPerspective } from '@/types/pipeline';
 import type { GiPreference } from '@/types/user';
+import type { DiagramOutcome } from '@/visualization/diagramStage';
+import type { Spec } from '@/visualization/grammar';
+
+/**
+ * The cue force-diagram spec and its provenance (#135 / migration 025), as
+ * written. One group: every Session write sets all five together, so a spec
+ * never sits beside another run's outcome or versions.
+ */
+export interface SessionDiagramFields {
+  /**
+   * Why there is or is not a spec. `null`/`undefined` means NOT RECORDED (a
+   * row from before migration 025), never "no diagram".
+   */
+  diagramOutcome?: DiagramOutcome | null;
+  /**
+   * The validated spec, present exactly when `diagramOutcome` is `spec`. A
+   * stored spec is re-validated against its base before it is drawn.
+   */
+  diagramSpec?: Spec | null;
+  /** `GRAMMAR_VERSION` that validated it; set whenever a prompt was built. */
+  grammarVersion?: string | null;
+  /** The sport's base library version; set whenever the library was consulted. */
+  baseLibraryVersion?: string | null;
+  /** `SPEC_PROMPT_VERSION` of the prompt sent; set whenever one was built. */
+  specPromptVersion?: string | null;
+}
 
 /**
  * Mirrors the `public.sessions` table — the core persisted entity.
  * camelCase here; the storage provider maps to/from snake_case columns.
  */
-export interface Session {
+export interface Session extends SessionDiagramFields {
   id: string;
   userId: string;
   sportKey: SportKey;
@@ -31,6 +58,15 @@ export interface Session {
   gi: GiPreference | null;
   /** Where `gi` came from: the toggle, an explicit statement, or nothing (#60). */
   giSource: GiSource | null;
+  /**
+   * Which side of the position the athlete was on, as Extraction reported it
+   * (#130 / migration 024).
+   *
+   * `null` means NOT RECORDED — the row predates the column — and must never be
+   * read as "Extraction could not tell". That is `'unknown'`, a recorded
+   * abstention. Optional because rows read before 024 is applied lack it.
+   */
+  perspective?: ExtractionPerspective | null;
   targetPosition: string | null;
   qualityGatePassed: boolean;
   /**
@@ -58,8 +94,11 @@ export interface Session {
   createdAt: string;
 }
 
-/** Shape written when persisting a freshly-processed session. */
-export interface NewSession {
+/**
+ * Shape written when persisting a freshly-processed session. The diagram
+ * fields (#135) are written on the declined path too, as `not_attempted`.
+ */
+export interface NewSession extends SessionDiagramFields {
   userId: string;
   sportKey: SportKey;
   sessionDate: string;
@@ -69,6 +108,11 @@ export interface NewSession {
   keyMistake: string;
   opponentAction: string;
   sentiment: string;
+  /**
+   * The side Extraction reported (#130). Written on the declined path too: a
+   * Take with no cue still has an Extraction. Omitted means not recorded.
+   */
+  perspective?: ExtractionPerspective;
   /**
    * Null when the pipeline declined to produce a cue (issue #44) — the
    * recording had nothing coachable in it. A Session with no cue is still a
@@ -115,13 +159,23 @@ export interface NewSession {
  * Fields overwritten when a Session is re-analyzed in place (corrected
  * transcript → regenerated cue). The identity fields (user, sport, date,
  * audio) are untouched — this is the same reflection, freshly analyzed.
+ *
+ * The diagram fields (#135) are regenerated with the cue, or cleared to
+ * `not_attempted` on a declined re-analysis, so an old spec never describes a
+ * new cue. Omitting `diagramOutcome` leaves all five columns alone.
  */
-export interface SessionAnalysisUpdate {
+export interface SessionAnalysisUpdate extends SessionDiagramFields {
   rawTranscript: string;
   positionsVisited: string[];
   keyMistake: string;
   opponentAction: string;
   sentiment: string;
+  /**
+   * The side of the EDITED transcript (#130). Overwrites the stored value:
+   * re-analysis regenerates the Extraction, so the old side may no longer be
+   * true. Omitted leaves the column alone.
+   */
+  perspective?: ExtractionPerspective;
   /**
    * Null when the pipeline declined to produce a cue (issue #44) — the
    * recording had nothing coachable in it. A Session with no cue is still a

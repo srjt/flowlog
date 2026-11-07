@@ -161,10 +161,15 @@ export async function applyReminderPrefs(
   return effective;
 }
 
-/** One-line summary for the weekly digest, derived from TrendsService output. */
+/**
+ * One-line summary for the weekly digest, derived from TrendsService output.
+ * The Leak is the recurring Weakness (#1): where the key mistakes keep landing.
+ * It is never the newest mistake. A single mistake is not "recurring", and the
+ * copy promised recurrence.
+ */
 export function buildDigestBody(trends: SportTrends): string {
   const focus = trends.focusArea ?? 'a bit of everything';
-  const leak = trends.recentMistakes[0] ?? 'nothing flagged';
+  const leak = trends.weakness?.label ?? 'nothing recurring yet';
   return `Most-worked: ${focus}. Recurring leak: ${leak}.`;
 }
 

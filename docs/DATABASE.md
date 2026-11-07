@@ -10,6 +10,7 @@
 | sessions    | Core session entity with full pipeline output    | Enabled |
 | user_trends | Computed trends, updated after each session      | Enabled |
 | session_prompts | The coaching prompt exactly as sent, one row per attempt (#121, migration 023). Service role only: grants revoked, because it carries coaching record text | Enabled, no client grants |
+| cue_verdicts | The operator's verdict on a Cue, from the local cue review tool (#132, migration 026). Service role only, like `session_prompts`. No row means unjudged | Enabled, no client grants |
 
 ## Multi-Sport Design
 
@@ -49,6 +50,65 @@ the position or the side could not be determined).
   `public.grounding_reached_model(pipeline_version)` (migration 019) rather
   than re-typing the version — `record_feedback_signal` and
   `grounding_experiment` already do.
+- `perspective` on sessions (migration 024, #130): which side of the position
+  the athlete was on, as Extraction reported it. One of `top`, `bottom` or
+  `unknown`, enforced by a CHECK constraint. **NULL means not recorded** (a
+  Session written before 024) and is never read as "Extraction could not
+  tell"; that is `unknown`, a recorded abstention. So an abstention rate is
+  `perspective = 'unknown'` over `perspective is not null`, never over the
+  whole table. Written on every path that writes an Extraction (the insert,
+  the declined insert, Re-analyze and the declined Re-analyze), and
+  overwritten by Re-analyze, so it describes the Extraction the row holds now.
+  Not backfilled, and `pipeline_version` was not bumped for it. It is what
+  lets a Session's Grounding be replayed: side-dependent free text ("half
+  guard") resolves to no canonical position without it. The cue review tool
+  (`docs/ADMIN.md`) reads it first and infers a side only for older Sessions.
+  `process-session` writes it on every Session, so apply 024 before deploying
+  that function.
+- The cue force-diagram columns on sessions (migration 025, #135):
+  `diagram_spec` (jsonb, the validated spec), `diagram_outcome` (why there is
+  or is not one: `spec`, `no_base`, `not_attempted`, `empty`, `invalid` or
+  `unavailable`, enforced by a CHECK that a test holds equal to
+  `DIAGRAM_OUTCOMES` in `src/visualization/diagramStage.ts`), and the
+  provenance `grammar_version`, `base_library_version` and
+  `spec_prompt_version`, stored beside the spec rather than inside it so it
+  stays re-renderable. **NULL means not recorded** (a Session written before
+  025), never "no diagram", so a coverage rate is `diagram_outcome = 'spec'`
+  over `diagram_outcome is not null`. A spec is present exactly when the
+  outcome is `spec`; `base_library_version` is set whenever the library was
+  consulted (every outcome but `not_attempted`); the grammar and prompt
+  versions only when a prompt was built. All five are written together on
+  every Session write (the insert, the declined insert as `not_attempted`,
+  Re-analyze, which regenerates them, and the declined Re-analyze, which clears
+  them to `not_attempted`). Until phase c the base library is empty, so every
+  coachable Session reads `no_base`; grouped by `target_position_id`, those
+  rows are the base-authoring backlog, as `no_records` is for mining.
+  `pipeline_version` was not bumped. `process-session` writes these columns on
+  every Session, so apply 025 (and 024) before deploying that function.
+- `cue_verdicts` (migration 026, #132): the operator's verdict on a Cue,
+  written only by the local cue review tool (`docs/ADMIN.md`) with the service
+  role. RLS on, grants revoked from `anon` and `authenticated`, no policy, and
+  `on delete cascade` from `sessions`, so account deletion removes them.
+  - `verdict` is `sound`, `shallow` or `wrong` (the #36 baseline's labels).
+    `reason` is required when `wrong` and NULL otherwise, one of
+    `transcript_misheard`, `extraction_wrong`, `records_wrong`,
+    `records_misapplied`, `off_target`, `model_wrong`; CHECKs enforce both.
+    `note` is optional.
+  - **A verdict judges a Cue, not a Session.** Re-analyze replaces a Cue in
+    place, so `cue` is a NOT NULL snapshot of the exact text judged, and the
+    identity is unique on `(session_id, cue_md5)`, where `cue_md5` is generated
+    from `cue`. A verdict whose `cue` no longer equals `sessions.coaching_cue`
+    is about an earlier Cue and must never be read as judging the current one.
+    `run_id` points at the `session_prompts` run behind it, NULL before 023.
+  - `record_ids` snapshots `grounding_record_ids` at judging time, so
+    per-record aggregation survives a Re-analyze. It is copied only when the
+    record trail was `trusted` (stored in `record_trail`, and a CHECK ties the
+    two), so an empty list is never mistaken for "no records went in".
+  - **No row means unjudged.** Never averaged with `thumbs_up` / `feedback_*`
+    and never fed into `record_feedback_signal`: they are different evidence.
+    An observation, not a gate: nothing in Grounding, the quality gate, the
+    certification queue or the app reads it.
+  - Apply 026 after 024 and 025 (migration numbers are taken in merge order).
 - `quality_gate_passed` stored: dashboard can filter to high-confidence outputs only
 - `thumbs_up` field: binary user feedback, feeds quality monitoring pipeline
 - Audio stored in Supabase Storage (bucket `session-audio`), path referenced in

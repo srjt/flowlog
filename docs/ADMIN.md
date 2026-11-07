@@ -1,8 +1,9 @@
 # The cue review tool
 
-A local, read-only web page for reading what the pipeline actually did: every
-Session's transcript, its Extraction, the Coaching records that grounded it, and
-the Cue that came out.
+A local web page for reading what the pipeline actually did: every Session's
+transcript, its Extraction, the Coaching records that grounded it, and the Cue
+that came out. It reads everything and writes exactly one thing: the
+operator's verdict on a Cue (see [Operator verdicts](#operator-verdicts)).
 
 ## Running it
 
@@ -31,7 +32,9 @@ quietly mean "no password".
 **List.** Every Session, newest first. Search covers the transcript, Cue and key
 mistake. Filters: athlete feedback and 👎 reason, grounding outcome (declined
 takes hidden by default), target position, quality gate, date range, record
-trail, athlete.
+trail, athlete, operator verdict and its reason. Above the filters, a coverage
+line says how much of the log is judged, and a link opens
+[Records behind wrong Cues](#records-behind-wrong-cues).
 
 **Detail, in pipeline order:**
 
@@ -58,6 +61,9 @@ trail, athlete.
    recorded" and list the inputs that were never saved. If the table cannot be
    read at all, the page says the migration is probably not applied.
 6. **Cue.** With quality gate result and the athlete's feedback.
+7. **Operator verdict.** Your verdict on the Cue above, beside the athlete's
+   thumbs as a separate fact. Verdicts about a Cue the Session no longer holds
+   are listed under it, flagged as such. See below.
 
 ### The record trail
 
@@ -96,16 +102,22 @@ Extraction arrived now:
 | Coaching records                            | re-selected from today's corpus with the pipeline's ranking |
 
 It differs from what the model saw in known ways, all listed on the page:
-the quality gate's strict-retry wording is left out, records are injected as in
-the grounded arm, and **perspective was never stored**. Without a side,
-positions like "De La Riva Guard" resolve to nothing and the rebuild loses all
-of its grounding, so the side is inferred, most direct evidence first:
+the quality gate's strict-retry wording is left out, and records are injected
+as in the grounded arm. Without a side, positions like "De La Riva Guard"
+resolve to nothing and the rebuild loses all of its grounding, so the side is
+taken from the most direct evidence there is, and the page says which:
 
-1. **The positions of the records the Session was grounded in**, when they
-   agree. The pipeline selected them with the perspective it had.
-2. **The stored target position.** Often missing: a Cue that targets
+1. **The perspective the Session recorded** (`sessions.perspective`,
+   migration 024). What Extraction reported, used as is. A recorded `unknown`
+   means Extraction could not tell, and the rebuild keeps that abstention
+   rather than guessing a side the pipeline never had.
+2. Sessions from before 024 recorded none (NULL, which is never read as
+   "could not tell"). For those, **the positions of the records the Session
+   was grounded in**, when they agree. The pipeline selected them with the
+   perspective it had.
+3. **The stored target position.** Often missing: a Cue that targets
    "Berimbolo" never resolves to a canonical position.
-3. Otherwise **unknown**, never guessed.
+4. Otherwise **unknown**, never guessed, and labelled as not recorded.
 
 When the Session stored its record ids, the page compares them with today's
 selection. Replaying a Session that targeted "Berimbolo" with the side taken
@@ -117,7 +129,128 @@ so `tests/unit/promptPlaceholders.test.ts` holds it to the same placeholder
 contract as production, and `tests/unit/adminPrompt.test.ts` fails if its
 mirrored constants drift from `process-session`.
 
-## Why local, and why read-only
+## Operator verdicts
+
+Reading a Cue and deciding it is wrong used to produce nothing durable (#132).
+Now the conclusion is kept, in `cue_verdicts` (migration 026), so patterns
+across Cues can be counted and the records behind bad Cues found.
+
+### What you can record
+
+Under **Operator verdict**, pick one of three, the labels of the frozen #36
+baseline (`cue-verdicts.json`), so the two stay comparable:
+
+| Verdict   | Meaning                                         |
+| --------- | ----------------------------------------------- |
+| `sound`   | correct, and says something worth hearing       |
+| `shallow` | correct, but says something obvious (as in #36) |
+| `wrong`   | wrong, and needs a reason                       |
+
+A wrong Cue needs exactly one reason, ordered upstream to downstream so a fix
+lands where the fault is:
+
+| Reason                | Meaning                                                                  |
+| --------------------- | ------------------------------------------------------------------------ |
+| `transcript_misheard` | the transcript was misheard: a vocabulary-priming problem upstream       |
+| `extraction_wrong`    | the wrong mistake, position or side was extracted                        |
+| `records_wrong`       | an injected record is itself wrong                                       |
+| `records_misapplied`  | the records were right and the model misused them                        |
+| `off_target`          | sound jiu-jitsu aimed at the wrong problem (about half of #61's defects) |
+| `model_wrong`         | no relevant records, and the model's own jiu-jitsu was wrong             |
+
+A note is optional free text. **No row means unjudged**: there is never a
+"fine by default", and _Unjudged_ is its own filter. Saving again changes the
+verdict in place; _Clear verdict_ returns the Cue to unjudged. The database
+enforces the same rules as the page: the three verdicts, the six reasons, and a
+reason when wrong and only then.
+
+### A verdict judges a Cue, not a Session
+
+Re-analyze replaces a Session's Cue in place. A verdict that named only the
+Session would then appear to judge text you never read, which is the failure
+021 repaired for the grounding columns. So each verdict keeps:
+
+- `cue`: the exact text judged. Identity is one verdict per (Session, judged
+  Cue text).
+- `run_id`: the prompt log's run behind it (023), or NULL for Sessions from
+  before the log. A pointer, not the identity.
+- `record_ids` and `record_trail`: the records behind the judged Cue, copied
+  from `grounding_record_ids` at the moment you judge, and what the
+  [record trail](#the-record-trail) said about them then.
+
+Two consequences you will see:
+
+- **"About an earlier Cue."** When a verdict's `cue` no longer equals the
+  Session's `coaching_cue`, the page lists it under the verdict form, flagged,
+  with the text it judged. It is never shown as a verdict on the current Cue,
+  which reads as unjudged. The list badge is _Earlier Cue judged_, and the
+  filter is _About an earlier Cue_. You can clear such a verdict, but not
+  change it: you can only judge text you can read.
+- **"This Session's Cue changed."** The server records against the Session as
+  stored when you press Save, and the page sends the Cue text it showed you.
+  If a Re-analyze replaced the Cue in between, the save is refused (409) rather
+  than filed under text you never read. Reload and read the new Cue.
+
+Record ids are copied **only when the trail is _trusted_**. A trail that is
+_not recorded_, _never reached model_ or _unverified_ does not say which records
+produced this Cue, and copying its ids would charge a wrong Cue to records that
+were never behind it. Those verdicts keep no ids, and `record_trail` says why,
+so an empty list is never read as "no records went in" unless the trail was
+_none selected_.
+
+### Coverage
+
+The line above the filters: _Judged 12 of 89 Cues (13%): 3 sound, 2 shallow,
+7 wrong_, plus how many verdicts are about an earlier Cue and, when filters
+narrow the list, the same count for the current view. Sessions with no Cue (a
+declined take) cannot be judged and are not counted. Read a pattern against
+this: "7 wrong" means little out of 12 judged.
+
+### Records behind wrong Cues
+
+Opened from the sidebar link (`#records`). Every Coaching record that sat
+behind at least one Cue you judged wrong, with the count by reason, how many
+verdicts of any kind it sat behind, the Sessions (click to open), and its
+review state today. Ordered so the records hurting most come first:
+
+1. most `records_wrong` verdicts: you said a record behind the Cue was itself
+   wrong, and one recurring there is the likeliest culprit;
+2. then most wrong verdicts of any reason;
+3. then fewest verdicts in all, since the same count from fewer appearances is a
+   larger share;
+4. then record id, so the order is stable.
+
+It is computed from the verdicts alone, from the record ids each one kept, so a
+Re-analyze never moves a verdict onto other records. The page also says how
+many wrong verdicts could be traced to records at all. Upstream reasons
+(`transcript_misheard`, `extraction_wrong`) still count, but they are shown by
+name so a record behind a misheard transcript is not mistaken for a bad record.
+
+### What a verdict is not
+
+- **Not the athlete's feedback.** `thumbs_up` and `feedback_*` are the
+  athlete's claim, from a seat that cannot see the records. The verdict is
+  yours. The page shows them side by side as separate facts and never combines
+  them. Nothing reads verdicts into `record_feedback_signal` (018), and nothing
+  writes to the athlete's columns.
+- **Not a gate.** Nothing in Grounding, the quality gate, the certification
+  queue (`src/utils/reviewQueue.ts`) or anything else the app reads looks at
+  them. They change nothing about any athlete's Cue or Trend log.
+- **Not a record vote.** Votes on records stay on the bench, where two
+  reviewers must agree. A verdict is one operator judging an output.
+
+**Follow-up, not built:** letting verdicts inform which records reach the
+certification queue first (#132 story 12). The records panel is the input that
+would feed it.
+
+### Deploying it
+
+Apply migration `026_cue_verdicts.sql` after 024 and 025: `supabase db push`
+refuses a migration that sorts below one already applied (docs/ROADMAP.md).
+Nothing else is deployed; the tool runs locally. Until 026 is applied the page
+says so in place of the verdict controls, and everything else works as before.
+
+## Why local, and why it writes only one thing
 
 It shows every athlete's private voice dump. The reviewer bench
 (`docs/REVIEW_BENCH.md`) lives inside the deployed web build because it only
@@ -125,23 +258,41 @@ shows distilled records to invited reviewers. This page shows athlete data to
 one operator, which is a different risk:
 
 - **Local only.** It binds to `127.0.0.1` and reads Supabase with the service
-  role key already in `.env`. No migration, no new client-reachable function
-  over `sessions`, nothing about athletes reachable from the internet. Moving
-  it to a deployed `/admin` later is cheap; un-exposing data is not.
+  role key already in `.env`. No new client-reachable function over
+  `sessions`, nothing about athletes reachable from the internet. Its one
+  table, `cue_verdicts`, is locked down like `session_prompts`: RLS on, client
+  grants revoked, no policy. Moving the tool to a deployed `/admin` later is
+  cheap; un-exposing data is not.
 - **Basic auth plus a loopback Host check.** Binding keeps other machines out.
   The credentials and the Host check keep out other pages in your own browser,
   including DNS-rebinding ones.
-- **Read-only.** The server answers `GET` only. Verdicts on Cues were
-  deliberately left out until reading real sessions shows what shape they
-  should take. Judging records stays on the bench, where the two-reviewer rule
-  applies.
+- **One write route, guarded against forgery.** Every route answers `GET`
+  only, except `POST /api/verdict`, which answers `POST` only. Any other method
+  on any path is refused with 405. Basic auth alone does not stop cross-site
+  request forgery: a browser re-sends cached credentials to `127.0.0.1` with a
+  form another site submits. So a write is also refused unless:
+  - it is `Content-Type: application/json` (415 otherwise). A form cannot send
+    that, and a cross-origin fetch that tries must first pass a CORS preflight,
+    which this server never approves: it answers no `OPTIONS`;
+  - its `Origin`, when present, is the tool's own origin, so not another site,
+    not `null`, and not the other loopback name (403 otherwise);
+  - its `Sec-Fetch-Site`, when present, is `same-origin` (403 otherwise).
+
+  The body then goes through the same validation the tests run
+  (`parseVerdictRequest` in `review.ts`). Judging records stays on the bench,
+  where the two-reviewer rule applies.
 
 ## How it is built
 
 - `scripts/admin/server.ts`: Node's built-in type stripping, no framework, no
   build step.
-- `scripts/admin/review.ts`: the trust, filter and detail logic. Import-free,
-  so the server imports it, `tests/unit/adminReview.test.ts` tests it, and the
-  page runs the same file (served type-stripped at `/review.js`).
+- `scripts/admin/review.ts`: the trust, filter, detail and verdict logic.
+  Import-free, so the server imports it, `tests/unit/adminReview.test.ts` and
+  `tests/unit/adminVerdicts.test.ts` test it, and the page runs the same file
+  (served type-stripped at `/review.js`).
+- `scripts/admin/auth.ts`: the request gates (credentials, Host, method, the
+  write guard).
 - `scripts/admin/app.js`, `index.html`, `app.css`: the page. Database text is
   only ever inserted as text nodes, never as HTML.
+- `tests/unit/adminServer.test.ts` runs the real server against a stub
+  Supabase on loopback: the write route, its refusals, and the method gate.

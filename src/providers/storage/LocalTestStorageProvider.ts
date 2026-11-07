@@ -5,6 +5,7 @@ import type {
   NewSession,
   Session,
   SessionAnalysisUpdate,
+  SessionDiagramFields,
   UserTrends,
 } from '@/types/session';
 import type { SportKey } from '@/types/sport';
@@ -17,6 +18,17 @@ import type { SportKey } from '@/types/sport';
  * SupabaseStorageProvider).
  */
 const sessions: Session[] = [];
+
+/** The diagram fields (#135), always together; unrecorded reads as null. */
+function diagramFields(fields: SessionDiagramFields): SessionDiagramFields {
+  return {
+    diagramOutcome: fields.diagramOutcome ?? null,
+    diagramSpec: fields.diagramSpec ?? null,
+    grammarVersion: fields.grammarVersion ?? null,
+    baseLibraryVersion: fields.baseLibraryVersion ?? null,
+    specPromptVersion: fields.specPromptVersion ?? null,
+  };
+}
 
 export class LocalTestStorageProvider implements IStorageProvider {
   async isAvailable(): Promise<boolean> {
@@ -43,6 +55,8 @@ export class LocalTestStorageProvider implements IStorageProvider {
       targetPositionId: session.targetPositionId,
       gi: session.gi ?? null,
       giSource: session.giSource ?? null,
+      perspective: session.perspective ?? null,
+      ...diagramFields(session),
       targetPosition: session.targetPosition,
       qualityGatePassed: session.qualityGatePassed,
       thumbsUp: null,
@@ -72,6 +86,11 @@ export class LocalTestStorageProvider implements IStorageProvider {
       targetPosition: update.targetPosition,
       qualityGatePassed: update.qualityGatePassed,
       pipelineVersion: update.pipelineVersion,
+      ...(update.perspective !== undefined && {
+        perspective: update.perspective,
+      }),
+      // As one group, like the Supabase mapping (#135).
+      ...(update.diagramOutcome !== undefined && diagramFields(update)),
     });
     return row;
   }

@@ -4,12 +4,26 @@ import { ExtractionService } from '@/services/ExtractionService';
 import { QualityGateService } from '@/services/QualityGateService';
 import { TranscriptionService } from '@/services/TranscriptionService';
 import { COST_ESTIMATES } from '@/constants/pipelineConfig';
-import type { CoachingOutput, PipelineInput } from '@/types/pipeline';
+import type { IStorageProvider } from '@/providers/storage/IStorageProvider';
+import { LocalTestStorageProvider } from '@/providers/storage/LocalTestStorageProvider';
+import type {
+  CoachingOutput,
+  ExtractionOutput,
+  ExtractionPerspective,
+  PipelineInput,
+} from '@/types/pipeline';
+import { DiagramSpecService } from '@/services/DiagramSpecService';
+import { BJJ_BASE_LIBRARY_VERSION } from '@/sports/bjj/bjjDiagramBases';
+import type { DiagramLibrary } from '@/visualization/diagramStage';
+import { GRAMMAR_VERSION } from '@/visualization/grammar';
+import { SPEC_PROMPT_VERSION } from '@/visualization/specStage';
 import {
   MockAIProvider,
   MockStorageProvider,
   MockTranscriptionProvider,
 } from '../mocks';
+// UNCERTIFIED #18 seeds: test data only, never imported by anything that ships.
+import { referenceSpec, seedBase } from '../fixtures/forceDiagram/seeds';
 
 function buildPipeline(ai: MockAIProvider, storage: MockStorageProvider) {
   const transcriptionMock = new MockTranscriptionProvider();
@@ -1154,5 +1168,496 @@ describe('FlowlogPipeline — the relevance gate is measurable (#119)', () => {
 
     expect(storage.saved[0]?.groundingCandidates).toBeNull();
     expect(storage.saved[0]?.groundingGatePassed).toBeNull();
+  });
+});
+
+// ── The Session keeps the side Extraction reported (#130) ───────────────────
+// Without it a Session's Grounding cannot be replayed: side-dependent free text
+// ("half guard") resolves to no canonical position. These assert what ends up
+// on the row, on all four paths that write an Extraction.
+describe('FlowlogPipeline — the Session records its perspective (#130)', () => {
+  function sidePipeline(
+    perspective: ExtractionPerspective,
+    storage: IStorageProvider,
+    coachable = true,
+  ) {
+    const ai = new MockAIProvider(
+      {
+        perspective,
+        hasCoachableContent: coachable,
+        insufficientReason: coachable ? '' : 'no training was described',
+      },
+      [goodCue()],
+    );
+    return new FlowlogPipeline({
+      transcription: new TranscriptionService(new MockTranscriptionProvider()),
+      extraction: new ExtractionService(ai),
+      coaching: new CoachingService(ai),
+      qualityGate: new QualityGateService(),
+      storage,
+    });
+  }
+
+  const edited = {
+    sportKey: 'bjj' as const,
+    skillLevel: 'Blue Belt' as const,
+    editedTranscript:
+      'He passed to side control and I could not frame before the crossface landed.',
+  };
+
+  // 'unknown' included: Extraction abstained on purpose, and that abstention
+  // is a recorded finding, not a missing value.
+  it.each<ExtractionPerspective>(['top', 'bottom', 'unknown'])(
+    'saves the side Extraction reported: %s',
+    async (side) => {
+      const storage = new MockStorageProvider();
+      await sidePipeline(side, storage).run(input);
+      expect(storage.saved[0]?.perspective).toBe(side);
+    },
+  );
+
+  it('saves it on a declined take too', async () => {
+    const storage = new MockStorageProvider();
+    const result = await sidePipeline('top', storage, false).run(input);
+    expect(result.declined).toBe(true);
+    expect(storage.saved[0]?.coachingCue).toBeNull();
+    // No Cue, but still an Extraction — and it still says what side it read.
+    expect(storage.saved[0]?.perspective).toBe('top');
+  });
+
+  it('never saves a side the column would reject', async () => {
+    // A provider that reports 'neutral' (a property of a position, never of an
+    // Extraction). The column's constraint rejects it, which would fail the
+    // whole insert and lose the Session.
+    const storage = new MockStorageProvider();
+    await sidePipeline(
+      'neutral' as unknown as ExtractionOutput['perspective'],
+      storage,
+    ).run(input);
+    expect(storage.saved[0]?.perspective).toBe('unknown');
+  });
+
+  // Against a real store, so the assertion is on the row the second run left
+  // behind rather than on what was sent.
+  it('re-analysis overwrites it with the side of the edited transcript', async () => {
+    const storage = new LocalTestStorageProvider();
+    const userId = 'user-130-reanalysis';
+    const first = await sidePipeline('bottom', storage).run({
+      ...input,
+      userId,
+    });
+
+    await sidePipeline('top', storage).reanalyze({
+      ...edited,
+      sessionId: first.sessionId,
+      userId,
+    });
+
+    const [row] = await storage.listSessions(userId);
+    expect(row?.id).toBe(first.sessionId);
+    expect(row?.perspective).toBe('top');
+  });
+
+  it('a declined re-analysis overwrites it too', async () => {
+    const storage = new LocalTestStorageProvider();
+    const userId = 'user-130-declined-reanalysis';
+    const first = await sidePipeline('bottom', storage).run({
+      ...input,
+      userId,
+    });
+
+    const result = await sidePipeline('unknown', storage, false).reanalyze({
+      ...edited,
+      sessionId: first.sessionId,
+      userId,
+    });
+
+    expect(result.declined).toBe(true);
+    const [row] = await storage.listSessions(userId);
+    expect(row?.coachingCue).toBeNull();
+    // The edited transcript's abstention, not the superseded 'bottom'.
+    expect(row?.perspective).toBe('unknown');
+  });
+});
+
+// ── The cue -> force-diagram spec stage (#135 phase b) ──────────────────────
+// Best-effort, after the quality gate. These assert what ends up on the row,
+// on all four Session writes, with an injected fixture base: the real BJJ
+// library is empty until phase c, which the last block pins down.
+describe('FlowlogPipeline — the cue diagram spec (#135)', () => {
+  const DLR = 'de-la-riva-bottom';
+  const FIXTURE: DiagramLibrary = {
+    // Re-keyed by the canonical sided id, as phase c keys certified bases.
+    bases: { [DLR]: { ...seedBase('de-la-riva'), id: DLR } },
+    baseLibraryVersion: 'fixture-uncertified',
+    specPersona: 'a test instructor',
+  };
+  const HOOK_CUE =
+    'Drive your hooking heel into his hamstring before he steps forward.';
+  const FOOT_CUE =
+    'Plant your second foot on his hip and keep that leg long as he stands.';
+  const dlrCue = (cue = HOOK_CUE): CoachingOutput => ({
+    cue,
+    targetPosition: 'De La Riva',
+    confidenceScore: 0.85,
+    isGeneric: false,
+  });
+  const specFor = (cueId: string) => ({
+    specVersion: 1,
+    base: DLR,
+    annotations: referenceSpec('de-la-riva', cueId).annotations,
+  });
+  const PROVENANCE = {
+    grammarVersion: GRAMMAR_VERSION,
+    baseLibraryVersion: 'fixture-uncertified',
+    specPromptVersion: SPEC_PROMPT_VERSION,
+  };
+
+  function diagramPipeline<S extends IStorageProvider = MockStorageProvider>(
+    opts: {
+      storage?: S;
+      coachable?: boolean;
+      coaching?: CoachingOutput[];
+      fallback?: CoachingOutput;
+      /** `null` uses the real sport context, as production does. */
+      library?: DiagramLibrary | null;
+    } = {},
+  ) {
+    const coachable = opts.coachable ?? true;
+    const ai = new MockAIProvider(
+      {
+        positionsVisited: ['De La Riva'],
+        keyMistake: 'My hook went slack and he stepped forward.',
+        opponentAction: 'Stepped forward to pass.',
+        perspective: 'bottom',
+        hasCoachableContent: coachable,
+        insufficientReason: coachable ? '' : 'no training was described',
+      },
+      opts.coaching ?? [dlrCue()],
+      opts.fallback,
+    );
+    const storage = (opts.storage ?? new MockStorageProvider()) as S;
+    const t = new MockTranscriptionProvider();
+    t.result = {
+      ...t.result,
+      transcript:
+        'I played De La Riva guard all round but my hook kept going slack and he stepped forward.',
+    };
+    const pipeline = new FlowlogPipeline({
+      transcription: new TranscriptionService(t),
+      extraction: new ExtractionService(ai),
+      coaching: new CoachingService(ai),
+      qualityGate: new QualityGateService(),
+      storage,
+      diagramSpec: new DiagramSpecService(ai),
+      ...(opts.library !== null && { diagramLibrary: opts.library ?? FIXTURE }),
+    });
+    return { ai, storage, pipeline };
+  }
+
+  const edited = {
+    sportKey: 'bjj' as const,
+    skillLevel: 'Blue Belt' as const,
+    editedTranscript:
+      'I played De La Riva guard but my second foot came off his hip and he stood up.',
+  };
+
+  describe('the one-shot insert', () => {
+    it('stores a valid spec with its versions and outcome spec', async () => {
+      const { ai, storage, pipeline } = diagramPipeline();
+      ai.diagramSpecResponse = JSON.stringify(specFor('heel-hamstring'));
+
+      const result = await pipeline.run(input);
+
+      const saved = storage.saved[0];
+      expect(saved?.targetPositionId).toBe(DLR);
+      expect(saved).toMatchObject({
+        diagramOutcome: 'spec',
+        diagramSpec: specFor('heel-hamstring'),
+        ...PROVENANCE,
+      });
+      expect(ai.diagramSpecCalls).toBe(1);
+      // About the Cue being saved, in the sport's voice.
+      expect(ai.lastDiagramSpecInput?.prompt).toContain(
+        `CUE: ${JSON.stringify(HOOK_CUE)}`,
+      );
+      expect(ai.lastDiagramSpecInput?.prompt).toMatch(
+        /^You are a test instructor /,
+      );
+      expect(result.coachingCue).toBe(HOOK_CUE);
+    });
+
+    it('describes the Cue that passed the gate, not a rejected attempt', async () => {
+      const { ai, storage, pipeline } = diagramPipeline({
+        coaching: [badCue(), dlrCue()],
+      });
+      ai.diagramSpecResponse = specFor('heel-hamstring');
+
+      await pipeline.run(input);
+
+      expect(ai.strictCallCount).toBeGreaterThan(0);
+      expect(ai.diagramSpecCalls).toBe(1);
+      expect(ai.lastDiagramSpecInput?.prompt).toContain(HOOK_CUE);
+      expect(ai.lastDiagramSpecInput?.prompt).not.toContain(badCue().cue);
+      expect(storage.saved[0]?.diagramOutcome).toBe('spec');
+    });
+
+    it('records no_base and never calls the model when the position has no base', async () => {
+      const { ai, storage, pipeline } = diagramPipeline({
+        library: { ...FIXTURE, bases: {} },
+      });
+      ai.diagramSpecResponse = specFor('heel-hamstring');
+
+      await pipeline.run(input);
+
+      expect(ai.diagramSpecCalls).toBe(0);
+      expect(storage.saved[0]).toMatchObject({
+        targetPositionId: DLR,
+        diagramOutcome: 'no_base',
+        diagramSpec: null,
+        grammarVersion: null,
+        // Which library lacked it: the authoring backlog's key.
+        baseLibraryVersion: 'fixture-uncertified',
+        specPromptVersion: null,
+      });
+    });
+
+    it('records no_base, and no call, when the position never resolved', async () => {
+      // A submission in the position field: real sessions produced these.
+      const { ai, storage, pipeline } = diagramPipeline({
+        coaching: [{ ...dlrCue(), targetPosition: 'Kimura submission' }],
+      });
+
+      await pipeline.run(input);
+
+      expect(storage.saved[0]?.targetPositionId).toBeNull();
+      expect(storage.saved[0]?.diagramOutcome).toBe('no_base');
+      expect(ai.diagramSpecCalls).toBe(0);
+    });
+
+    it('records invalid when the model answers garbage', async () => {
+      const { ai, storage, pipeline } = diagramPipeline();
+      ai.diagramSpecResponse = 'Sure! The heel pushes the leg.';
+
+      const result = await pipeline.run(input);
+
+      expect(storage.saved[0]).toMatchObject({
+        diagramOutcome: 'invalid',
+        diagramSpec: null,
+        ...PROVENANCE,
+      });
+      expect(result.coachingCue).toBe(HOOK_CUE);
+    });
+
+    it('a provider that throws: unavailable, and the Session is saved with the same Cue', async () => {
+      const { ai, storage, pipeline } = diagramPipeline();
+      ai.diagramSpecError = new Error('spec service exploded');
+
+      const result = await pipeline.run(input);
+
+      expect(result.declined).toBe(false);
+      expect(result.qualityGatePassed).toBe(true);
+      expect(result.coachingCue).toBe(HOOK_CUE);
+      expect(storage.saved).toHaveLength(1);
+      expect(storage.saved[0]).toMatchObject({
+        coachingCue: HOOK_CUE,
+        qualityGatePassed: true,
+        diagramOutcome: 'unavailable',
+        diagramSpec: null,
+        ...PROVENANCE,
+      });
+    });
+
+    it('leaves the Cue exactly as it is without the stage', async () => {
+      const withSpec = diagramPipeline();
+      withSpec.ai.diagramSpecResponse = specFor('heel-hamstring');
+      const without = diagramPipeline({ library: { ...FIXTURE, bases: {} } });
+
+      const a = await withSpec.pipeline.run(input);
+      const b = await without.pipeline.run(input);
+
+      expect(withSpec.storage.saved[0]?.diagramOutcome).toBe('spec');
+      expect(a.coachingCue).toBe(b.coachingCue);
+      expect(a.targetPosition).toBe(b.targetPosition);
+      expect(a.qualityGatePassed).toBe(b.qualityGatePassed);
+      expect(withSpec.ai.coachingCalls).toBe(without.ai.coachingCalls);
+      expect(withSpec.storage.saved[0]?.coachingCue).toBe(
+        without.storage.saved[0]?.coachingCue,
+      );
+    });
+
+    it('the gate fallback: not_attempted, no call', async () => {
+      const { ai, storage, pipeline } = diagramPipeline({
+        coaching: [],
+        fallback: badCue(),
+      });
+
+      const result = await pipeline.run(input);
+
+      expect(result.qualityGatePassed).toBe(false);
+      expect(ai.diagramSpecCalls).toBe(0);
+      expect(storage.saved[0]).toMatchObject({
+        diagramOutcome: 'not_attempted',
+        diagramSpec: null,
+        grammarVersion: null,
+        baseLibraryVersion: null,
+        specPromptVersion: null,
+      });
+    });
+  });
+
+  it('the declined insert: not_attempted and a null spec, no call', async () => {
+    const { ai, storage, pipeline } = diagramPipeline({ coachable: false });
+    ai.diagramSpecResponse = specFor('heel-hamstring');
+
+    const result = await pipeline.run(input);
+
+    expect(result.declined).toBe(true);
+    expect(ai.diagramSpecCalls).toBe(0);
+    expect(storage.saved[0]).toMatchObject({
+      coachingCue: null,
+      diagramOutcome: 'not_attempted',
+      diagramSpec: null,
+      grammarVersion: null,
+      baseLibraryVersion: null,
+      specPromptVersion: null,
+    });
+  });
+
+  // Against a real store, so the assertion is on the row the second run left
+  // behind rather than on what was sent.
+  describe('Re-analyze', () => {
+    async function firstRun(userId: string) {
+      const storage = new LocalTestStorageProvider();
+      const first = diagramPipeline({ storage });
+      first.ai.diagramSpecResponse = specFor('heel-hamstring');
+      const { sessionId } = await first.pipeline.run({ ...input, userId });
+      const [row] = await storage.listSessions(userId);
+      expect(row?.diagramSpec).toEqual(specFor('heel-hamstring'));
+      return { storage, sessionId };
+    }
+
+    it('regenerates the spec, because the Cue changed', async () => {
+      const userId = 'user-135-reanalysis';
+      const { storage, sessionId } = await firstRun(userId);
+      const second = diagramPipeline({
+        storage,
+        coaching: [dlrCue(FOOT_CUE)],
+      });
+      second.ai.diagramSpecResponse = specFor('second-foot-hip');
+
+      await second.pipeline.reanalyze({ ...edited, sessionId, userId });
+
+      expect(second.ai.lastDiagramSpecInput?.prompt).toContain(FOOT_CUE);
+      const [row] = await storage.listSessions(userId);
+      expect(row).toMatchObject({
+        id: sessionId,
+        coachingCue: FOOT_CUE,
+        diagramOutcome: 'spec',
+        diagramSpec: specFor('second-foot-hip'),
+        ...PROVENANCE,
+      });
+    });
+
+    it('clears the old spec when the new Cue cannot be drawn', async () => {
+      const userId = 'user-135-reanalysis-unavailable';
+      const { storage, sessionId } = await firstRun(userId);
+      const second = diagramPipeline({
+        storage,
+        coaching: [dlrCue(FOOT_CUE)],
+      });
+      second.ai.diagramSpecResponse = null;
+
+      await second.pipeline.reanalyze({ ...edited, sessionId, userId });
+
+      const [row] = await storage.listSessions(userId);
+      expect(row?.diagramOutcome).toBe('unavailable');
+      // Never the old Cue's spec beside the new Cue.
+      expect(row?.diagramSpec).toBeNull();
+    });
+
+    it('a declined Re-analyze clears it to not_attempted', async () => {
+      const userId = 'user-135-declined-reanalysis';
+      const { storage, sessionId } = await firstRun(userId);
+      const second = diagramPipeline({ storage, coachable: false });
+      second.ai.diagramSpecResponse = specFor('heel-hamstring');
+
+      const result = await second.pipeline.reanalyze({
+        ...edited,
+        sessionId,
+        userId,
+      });
+
+      expect(result.declined).toBe(true);
+      expect(second.ai.diagramSpecCalls).toBe(0);
+      const [row] = await storage.listSessions(userId);
+      expect(row).toMatchObject({
+        coachingCue: null,
+        diagramOutcome: 'not_attempted',
+        diagramSpec: null,
+        grammarVersion: null,
+        baseLibraryVersion: null,
+        specPromptVersion: null,
+      });
+    });
+  });
+
+  // Phase b's cost claim, on the real sport context: the BJJ library is empty,
+  // so every Session records `no_base` and the model is never called. Phase c
+  // changes this on purpose.
+  describe('the production default', () => {
+    it('records no_base and makes no call, even for a fully resolved Cue', async () => {
+      const { ai, storage, pipeline } = diagramPipeline({ library: null });
+      ai.diagramSpecResponse = specFor('heel-hamstring');
+
+      await pipeline.run(input);
+
+      expect(ai.diagramSpecCalls).toBe(0);
+      expect(storage.saved[0]).toMatchObject({
+        targetPositionId: DLR,
+        diagramOutcome: 'no_base',
+        diagramSpec: null,
+        grammarVersion: null,
+        baseLibraryVersion: BJJ_BASE_LIBRARY_VERSION,
+        specPromptVersion: null,
+      });
+    });
+
+    it('and the same on Re-analyze', async () => {
+      const { ai, storage, pipeline } = diagramPipeline({ library: null });
+      ai.diagramSpecResponse = specFor('heel-hamstring');
+
+      await pipeline.reanalyze({
+        ...edited,
+        sessionId: 'existing-1',
+        userId: 'user-1',
+      });
+
+      expect(ai.diagramSpecCalls).toBe(0);
+      expect(storage.updated[0]?.update).toMatchObject({
+        diagramOutcome: 'no_base',
+        baseLibraryVersion: BJJ_BASE_LIBRARY_VERSION,
+      });
+    });
+
+    it('a pipeline built with no diagram dependencies records it too', async () => {
+      // How every existing suite, and the local test pipeline, construct it.
+      const storage = new MockStorageProvider();
+      const ai = new MockAIProvider({ perspective: 'bottom' }, [goodCue()]);
+      const pipeline = new FlowlogPipeline({
+        transcription: new TranscriptionService(
+          new MockTranscriptionProvider(),
+        ),
+        extraction: new ExtractionService(ai),
+        coaching: new CoachingService(ai),
+        qualityGate: new QualityGateService(),
+        storage,
+      });
+
+      await pipeline.run(input);
+
+      expect(storage.saved[0]?.diagramOutcome).toBe('no_base');
+      expect(ai.diagramSpecCalls).toBe(0);
+    });
   });
 });

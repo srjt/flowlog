@@ -5,6 +5,7 @@ import type {
   ExtractionInput,
   ExtractionOutput,
   IAIProvider,
+  SpecRequest,
 } from '@/providers/ai/IAIProvider';
 
 /**
@@ -42,5 +43,12 @@ export class OpenAIProvider implements IAIProvider {
     throw new Error(
       'OpenAIProvider.generateCoachingCue is not implemented. Set AI_PROVIDER=claude or implement this stub.',
     );
+  }
+
+  async generateDiagramSpec(_input: SpecRequest): Promise<unknown> {
+    // TODO(openai): send _input.prompt with response_format json_object and
+    // return the text. The contract is never-throw, so the stub answers
+    // "no response" (the stage records `unavailable`) instead of throwing.
+    return null;
   }
 }

@@ -24,6 +24,7 @@ function trends(partial: Partial<SportTrends> = {}): SportTrends {
     lastSessionAt: '2026-06-14T10:00:00.000Z',
     focusArea: 'Guard',
     topPositions: [{ label: 'Guard', count: 3 }],
+    weakness: null,
     recentMistakes: ['hand placement', 'flat hips'],
     moodBreakdown: [],
     thumbsUpRate: null,
@@ -174,9 +175,25 @@ describe('NotificationService — weekly digest', () => {
     getPerm.mockResolvedValue({ granted: true });
   });
 
-  it('builds a body from TrendsService output', () => {
-    expect(buildDigestBody(trends())).toBe(
-      'Most-worked: Guard. Recurring leak: hand placement.',
+  it('builds a body from TrendsService output, with the Weakness as the leak', () => {
+    expect(
+      buildDigestBody(
+        trends({
+          weakness: {
+            positionId: 'mount-bottom',
+            label: 'Mount (bottom)',
+            count: 3,
+            window: 5,
+            latestMistake: 'hand placement',
+          },
+        }),
+      ),
+    ).toBe('Most-worked: Guard. Recurring leak: Mount (bottom).');
+  });
+
+  it('does not pass off the newest mistake as recurring (#1)', () => {
+    expect(buildDigestBody(trends({ weakness: null }))).toBe(
+      'Most-worked: Guard. Recurring leak: nothing recurring yet.',
     );
   });
 
