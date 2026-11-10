@@ -1,0 +1,53 @@
+# Keeps the free-tier Supabase project from auto-pausing.
+#
+# Supabase pauses free projects after 7 days without activity, and a project
+# left paused for 90 days can no longer be restored. This pings the REST API
+# twice a week (max gap: 4 days) with a real Postgres query.
+#
+# `profiles` is RLS-protected, so the anon key gets `200 []` — no data is
+# exposed, but the query still reaches the database, which is what counts.
+#
+# A failed ping fails the run, and GitHub emails the repo owner — that is the
+# early warning that the project has paused anyway and needs a manual restore
+# in the dashboard.
+#
+# Secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL       e.g. https://<ref>.supabase.co
+#   SUPABASE_ANON_KEY  the publishable/anon key (already shipped in the app)
+#
+# Note: GitHub disables scheduled workflows in a public repo after 60 days with
+# no commits. If that happens, re-enable it from the Actions tab.
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: "17 9 * * 1,4" # Mon + Thu, 09:17 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query the database through PostgREST
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::SUPABASE_URL / SUPABASE_ANON_KEY secrets are not set"
+            exit 1
+          fi
+          status=$(curl -sS -o body.txt -w '%{http_code}' \
+            --retry 3 --retry-delay 10 --retry-all-errors \
+            "$SUPABASE_URL/rest/v1/profiles?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "HTTP $status"
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            cat body.txt
+            echo "::error::Supabase ping failed (HTTP $status). The project may be paused — restore it in the dashboard."
+            exit 1
+          fi
