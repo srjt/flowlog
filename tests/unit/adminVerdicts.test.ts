@@ -73,6 +73,7 @@ const verdict = (o: Partial<VerdictRow> = {}): VerdictRow => ({
   verdict: 'sound',
   reason: null,
   note: null,
+  better_cue: null,
   record_ids: [],
   record_trail: 'none_selected',
   created_at: '2026-09-12T10:00:00Z',
@@ -114,6 +115,7 @@ describe('a verdict request', () => {
         verdict: 'wrong',
         reason: 'records_wrong',
         note: null,
+        betterCue: null,
       },
     });
     for (const v of ['sound', 'shallow']) {
@@ -125,6 +127,7 @@ describe('a verdict request', () => {
           verdict: v,
           reason: null,
           note: null,
+          betterCue: null,
         },
       });
     }
@@ -208,6 +211,7 @@ describe('shaping a verdict into a row', () => {
     verdict: 'wrong',
     reason: 'records_misapplied',
     note: 'right records, wrong half of the position',
+    betterCue: null,
   };
 
   it('snapshots the Cue, the run and the trusted records behind it', () => {
@@ -222,6 +226,7 @@ describe('shaping a verdict into a row', () => {
         verdict: 'wrong',
         reason: 'records_misapplied',
         note: 'right records, wrong half of the position',
+        better_cue: null,
         record_ids: ['r1', 'r2'],
         record_trail: 'trusted',
       },

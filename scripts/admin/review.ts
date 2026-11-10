@@ -193,6 +193,13 @@ export interface SessionSummary {
    * `GATE_FALLBACK`, or null when the Session predates the prompt log.
    */
   cueWriter: string | null;
+  /**
+   * AI second opinions on the Cue this row holds now (migration 027), one per
+   * judge. Empty until the operator has judged that Cue: blind first.
+   */
+  ai: AiCall[];
+  /** Opinions on the current Cue waiting behind the operator's verdict. */
+  aiHidden: number;
 }
 
 export function toSummary(
@@ -205,6 +212,8 @@ export function toSummary(
     verdicts: VerdictRow[];
     /** This Session's prompt-log attempts; absent when the log is unreadable. */
     promptAttempts?: PromptAttempt[];
+    /** This Session's AI opinions, about any of its Cues; absent before 027. */
+    opinions?: AiOpinionRow[];
   },
 ): SessionSummary {
   const summary: SessionSummary = {
@@ -227,8 +236,14 @@ export function toSummary(
     verdictReason: null,
     earlierVerdicts: 0,
     cueWriter: cueWriter(ctx.promptAttempts ?? []),
+    ai: [],
+    aiHidden: 0,
   };
-  return withVerdicts(summary, ctx.verdicts);
+  const judged = withVerdicts(summary, ctx.verdicts);
+  return withOpinions(
+    judged,
+    revealOpinions(row.coaching_cue, judged.verdict !== null, ctx.opinions),
+  );
 }
 
 /**
@@ -564,6 +579,13 @@ export interface VerdictRow {
   /** Set exactly when `verdict` is 'wrong'. */
   reason: WrongReason | null;
   note: string | null;
+  /**
+   * What the Cue should have said, in the operator's words. Only on a shallow
+   * or wrong verdict, and capped like a Cue. Each one, paired with the Cue it
+   * replaces, is a preference pair: the seed of any future training or
+   * evaluation set.
+   */
+  better_cue: string | null;
   /** The records behind the judged Cue; only ever non-empty when trusted. */
   record_ids: string[];
   /** What the record trail said when the verdict was recorded. */
@@ -573,8 +595,17 @@ export interface VerdictRow {
 }
 
 export const VERDICT_COLUMNS =
-  'id,session_id,run_id,cue,verdict,reason,note,record_ids,record_trail,' +
+  'id,session_id,run_id,cue,verdict,reason,note,better_cue,record_ids,record_trail,' +
   'created_at,updated_at';
+
+/**
+ * The columns before migration 027 added `better_cue`. The server falls back
+ * to them so the tool keeps working, better Cue aside, until 027 is applied.
+ */
+export const VERDICT_COLUMNS_BEFORE_027 = VERDICT_COLUMNS.replace(
+  'better_cue,',
+  '',
+);
 
 /** A note, not an essay. The bound also keeps request bodies small. */
 export const NOTE_MAX_LENGTH = 2000;
@@ -587,7 +618,12 @@ export interface SetVerdictRequest {
   verdict: CueVerdict;
   reason: WrongReason | null;
   note: string | null;
+  /** Shallow or wrong only; at most `CUE_WORD_CAP` words. */
+  betterCue: string | null;
 }
+
+/** A suggested Cue is a Cue: short. The character bound keeps bodies small. */
+export const BETTER_CUE_MAX_LENGTH = 300;
 
 /** Clear a verdict back to unjudged. Works on an earlier Cue's verdict too. */
 export interface ClearVerdictRequest {
@@ -602,7 +638,14 @@ export type Checked<T> = { ok: true; value: T } | { ok: false; error: string };
 
 const refuse = <T>(error: string): Checked<T> => ({ ok: false, error });
 
-const REQUEST_FIELDS = ['sessionId', 'cue', 'verdict', 'reason', 'note'];
+const REQUEST_FIELDS = [
+  'sessionId',
+  'cue',
+  'verdict',
+  'reason',
+  'note',
+  'betterCue',
+];
 
 /**
  * The body of `POST /api/verdict`, validated. The server runs exactly this, so
@@ -616,7 +659,7 @@ export function parseVerdictRequest(body: unknown): Checked<VerdictRequest> {
   const extra = Object.keys(b).filter((k) => !REQUEST_FIELDS.includes(k));
   if (extra.length > 0) return refuse(`Unknown field: ${extra.join(', ')}`);
 
-  const { sessionId, cue, verdict, reason, note } = b;
+  const { sessionId, cue, verdict, reason, note, betterCue } = b;
   if (typeof sessionId !== 'string' || !UUID_PATTERN.test(sessionId)) {
     return refuse('sessionId must be a session id');
   }
@@ -626,8 +669,12 @@ export function parseVerdictRequest(body: unknown): Checked<VerdictRequest> {
   if (!('verdict' in b)) return refuse('verdict is required; null clears it');
 
   if (verdict === null) {
-    if ((reason ?? null) !== null || (note ?? null) !== null) {
-      return refuse('Clearing a verdict takes no reason or note');
+    if (
+      (reason ?? null) !== null ||
+      (note ?? null) !== null ||
+      (betterCue ?? null) !== null
+    ) {
+      return refuse('Clearing a verdict takes no reason, note or better Cue');
     }
     return { ok: true, value: { sessionId, cue, verdict: null } };
   }
@@ -656,9 +703,34 @@ export function parseVerdictRequest(body: unknown): Checked<VerdictRequest> {
   if (text.length > NOTE_MAX_LENGTH) {
     return refuse(`note must be at most ${NOTE_MAX_LENGTH} characters`);
   }
+
+  if ((betterCue ?? null) !== null && typeof betterCue !== 'string') {
+    return refuse('betterCue must be text');
+  }
+  const better = typeof betterCue === 'string' ? betterCue.trim() : '';
+  if (better && verdict === 'sound') {
+    return refuse('A sound Cue needs no better Cue');
+  }
+  if (better.length > BETTER_CUE_MAX_LENGTH) {
+    return refuse(
+      `betterCue must be at most ${BETTER_CUE_MAX_LENGTH} characters`,
+    );
+  }
+  if (better && cueWords(better) > CUE_WORD_CAP) {
+    return refuse(
+      `betterCue must be at most ${CUE_WORD_CAP} words, like any Cue`,
+    );
+  }
   return {
     ok: true,
-    value: { sessionId, cue, verdict, reason: why, note: text || null },
+    value: {
+      sessionId,
+      cue,
+      verdict,
+      reason: why,
+      note: text || null,
+      betterCue: better || null,
+    },
   };
 }
 
@@ -670,6 +742,7 @@ export interface VerdictInsert {
   verdict: CueVerdict;
   reason: WrongReason | null;
   note: string | null;
+  better_cue: string | null;
   record_ids: string[];
   record_trail: RecordTrail;
 }
@@ -706,6 +779,7 @@ export function verdictInsert(
       verdict: req.verdict,
       reason: req.reason,
       note: req.note,
+      better_cue: req.betterCue,
       record_ids:
         ctx.trail === 'trusted'
           ? [...(session.grounding_record_ids ?? [])]
@@ -954,6 +1028,238 @@ export function trustReport(
       : null,
     unjudged: sessions.filter((s) => s.cue !== null && s.verdict === null)
       .length,
+  };
+}
+
+// ── The AI second opinion (migration 027) ───────────────────────────────────
+//
+// The cue judge (scripts/judge) run over live Cues by `opine.sh`. It FAILED
+// its validation on false alarms (4 of 11 sound Cues condemned, against a bar
+// of 2), so it is a second opinion that has to earn trust, never a verdict:
+//
+//   * Blind first. An opinion reaches the page only once the operator has a
+//     verdict on the same Cue, so it can never anchor that verdict. The server
+//     applies `revealOpinions`; an unrevealed opinion is counted, not sent.
+//   * Measured, not believed. `secondOpinionReport` compares it with the
+//     operator over every Cue both have judged, against the bar it failed.
+
+export type OpinionMode = 'grounded' | 'ungrounded';
+
+export type ClaimStatus =
+  | 'supported'
+  | 'contradicted'
+  | 'off_target'
+  | 'unsupported';
+
+export interface AiOpinionRow {
+  session_id: string;
+  /** The exact Cue text the judge read. */
+  cue: string;
+  defective: boolean;
+  /** Whether records backed the check. Ungrounded is where false alarms live. */
+  mode: OpinionMode;
+  records_available: number;
+  claims: { claim: string; status: ClaimStatus; reason: string }[];
+  rationale: string;
+  judge_model: string;
+  judge_version: string;
+  created_at: string;
+}
+
+export const AI_OPINION_COLUMNS =
+  'session_id,cue,defective,mode,records_available,claims,rationale,' +
+  'judge_model,judge_version,created_at';
+
+/** One judge at one version: an instrument, measured on its own. */
+export const instrumentOf = (
+  o: Pick<AiOpinionRow, 'judge_model' | 'judge_version'>,
+): string => `${o.judge_model} (judge v${o.judge_version})`;
+
+/** What the list keeps of a revealed opinion. */
+export interface AiCall {
+  instrument: string;
+  defective: boolean;
+  mode: OpinionMode;
+}
+
+export interface OpinionView {
+  /** Opinions on the current Cue, newest first. Empty until it is judged. */
+  shown: AiOpinionRow[];
+  /** How many opinions on the current Cue are held back until it is. */
+  hidden: number;
+}
+
+/**
+ * Blind first: the opinions on the Cue a Session holds NOW, revealed only when
+ * the operator has judged that Cue. An opinion about an earlier Cue (a
+ * Re-analyze replaced it) is never shown against the current one, nor counted.
+ */
+export function revealOpinions(
+  coachingCue: string | null,
+  judged: boolean,
+  opinions: AiOpinionRow[] = [],
+): OpinionView {
+  const onCue = opinions
+    .filter((o) => coachingCue !== null && o.cue === coachingCue)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return judged
+    ? { shown: onCue, hidden: 0 }
+    : { shown: [], hidden: onCue.length };
+}
+
+/** The summary with its AI fields set from a (revealed) view. */
+export function withOpinions(
+  s: SessionSummary,
+  view: OpinionView,
+): SessionSummary {
+  return {
+    ...s,
+    ai: view.shown.map((o) => ({
+      instrument: instrumentOf(o),
+      defective: o.defective,
+      mode: o.mode,
+    })),
+    aiHidden: view.hidden,
+  };
+}
+
+/**
+ * When the judge could be trusted to triage: the bar it failed in August
+ * (scripts/judge/VALIDATION.md), read over many more Cues. At least 12 in 17
+ * of the operator's wrong Cues flagged, at most 2 in 11 of the sound ones, over
+ * at least 50 Cues both have judged with 10 or more of each. Clearing it
+ * switches nothing on; it would justify deciding to let the judge triage.
+ */
+export interface HandOverBar {
+  minPaired: number;
+  /** At least this many of the operator's wrong, and of their sound, Cues. */
+  minEach: number;
+  minCatch: number;
+  maxFalseAlarm: number;
+}
+
+export const HAND_OVER_BAR: HandOverBar = {
+  minPaired: 50,
+  minEach: 10,
+  minCatch: 12 / 17,
+  maxFalseAlarm: 2 / 11,
+};
+
+export interface Tally {
+  /** How many it flagged as defective. */
+  n: number;
+  of: number;
+}
+
+export interface AgreementReport {
+  instrument: string;
+  status: 'not_enough' | 'cleared' | 'not_cleared';
+  /** Cues the operator and this judge have both judged. */
+  paired: number;
+  /** Flagged, of the operator's wrong Cues. */
+  caught: Tally;
+  /**
+   * Caught, split by whether records backed the check. A grounded check reads
+   * the records that may have written the Cue (#62's caveat), so it leans
+   * toward passing; misses there are that bias showing.
+   */
+  caughtByMode: Record<OpinionMode, Tally>;
+  /** Flagged, of the operator's sound Cues. */
+  falseAlarms: Tally;
+  falseAlarmsByMode: Record<OpinionMode, Tally>;
+  /** Flagged, of the operator's shallow Cues. Reported, never scored. */
+  shallowFlagged: Tally;
+  /** Sessions it disagreed on, newest first: worth reading. */
+  missed: string[];
+  falselyFlagged: string[];
+}
+
+export interface SecondOpinionReport {
+  bar: HandOverBar;
+  /** One report per judge, the most paired first. */
+  instruments: AgreementReport[];
+  /** Cues with an opinion waiting for the operator's verdict. */
+  waiting: number;
+  /** Judged Cues no judge has given an opinion on yet. */
+  unopined: number;
+}
+
+const tally = (): Tally => ({ n: 0, of: 0 });
+
+/** How far the AI second opinion agrees with the operator, per judge. */
+export function secondOpinionReport(
+  sessions: SessionSummary[],
+  bar: HandOverBar = HAND_OVER_BAR,
+): SecondOpinionReport {
+  const judged = sessions
+    .filter((s) => s.cue !== null && s.verdict !== null)
+    .sort(
+      (a, b) =>
+        b.sessionDate.localeCompare(a.sessionDate) || a.id.localeCompare(b.id),
+    );
+
+  const reports = new Map<string, AgreementReport>();
+  for (const s of judged) {
+    for (const call of s.ai) {
+      let r = reports.get(call.instrument);
+      if (!r) {
+        r = {
+          instrument: call.instrument,
+          status: 'not_enough',
+          paired: 0,
+          caught: tally(),
+          caughtByMode: { grounded: tally(), ungrounded: tally() },
+          falseAlarms: tally(),
+          falseAlarmsByMode: { grounded: tally(), ungrounded: tally() },
+          shallowFlagged: tally(),
+          missed: [],
+          falselyFlagged: [],
+        };
+        reports.set(call.instrument, r);
+      }
+      r.paired += 1;
+      const flag = Number(call.defective);
+      if (s.verdict === 'wrong') {
+        r.caught.of += 1;
+        r.caught.n += flag;
+        r.caughtByMode[call.mode].of += 1;
+        r.caughtByMode[call.mode].n += flag;
+        if (!call.defective) r.missed.push(s.id);
+      } else if (s.verdict === 'sound') {
+        r.falseAlarms.of += 1;
+        r.falseAlarms.n += flag;
+        r.falseAlarmsByMode[call.mode].of += 1;
+        r.falseAlarmsByMode[call.mode].n += flag;
+        if (call.defective) r.falselyFlagged.push(s.id);
+      } else {
+        r.shallowFlagged.of += 1;
+        r.shallowFlagged.n += flag;
+      }
+    }
+  }
+
+  for (const r of reports.values()) {
+    const enough =
+      r.paired >= bar.minPaired &&
+      r.caught.of >= bar.minEach &&
+      r.falseAlarms.of >= bar.minEach;
+    r.status = !enough
+      ? 'not_enough'
+      : r.caught.n / r.caught.of >= bar.minCatch &&
+          r.falseAlarms.n / r.falseAlarms.of <= bar.maxFalseAlarm
+        ? 'cleared'
+        : 'not_cleared';
+  }
+
+  return {
+    bar,
+    instruments: [...reports.values()].sort(
+      (a, b) => b.paired - a.paired || a.instrument.localeCompare(b.instrument),
+    ),
+    waiting: sessions.filter(
+      (s) => s.cue !== null && s.verdict === null && s.aiHidden > 0,
+    ).length,
+    unopined: judged.filter((s) => s.ai.length === 0).length,
   };
 }
 

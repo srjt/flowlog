@@ -67,6 +67,7 @@ const verdict = (o: Partial<VerdictRow> = {}): VerdictRow => ({
   verdict: 'sound',
   reason: null,
   note: null,
+  better_cue: null,
   record_ids: [],
   record_trail: 'trusted',
   created_at: '2026-09-12T10:00:00Z',

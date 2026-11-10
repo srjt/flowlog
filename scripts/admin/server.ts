@@ -12,6 +12,10 @@
  *
  * It reads everything and writes one thing: the operator's verdict on a Cue
  * (#132, migration 026), through the single route `POST /api/verdict`.
+ *
+ * It also reads the AI second opinions `scripts/judge/opine.sh` stores
+ * (migration 027), and sends one to the page only once the operator has judged
+ * the same Cue (`revealOpinions`): blind first, enforced here, not in the page.
  */
 
 import { createHash } from 'node:crypto';
@@ -46,9 +50,11 @@ import {
   type PromptSessionRow,
 } from './prompt.ts';
 import {
+  AI_OPINION_COLUMNS,
   UNKNOWN_VERSION_FACTS,
   UUID_PATTERN,
   VERDICT_COLUMNS,
+  VERDICT_COLUMNS_BEFORE_027,
   groundingFunnel,
   injectedRecords,
   latestRun,
@@ -56,10 +62,12 @@ import {
   recordStatus,
   recordTrail,
   recordsBehindWrongCues,
+  revealOpinions,
   toSummary,
   verdictInsert,
   verdictsFor,
   versionKey,
+  type AiOpinionRow,
   type PromptAttempt,
   type RecordRow,
   type SessionPromptRecord,
@@ -212,19 +220,71 @@ async function recordsById(ids: string[]): Promise<RecordRow[]> {
 }
 
 /**
+ * Whether migration 027 is applied (`cue_verdicts.better_cue` exists). Until
+ * it is, verdicts still read and save, without a better Cue. Asked once per
+ * request: one tiny read, and the answer is never stale after `db push`.
+ */
+async function hasBetterCueColumn(): Promise<boolean> {
+  try {
+    await rest<unknown[]>('cue_verdicts?select=better_cue&limit=1');
+    return true;
+  } catch {
+    // Not applied yet, or 026 isn't either; verdictRows reports the latter.
+    return false;
+  }
+}
+
+/**
  * Operator verdicts (#132). Null when the table cannot be read at all —
  * migration 026 not applied yet — which the page reports as such rather than
  * as "nothing judged".
  */
-async function verdictRows(filter = ''): Promise<VerdictRow[] | null> {
+async function verdictRows(
+  filter: string,
+  withBetterCue: boolean,
+): Promise<VerdictRow[] | null> {
   try {
-    return await restAll<VerdictRow>(
-      `cue_verdicts?select=${VERDICT_COLUMNS}${filter}&order=id`,
+    const columns = withBetterCue
+      ? VERDICT_COLUMNS
+      : VERDICT_COLUMNS_BEFORE_027;
+    const rows = await restAll<VerdictRow>(
+      `cue_verdicts?select=${columns}${filter}&order=id`,
     );
+    return rows.map((v) => ({ ...v, better_cue: v.better_cue ?? null }));
   } catch (err) {
     console.warn(`  ! cue_verdicts unavailable: ${(err as Error).message}`);
     return null;
   }
+}
+
+/**
+ * AI second opinions (migration 027), about any Cue. Null when the table can't
+ * be read (027 not applied). Never sent to the page as they are: every route
+ * passes them through `revealOpinions` first.
+ */
+async function opinionRows(filter = ''): Promise<AiOpinionRow[] | null> {
+  try {
+    return await restAll<AiOpinionRow>(
+      `cue_ai_opinions?select=${AI_OPINION_COLUMNS}${filter}&order=id`,
+    );
+  } catch (err) {
+    console.warn(`  ! cue_ai_opinions unavailable: ${(err as Error).message}`);
+    return null;
+  }
+}
+
+/** The page's view of a Session's opinions: revealed only once it's judged. */
+function opinionView(
+  row: Pick<SessionRow, 'coaching_cue'>,
+  verdicts: VerdictRow[],
+  opinions: AiOpinionRow[] | null,
+) {
+  if (opinions === null) return { available: false, shown: [], hidden: 0 };
+  const judged = verdictsFor(row.coaching_cue, verdicts).current !== null;
+  return {
+    available: true,
+    ...revealOpinions(row.coaching_cue, judged, opinions),
+  };
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
@@ -257,11 +317,13 @@ async function promptAttemptsBySession(): Promise<Map<
 }
 
 async function listSessions() {
-  const [rows, names, verdicts, attempts] = await Promise.all([
+  const betterCue = await hasBetterCueColumn();
+  const [rows, names, verdicts, attempts, opinions] = await Promise.all([
     restAll<SessionRow>('sessions?select=*&order=session_date.desc,id'),
     athleteNames(),
-    verdictRows(),
+    verdictRows('', betterCue),
     promptAttemptsBySession(),
+    opinionRows(),
   ]);
   const facts = await versionFacts(rows.map((r) => r.pipeline_version));
   const verdictsBySession = new Map<string, VerdictRow[]>();
@@ -269,6 +331,13 @@ async function listSessions() {
     verdictsBySession.set(v.session_id, [
       ...(verdictsBySession.get(v.session_id) ?? []),
       v,
+    ]);
+  }
+  const opinionsBySession = new Map<string, AiOpinionRow[]>();
+  for (const o of opinions ?? []) {
+    opinionsBySession.set(o.session_id, [
+      ...(opinionsBySession.get(o.session_id) ?? []),
+      o,
     ]);
   }
   const sessions = rows.map((row) =>
@@ -281,6 +350,8 @@ async function listSessions() {
         facts.get(versionKey(row.pipeline_version)) ?? UNKNOWN_VERSION_FACTS,
       verdicts: verdictsBySession.get(row.id) ?? [],
       promptAttempts: attempts?.get(row.id) ?? [],
+      // `toSummary` reveals only the opinions on a judged Cue.
+      opinions: opinionsBySession.get(row.id) ?? [],
     }),
   );
 
@@ -299,6 +370,8 @@ async function listSessions() {
     positionLabels: POSITION_LABELS,
     reasons: FEEDBACK_REASONS,
     verdictsAvailable: verdicts !== null,
+    opinionsAvailable: opinions !== null,
+    betterCueAvailable: betterCue,
   };
 }
 
@@ -327,20 +400,23 @@ async function sessionDetail(id: string) {
 
   const ids = row.grounding_record_ids ?? [];
   const idList = ids.join(',');
-  const [records, votes, names, facts, prompts, verdicts] = await Promise.all([
-    recordsById(ids),
-    ids.length
-      ? restAll<VoteRow>(
-          `record_votes?select=record_id,verdict&record_id=in.(${idList})`,
-        )
-      : Promise.resolve([]),
-    rest<{ display_name: string | null }[]>(
-      `profiles?select=display_name&id=eq.${row.user_id}`,
-    ),
-    versionFacts([row.pipeline_version]),
-    sessionPrompts(id),
-    verdictRows(`&session_id=eq.${id}`),
-  ]);
+  const betterCue = await hasBetterCueColumn();
+  const [records, votes, names, facts, prompts, verdicts, opinions] =
+    await Promise.all([
+      recordsById(ids),
+      ids.length
+        ? restAll<VoteRow>(
+            `record_votes?select=record_id,verdict&record_id=in.(${idList})`,
+          )
+        : Promise.resolve([]),
+      rest<{ display_name: string | null }[]>(
+        `profiles?select=display_name&id=eq.${row.user_id}`,
+      ),
+      versionFacts([row.pipeline_version]),
+      sessionPrompts(id),
+      verdictRows(`&session_id=eq.${id}`, betterCue),
+      opinionRows(`&session_id=eq.${id}`),
+    ]);
   const versionFact =
     facts.get(versionKey(row.pipeline_version)) ?? UNKNOWN_VERSION_FACTS;
 
@@ -365,12 +441,16 @@ async function sessionDetail(id: string) {
       verdicts === null
         ? { available: false, current: null, earlier: [] }
         : { available: true, ...verdictsFor(row.coaching_cue, verdicts) },
+    betterCueAvailable: betterCue,
+    // Blind first: the AI's opinion only once this Cue has a verdict.
+    opinions: opinionView(row, verdicts ?? [], opinions),
   };
 }
 
 /** The records that keep sitting behind wrong Cues (#132 story 6). */
 async function recordsBehindWrong() {
-  const verdicts = await verdictRows();
+  // Only ids and reasons are read here; the better Cue isn't needed.
+  const verdicts = await verdictRows('', false);
   if (verdicts === null) return { available: false };
   const signal = recordsBehindWrongCues(verdicts);
   const records = await recordsById(signal.records.map((r) => r.recordId));
@@ -403,6 +483,7 @@ async function recordVerdict(
 ): Promise<{ status: number; body: unknown }> {
   const row = await sessionById(req.sessionId);
   if (!row) return { status: 404, body: { error: 'No such session' } };
+  const hasColumn = await hasBetterCueColumn();
 
   if (req.verdict === null) {
     const cleared = await rest<VerdictRow[]>(
@@ -424,20 +505,42 @@ async function recordVerdict(
     const runId = prompts ? (latestRun(prompts)?.runId ?? null) : null;
     const shaped = verdictInsert(req, row, { trail, runId });
     if (!shaped.ok) return { status: 409, body: { error: shaped.error } };
+    // Before 027 there is no column to send, null or not.
+    const { better_cue: betterCue, ...withoutBetterCue } = shaped.value;
+    if (!hasColumn && betterCue !== null) {
+      return {
+        status: 409,
+        body: {
+          error:
+            'Keeping a better Cue needs migration 027. Apply it, or save without one.',
+        },
+      };
+    }
     // No created_at, so changing a verdict keeps when it was first made.
     await rest<VerdictRow[]>('cue_verdicts?on_conflict=session_id,cue_md5', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
       body: JSON.stringify([
-        { ...shaped.value, updated_at: new Date().toISOString() },
+        {
+          ...(hasColumn ? shaped.value : withoutBetterCue),
+          updated_at: new Date().toISOString(),
+        },
       ]),
     });
   }
 
-  const verdicts = (await verdictRows(`&session_id=eq.${row.id}`)) ?? [];
+  const [verdicts, opinions] = await Promise.all([
+    verdictRows(`&session_id=eq.${row.id}`, hasColumn),
+    opinionRows(`&session_id=eq.${row.id}`),
+  ]);
   return {
     status: 200,
-    body: { verdicts, ...verdictsFor(row.coaching_cue, verdicts) },
+    body: {
+      verdicts: verdicts ?? [],
+      ...verdictsFor(row.coaching_cue, verdicts ?? []),
+      // Judging the Cue reveals the AI's opinion on it; clearing hides it again.
+      opinions: opinionView(row, verdicts ?? [], opinions),
+    },
   };
 }
 

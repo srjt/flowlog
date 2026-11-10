@@ -5,6 +5,13 @@ Run against the frozen human verdicts (`~/flowlog-baseline/cue-verdicts.json`,
 
 Reproduce with `scripts/judge/judge.sh`. Results are cached, so a re-run is free.
 
+Since migration 027 the same judge also runs on live Cues as a blind second
+opinion (`scripts/judge/opine.sh`, see `docs/ADMIN.md`). It never counts as a
+verdict there; the Cue trust page measures its agreement with the operator
+against this same bar, over many more Cues. The instrument is shared
+(`services.ts`), so a change to the judge changes both, and `JUDGE_VERSION`
+keeps the readings of different versions apart.
+
 > No cue text, key mistakes, or session ids appear in this file. They are the
 > user's own training data and this repository is public. The labelled set and
 > the judge cache both live outside the repo, under `~/flowlog-baseline/`.

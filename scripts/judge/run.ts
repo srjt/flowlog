@@ -20,6 +20,13 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { judgeCue, type Complete } from './judge.ts';
+import {
+  familyOf,
+  judgeModel,
+  loadEnv,
+  loadRecords,
+  modelCall,
+} from './services.ts';
 import type { CueJudgement, JudgeSubject } from './types.ts';
 import {
   formatScore,
@@ -28,7 +35,6 @@ import {
   type ScoreInput,
 } from './verdict.ts';
 import { normalizePosition } from '../../src/sports/bjj/bjjPositions.ts';
-import type { GroundableRecord } from '../../src/sports/grounding.ts';
 
 /**
  * A different model from the one that WROTE these cues (`gemini-2.5-flash`).
@@ -39,10 +45,9 @@ import type { GroundableRecord } from '../../src/sports/grounding.ts';
  * hedge, and the harness prints the family so a same-family run is visible in
  * the output rather than buried in a config file.
  */
-const JUDGE_MODEL = process.env.JUDGE_MODEL ?? 'gemini-3.1-pro-preview';
+const JUDGE_MODEL = judgeModel();
 const GENERATOR_FAMILY = 'gemini';
-const judgeFamily = (): 'claude' | 'gemini' =>
-  JUDGE_MODEL.startsWith('claude') ? 'claude' : 'gemini';
+const judgeFamily = (): 'claude' | 'gemini' => familyOf(JUDGE_MODEL);
 
 /**
  * One cache file per judge model.
@@ -69,98 +74,6 @@ function arg(name: string): string | undefined {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 const has = (name: string) => process.argv.includes(`--${name}`);
-
-async function callClaude(prompt: string): Promise<string> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key)
-    die('ANTHROPIC_API_KEY is not set. Add it to .env or the environment.');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: JUDGE_MODEL,
-      max_tokens: 2048,
-      // Judging, not writing. Deterministic so a re-run of the same cue cannot
-      // produce a different verdict and quietly move the score.
-      temperature: 0,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-  if (!res.ok)
-    die(`Anthropic API ${res.status}: ${(await res.text()).slice(0, 400)}`);
-  const json = (await res.json()) as {
-    content: { type: string; text?: string }[];
-  };
-  return (json.content ?? [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text ?? '')
-    .join('');
-}
-
-async function callGemini(prompt: string): Promise<string> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key)
-    die('GEMINI_API_KEY is not set. Add it to .env or the environment.');
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/` +
-      `${JUDGE_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: 2048,
-          // Judging, not writing. Near-deterministic so a re-run of the same
-          // cue does not produce a different verdict and quietly move the score.
-          temperature: 0,
-          responseMimeType: 'application/json',
-        },
-      }),
-    },
-  );
-  if (!res.ok)
-    die(`Gemini API ${res.status}: ${(await res.text()).slice(0, 400)}`);
-  const json = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  return (json.candidates?.[0]?.content?.parts ?? [])
-    .map((p) => p.text ?? '')
-    .join('');
-}
-
-/** Records for the cue's position, straight from the serving store. */
-async function loadRecords(
-  positionId: string | null,
-): Promise<GroundableRecord[]> {
-  if (!positionId) return [];
-  const url =
-    process.env.SUPABASE_URL ?? process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
-  if (!url || !key) return [];
-  const res = await fetch(
-    `${url}/rest/v1/coaching_records?select=*&sport_key=eq.bjj` +
-      `&position=eq.${encodeURIComponent(positionId)}&limit=200`,
-    { headers: { apikey: key, Authorization: `Bearer ${key}` } },
-  );
-  if (!res.ok) return [];
-  return (await res.json()) as GroundableRecord[];
-}
-
-function loadEnv(): void {
-  const path = join(process.cwd(), '.env');
-  if (!existsSync(path)) return;
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
-    if (!line.includes('=') || line.trim().startsWith('#')) continue;
-    const i = line.indexOf('=');
-    const k = line.slice(0, i).trim();
-    if (!process.env[k]) process.env[k] = line.slice(i + 1).trim();
-  }
-}
 
 async function main(): Promise<void> {
   loadEnv();
@@ -190,9 +103,7 @@ async function main(): Promise<void> {
   const sameFamily = judgeFamily() === GENERATOR_FAMILY;
   const complete: Complete = has('dry-run')
     ? async () => JSON.stringify({ claims: [] })
-    : judgeFamily() === 'claude'
-      ? callClaude
-      : callGemini;
+    : modelCall(JUDGE_MODEL);
 
   console.error(
     `\n  judging ${subjects.length} cues with ${JUDGE_MODEL}` +
@@ -284,4 +195,6 @@ async function main(): Promise<void> {
   process.exit(score.passed ? 0 : 1);
 }
 
-void main();
+main().catch((err: unknown) =>
+  die(err instanceof Error ? err.message : String(err)),
+);
