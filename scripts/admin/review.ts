@@ -188,6 +188,11 @@ export interface SessionSummary {
   verdictReason: WrongReason | null;
   /** Verdicts about a Cue this row no longer holds. Never shown as current. */
   earlierVerdicts: number;
+  /**
+   * Who wrote the Cue this row holds now (see `cueWriter`): a model name,
+   * `GATE_FALLBACK`, or null when the Session predates the prompt log.
+   */
+  cueWriter: string | null;
 }
 
 export function toSummary(
@@ -198,6 +203,8 @@ export function toSummary(
     facts: VersionFacts;
     /** This Session's rows from `cue_verdicts`, about any of its Cues. */
     verdicts: VerdictRow[];
+    /** This Session's prompt-log attempts; absent when the log is unreadable. */
+    promptAttempts?: PromptAttempt[];
   },
 ): SessionSummary {
   const summary: SessionSummary = {
@@ -219,6 +226,7 @@ export function toSummary(
     verdict: null,
     verdictReason: null,
     earlierVerdicts: 0,
+    cueWriter: cueWriter(ctx.promptAttempts ?? []),
   };
   return withVerdicts(summary, ctx.verdicts);
 }
@@ -453,18 +461,48 @@ export interface RecordedRun {
  * longer exists.
  */
 export function latestRun(rows: SessionPromptRecord[]): RecordedRun | null {
-  if (rows.length === 0) return null;
-  const newest = rows.reduce((a, b) => (b.created_at > a.created_at ? b : a));
-  const attempts = rows
-    .filter((r) => r.run_id === newest.run_id)
-    .sort((a, b) => a.attempt - b.attempt);
+  const attempts = newestRunOf(rows);
+  const first = attempts[0];
+  if (!first) return null;
   return {
-    runId: newest.run_id,
-    run: newest.run,
+    runId: first.run_id,
+    run: first.run,
     attempts,
     produced: attempts.find((a) => a.produced_cue) ?? null,
     runs: new Set(rows.map((r) => r.run_id)).size,
   };
+}
+
+/** A `session_prompts` row as the session list reads it: no prompt text. */
+export type PromptAttempt = Pick<
+  SessionPromptRecord,
+  'run_id' | 'run' | 'attempt' | 'produced_cue' | 'model' | 'created_at'
+>;
+
+/** The attempts of the most recent run, first to last. */
+function newestRunOf<T extends PromptAttempt>(rows: T[]): T[] {
+  if (rows.length === 0) return [];
+  const newest = rows.reduce((a, b) => (b.created_at > a.created_at ? b : a));
+  return rows
+    .filter((r) => r.run_id === newest.run_id)
+    .sort((a, b) => a.attempt - b.attempt);
+}
+
+/** The Cue is the quality gate's fixed fallback: no model's attempt passed. */
+export const GATE_FALLBACK = 'quality-gate fallback';
+
+/**
+ * Who wrote the Cue a row holds now, from its latest prompt-log run (#121):
+ * the model of the attempt that produced it, or `GATE_FALLBACK` when every
+ * attempt failed the gate. Null when the Session predates the prompt log.
+ *
+ * #137 asks exactly this: a Cue from the coaching model's transient-failure
+ * fallback shows up here under that fallback's model name.
+ */
+export function cueWriter(attempts: PromptAttempt[]): string | null {
+  const run = newestRunOf(attempts);
+  if (run.length === 0) return null;
+  return run.find((a) => a.produced_cue)?.model ?? GATE_FALLBACK;
 }
 
 // ── Operator verdicts on Cues (#132, migration 026) ─────────────────────────
@@ -738,6 +776,185 @@ export function reviewCoverage(sessions: SessionSummary[]): ReviewCoverage {
     }
   }
   return out;
+}
+
+// ── Cue trust (the focus from 2026-11-10) ───────────────────────────────────
+//
+// The question the project is working on: "do I trust the cues it gives me?"
+// It's answered by the operator's own verdicts on recent Cues, read against a
+// target and against the #36 hand read that every claim is measured from. The
+// reasons on the wrong ones say where the next fix belongs.
+
+export interface TrustTarget {
+  /** How many of the most recent judged Cues the target is read over. */
+  window: number;
+  /** The share of those that may be wrong for the target to count as met. */
+  maxWrongShare: number;
+}
+
+/**
+ * The working definition of "I trust the cues": at most 1 in 5 of the last 20
+ * judged Cues wrong, against 47% wrong in the #36 baseline. It's the owner's
+ * call; change it here.
+ */
+export const TRUST_TARGET: TrustTarget = { window: 20, maxWrongShare: 0.2 };
+
+/**
+ * The #36 hand read (Aug 2026): 36 cues judged against the instructional
+ * corpus, written before the Pro coaching model (#124).
+ */
+export const FROZEN_BASELINE = {
+  judged: 36,
+  sound: 11,
+  shallow: 8,
+  wrong: 17,
+} as const;
+
+/** The hard cap on a Cue (CLAUDE.md rule 6). Kept here so this stays import-free. */
+export const CUE_WORD_CAP = 25;
+
+/**
+ * Where each reason points: the part of the pipeline a fix belongs in, and the
+ * parked issues that reason would unpark. It's the decision guide for "what
+ * next" once verdicts accumulate.
+ */
+export const REASON_POINTS_AT: Record<WrongReason, string> = {
+  transcript_misheard:
+    'Transcription: vocabulary priming for the words it missed.',
+  extraction_wrong:
+    'Extraction: the prompt that picks the mistake, position and side.',
+  records_wrong:
+    'The corpus: re-mine or certify the records involved (#133, #77, #97, #100).',
+  records_misapplied:
+    'The coaching prompt, or how records are chosen for it (#116).',
+  off_target:
+    'Which records reach the prompt: right position, wrong problem (#153, #116).',
+  model_wrong:
+    'The coaching model itself, or a position with no records to ground it.',
+};
+
+export interface VerdictCounts {
+  judged: number;
+  sound: number;
+  shallow: number;
+  wrong: number;
+}
+
+export interface TrustReport {
+  target: TrustTarget;
+  /** `too_few` until `target.window` Cues have been judged. */
+  status: 'met' | 'not_met' | 'too_few';
+  /** The most recent judged Cues, up to `target.window` of them. */
+  recent: VerdictCounts & {
+    wrongShare: number | null;
+    /** Session dates of the oldest and newest Cue in the window. */
+    from: string | null;
+    to: string | null;
+  };
+  /** Within the window: why the wrong ones are wrong, most common first. */
+  reasons: { reason: WrongReason; count: number }[];
+  /** Every judged Cue, grouped by who wrote it. Null writer: not logged. */
+  byWriter: (VerdictCounts & { writer: string | null })[];
+  /** Word counts within the window; null when nothing is judged. */
+  length: { median: number; max: number; nearCap: number } | null;
+  /** Sessions holding a Cue with no verdict on it yet. */
+  unjudged: number;
+}
+
+export const cueWords = (cue: string): number =>
+  cue.trim().split(/\s+/).filter(Boolean).length;
+
+function counts(items: SessionSummary[]): VerdictCounts {
+  const out: VerdictCounts = { judged: 0, sound: 0, shallow: 0, wrong: 0 };
+  for (const s of items) {
+    if (s.verdict === null) continue;
+    out.judged += 1;
+    out[s.verdict] += 1;
+  }
+  return out;
+}
+
+function median(sorted: number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? (sorted[mid] as number)
+    : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
+}
+
+/** How far the current Cues are from "I trust the cues it gives me". */
+export function trustReport(
+  sessions: SessionSummary[],
+  target: TrustTarget = TRUST_TARGET,
+): TrustReport {
+  // Only verdicts on the Cue a row holds NOW count; one about an earlier Cue
+  // judged text the athlete no longer sees.
+  const judged = sessions
+    .filter((s) => s.cue !== null && s.verdict !== null)
+    .sort(
+      (a, b) =>
+        b.sessionDate.localeCompare(a.sessionDate) || a.id.localeCompare(b.id),
+    );
+  const window = judged.slice(0, target.window);
+  const recent = counts(window);
+  const wrongShare = recent.judged ? recent.wrong / recent.judged : null;
+
+  const reasonCounts = new Map<WrongReason, number>();
+  for (const s of window) {
+    if (s.verdict === 'wrong' && s.verdictReason) {
+      reasonCounts.set(
+        s.verdictReason,
+        (reasonCounts.get(s.verdictReason) ?? 0) + 1,
+      );
+    }
+  }
+  const reasons = WRONG_REASONS.filter((r) => reasonCounts.has(r))
+    .map((reason) => ({ reason, count: reasonCounts.get(reason) as number }))
+    .sort((a, b) => b.count - a.count);
+
+  const writers = new Map<string | null, SessionSummary[]>();
+  for (const s of judged) {
+    writers.set(s.cueWriter, [...(writers.get(s.cueWriter) ?? []), s]);
+  }
+  // Most judged first; ties alphabetical, with "not logged" (null) last.
+  const byWriter = [...writers]
+    .map(([writer, items]) => ({ writer, ...counts(items) }))
+    .sort(
+      (a, b) =>
+        b.judged - a.judged ||
+        Number(a.writer === null) - Number(b.writer === null) ||
+        (a.writer ?? '').localeCompare(b.writer ?? ''),
+    );
+
+  const words = window
+    .map((s) => cueWords(s.cue as string))
+    .sort((a, b) => a - b);
+
+  return {
+    target,
+    status:
+      recent.judged < target.window
+        ? 'too_few'
+        : (wrongShare as number) <= target.maxWrongShare
+          ? 'met'
+          : 'not_met',
+    recent: {
+      ...recent,
+      wrongShare,
+      from: window.at(-1)?.sessionDate ?? null,
+      to: window[0]?.sessionDate ?? null,
+    },
+    reasons,
+    byWriter,
+    length: words.length
+      ? {
+          median: median(words),
+          max: words.at(-1) as number,
+          nearCap: words.filter((w) => w >= CUE_WORD_CAP - 3).length,
+        }
+      : null,
+    unjudged: sessions.filter((s) => s.cue !== null && s.verdict === null)
+      .length,
+  };
 }
 
 // ── Records behind wrong Cues (story 6) ─────────────────────────────────────

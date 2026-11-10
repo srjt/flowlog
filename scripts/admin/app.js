@@ -9,12 +9,17 @@
  */
 import {
   CUE_VERDICTS,
+  CUE_WORD_CAP,
   DEFAULT_FILTERS,
+  FROZEN_BASELINE,
+  GATE_FALLBACK,
   GROUNDING_OUTCOMES,
+  REASON_POINTS_AT,
   WRONG_REASONS,
   filterSessions,
   isTrustworthy,
   reviewCoverage,
+  trustReport,
   withVerdicts,
 } from './review.js';
 
@@ -113,6 +118,9 @@ const verdictText = (v) =>
 
 /** The hash that shows the records panel instead of a Session. */
 const RECORDS_VIEW = 'records';
+
+/** The hash that shows the cue-trust report instead of a Session. */
+const TRUST_VIEW = 'trust';
 
 const NOT_RECORDED = [
   ['Skill level', 'only the profile’s current value exists'],
@@ -1066,6 +1074,171 @@ async function showRecords() {
   }
 }
 
+// ── Cue trust ───────────────────────────────────────────────────────────────
+
+const share = (n, of) => (of ? `${Math.round((100 * n) / of)}%` : '—');
+const day = (iso) =>
+  new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
+
+function splitText(c) {
+  return `${c.sound} sound (${share(c.sound, c.judged)}) · ${c.shallow} shallow (${share(c.shallow, c.judged)}) · ${c.wrong} wrong (${share(c.wrong, c.judged)})`;
+}
+
+function trustStatus(r) {
+  const limit = `${Math.round(100 * r.target.maxWrongShare)}%`;
+  if (r.status === 'too_few') {
+    return h(
+      'p',
+      { class: 'callout warn' },
+      `Not enough judged yet: ${r.recent.judged} of the ${r.target.window} the target is read over. Judge ${r.target.window - r.recent.judged} more recent Cues to get a reading.`,
+    );
+  }
+  const wrong = share(r.recent.wrong, r.recent.judged);
+  return r.status === 'met'
+    ? h(
+        'p',
+        { class: 'callout ok' },
+        `Target met: ${wrong} of your last ${r.recent.judged} judged Cues are wrong (target: at most ${limit}).`,
+      )
+    : h(
+        'p',
+        { class: 'callout bad' },
+        `Not there yet: ${wrong} of your last ${r.recent.judged} judged Cues are wrong (target: at most ${limit}). The top reason below says where to fix.`,
+      );
+}
+
+const writerLabel = (w) =>
+  w === null
+    ? 'Not logged (before the prompt log)'
+    : w === GATE_FALLBACK
+      ? 'Quality-gate fallback (no model passed)'
+      : w;
+
+/** Lists the Cues still waiting for a verdict. */
+function showUnjudged() {
+  state.filters = { ...DEFAULT_FILTERS, verdict: 'unjudged' };
+  state.selected = null;
+  history.replaceState(null, '', '#');
+  renderFilters();
+  renderList();
+  document
+    .getElementById('detail')
+    .replaceChildren(
+      h(
+        'p',
+        { class: 'empty muted' },
+        'Showing the Cues with no verdict yet. Pick one to judge it.',
+      ),
+    );
+}
+
+function renderTrust() {
+  const main = document.getElementById('detail');
+  const head = h(
+    'header',
+    { class: 'detail-head' },
+    h('h1', {}, 'Can I trust the cues?'),
+    h(
+      'p',
+      { class: 'muted' },
+      'Read from your own verdicts on the Cues sessions hold now. Change the target in TRUST_TARGET (scripts/admin/review.ts).',
+    ),
+  );
+  if (!state.meta.verdictsAvailable) {
+    main.replaceChildren(
+      head,
+      h(
+        'p',
+        { class: 'callout warn' },
+        'Verdicts unavailable: apply migration 026 (cue_verdicts), then judge Cues from the list.',
+      ),
+    );
+    return;
+  }
+  const r = trustReport(state.sessions);
+  const b = FROZEN_BASELINE;
+  main.replaceChildren(
+    head,
+    trustStatus(r),
+    section(
+      'Recent Cues against the baseline',
+      facts([
+        [
+          `Your last ${r.recent.judged}`,
+          r.recent.judged ? splitText(r.recent) : null,
+        ],
+        [
+          'Covering',
+          r.recent.from ? `${day(r.recent.from)} to ${day(r.recent.to)}` : null,
+        ],
+        [
+          'Baseline: #36 hand read, Aug 2026, before the Pro coaching model',
+          splitText(b),
+        ],
+      ]),
+      r.unjudged > 0 &&
+        h(
+          'p',
+          {},
+          h(
+            'button',
+            { type: 'button', class: 'link', onclick: showUnjudged },
+            `${r.unjudged} ${r.unjudged === 1 ? 'Cue' : 'Cues'} waiting for a verdict`,
+          ),
+        ),
+    ),
+    section(
+      'Why the wrong ones are wrong',
+      r.reasons.length === 0
+        ? h('p', { class: 'muted' }, 'No wrong Cues in the window.')
+        : h(
+            'ol',
+            {},
+            r.reasons.map((x) =>
+              h(
+                'li',
+                {},
+                h('strong', {}, `${REASON[x.reason][0]} × ${x.count}.`),
+                ` Points at: ${REASON_POINTS_AT[x.reason]}`,
+              ),
+            ),
+          ),
+    ),
+    section(
+      'By the model that wrote the Cue',
+      r.byWriter.length === 0
+        ? h('p', { class: 'muted' }, 'Nothing judged yet.')
+        : facts(
+            r.byWriter.map((w) => [
+              writerLabel(w.writer),
+              `${w.judged} judged: ${splitText(w)}`,
+            ]),
+          ),
+    ),
+    section(
+      'Cue length in the window',
+      r.length
+        ? facts([
+            ['Median', `${r.length.median} words`],
+            ['Longest', `${r.length.max} words`],
+            [
+              `Within 3 words of the ${CUE_WORD_CAP}-word cap`,
+              `${r.length.nearCap} of ${r.recent.judged}`,
+            ],
+          ])
+        : h('p', { class: 'muted' }, 'Nothing judged yet.'),
+    ),
+  );
+  main.scrollTop = 0;
+}
+
+function showTrust() {
+  state.selected = TRUST_VIEW;
+  history.replaceState(null, '', `#${TRUST_VIEW}`);
+  renderList();
+  renderTrust();
+}
+
 function renderDetail(d) {
   const s = d.session;
   const labels = state.meta.positionLabels;
@@ -1176,9 +1349,11 @@ async function boot() {
     return;
   }
   document.getElementById('records-link').onclick = () => void showRecords();
+  document.getElementById('trust-link').onclick = () => showTrust();
   renderFilters();
   renderList();
-  if (state.selected === RECORDS_VIEW) void showRecords();
+  if (state.selected === TRUST_VIEW) showTrust();
+  else if (state.selected === RECORDS_VIEW) void showRecords();
   else if (state.selected) void selectSession(state.selected);
   else
     main.replaceChildren(h('p', { class: 'empty muted' }, 'Pick a session.'));

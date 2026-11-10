@@ -60,6 +60,7 @@ import {
   verdictInsert,
   verdictsFor,
   versionKey,
+  type PromptAttempt,
   type RecordRow,
   type SessionPromptRecord,
   type SessionRow,
@@ -228,11 +229,39 @@ async function verdictRows(filter = ''): Promise<VerdictRow[] | null> {
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
+/**
+ * Every prompt-log attempt, without the prompt text, grouped by Session. It's
+ * enough to say which model wrote each Cue for the trust report. Null when the
+ * log can't be read (migration 023 not applied).
+ */
+async function promptAttemptsBySession(): Promise<Map<
+  string,
+  PromptAttempt[]
+> | null> {
+  try {
+    const rows = await restAll<PromptAttempt & { session_id: string }>(
+      // Ordered by the primary key so offset paging is stable; runs are
+      // grouped and attempts sorted in `cueWriter`, not here.
+      'session_prompts?select=session_id,run_id,run,attempt,produced_cue,model,created_at' +
+        '&order=id.asc',
+    );
+    const out = new Map<string, PromptAttempt[]>();
+    for (const r of rows) {
+      out.set(r.session_id, [...(out.get(r.session_id) ?? []), r]);
+    }
+    return out;
+  } catch (err) {
+    console.warn(`  ! session_prompts unavailable: ${(err as Error).message}`);
+    return null;
+  }
+}
+
 async function listSessions() {
-  const [rows, names, verdicts] = await Promise.all([
+  const [rows, names, verdicts, attempts] = await Promise.all([
     restAll<SessionRow>('sessions?select=*&order=session_date.desc,id'),
     athleteNames(),
     verdictRows(),
+    promptAttemptsBySession(),
   ]);
   const facts = await versionFacts(rows.map((r) => r.pipeline_version));
   const verdictsBySession = new Map<string, VerdictRow[]>();
@@ -251,6 +280,7 @@ async function listSessions() {
       facts:
         facts.get(versionKey(row.pipeline_version)) ?? UNKNOWN_VERSION_FACTS,
       verdicts: verdictsBySession.get(row.id) ?? [],
+      promptAttempts: attempts?.get(row.id) ?? [],
     }),
   );
 
