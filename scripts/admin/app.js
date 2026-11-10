@@ -16,10 +16,13 @@ import {
   GROUNDING_OUTCOMES,
   REASON_POINTS_AT,
   WRONG_REASONS,
+  cueWords,
   filterSessions,
   isTrustworthy,
   reviewCoverage,
+  secondOpinionReport,
   trustReport,
+  withOpinions,
   withVerdicts,
 } from './review.js';
 
@@ -148,6 +151,8 @@ const state = {
     positionLabels: {},
     reasons: [],
     verdictsAvailable: false,
+    opinionsAvailable: false,
+    betterCueAvailable: false,
   },
   filters: { ...DEFAULT_FILTERS },
   selected: decodeURIComponent(location.hash.slice(1)) || null,
@@ -738,15 +743,22 @@ function recordedPromptSection(p) {
 
 const VERDICT_TITLE = 'Operator verdict';
 
-/** After a write: the Session's verdicts as the server now holds them. */
+/**
+ * After a write: the Session's verdicts as the server now holds them, and its
+ * AI opinions as the server now reveals them (shown once judged, hidden again
+ * once cleared).
+ */
 function applyVerdicts(d, result) {
   d.verdicts = {
     available: true,
     current: result.current,
     earlier: result.earlier,
   };
+  d.opinions = result.opinions;
   state.sessions = state.sessions.map((s) =>
-    s.id === d.session.id ? withVerdicts(s, result.verdicts) : s,
+    s.id === d.session.id
+      ? withOpinions(withVerdicts(s, result.verdicts), result.opinions)
+      : s,
   );
   renderList();
 }
@@ -779,6 +791,37 @@ function verdictForm(d, onSaved, notice) {
     'textarea',
     { name: 'note', rows: 2, 'aria-label': 'Note', placeholder: 'Optional' },
     current?.note ?? '',
+  );
+  // What it should have said: a better Cue, on shallow or wrong only (027).
+  const better = h(
+    'textarea',
+    {
+      name: 'betterCue',
+      rows: 2,
+      'aria-label': 'What should it have said?',
+      placeholder: `Optional. A Cue in your words, at most ${CUE_WORD_CAP} words.`,
+      oninput: () => countWords(),
+    },
+    current?.better_cue ?? '',
+  );
+  const betterCount = h('span', { class: 'small muted' });
+  const countWords = () => {
+    const n = cueWords(better.value);
+    betterCount.textContent = `${n} / ${CUE_WORD_CAP} words`;
+    betterCount.className = n > CUE_WORD_CAP ? 'small error' : 'small muted';
+  };
+  countWords();
+  const betterField = h(
+    'label',
+    {
+      class: 'field',
+      hidden:
+        !d.betterCueAvailable ||
+        !['shallow', 'wrong'].includes(current?.verdict),
+    },
+    h('span', {}, 'What should it have said?'),
+    better,
+    betterCount,
   );
   const chosen = () =>
     form.querySelector(`input[name="${name}"]:checked`)?.value ?? null;
@@ -815,6 +858,13 @@ function verdictForm(d, onSaved, notice) {
           status.textContent = 'A wrong Cue needs a reason.';
           return;
         }
+        const betterCue =
+          d.betterCueAvailable && verdict !== 'sound' ? better.value : null;
+        if (betterCue && cueWords(betterCue) > CUE_WORD_CAP) {
+          status.className = 'small error';
+          status.textContent = `A better Cue is a Cue: at most ${CUE_WORD_CAP} words.`;
+          return;
+        }
         void send(
           {
             sessionId: s.id,
@@ -822,6 +872,7 @@ function verdictForm(d, onSaved, notice) {
             verdict,
             reason: verdict === 'wrong' ? reason.value : null,
             note: note.value,
+            betterCue,
           },
           save,
         );
@@ -840,13 +891,17 @@ function verdictForm(d, onSaved, notice) {
             name,
             value: v,
             checked: current?.verdict === v,
-            onchange: () => (reasonField.hidden = v !== 'wrong'),
+            onchange: () => {
+              reasonField.hidden = v !== 'wrong';
+              betterField.hidden = !d.betterCueAvailable || v === 'sound';
+            },
           }),
           VERDICT[v][0],
         ),
       ),
     ),
     reasonField,
+    betterField,
     h('label', { class: 'field' }, h('span', {}, 'Note'), note),
     h(
       'div',
@@ -908,6 +963,8 @@ function earlierVerdict(d, v, onSaved) {
       `You judged it ${verdictText(v).toLowerCase()} on ${dateTime(v.updated_at)}. The Session’s Cue has been replaced since, so this verdict does not judge the Cue above. The Cue it judged:`,
     ),
     h('blockquote', {}, v.cue),
+    v.better_cue &&
+      h('p', { class: 'small' }, `You'd have said: ${v.better_cue}`),
     v.note && h('p', { class: 'small' }, `Note: ${v.note}`),
     h('div', { class: 'actions' }, clear),
     status,
@@ -955,9 +1012,238 @@ function verdictSection(d, notice = null) {
     s.coaching_cue
       ? verdictForm(d, rerender, notice)
       : h('p', { class: 'muted' }, 'No Cue to judge.', notice && ` ${notice}`),
+    opinionSection(d),
     v.earlier.map((e) => earlierVerdict(d, e, rerender)),
   );
   return el;
+}
+
+// ── AI second opinion (migration 027) ───────────────────────────────────────
+
+const CLAIM_STATUS = {
+  supported: 'Supported',
+  contradicted: 'Contradicted',
+  off_target: 'Off target',
+  unsupported: 'No evidence either way',
+};
+
+const pct = (x) => `${Math.round(100 * x)}%`;
+
+function agreementText(verdict, o) {
+  if (verdict === 'shallow') {
+    return `You said shallow; it ${o.defective ? 'flagged it' : 'passed it'}. Shallow isn't scored.`;
+  }
+  if ((verdict === 'wrong') === o.defective) return 'Agrees with you.';
+  return verdict === 'wrong'
+    ? 'Disagrees: it passed a Cue you judged wrong.'
+    : 'Disagrees: it flagged a Cue you judged sound.';
+}
+
+function opinionCard(verdict, o) {
+  return h(
+    'div',
+    { class: 'callout opinion' },
+    h(
+      'p',
+      {},
+      h(
+        'strong',
+        {},
+        o.defective ? 'It says: defective. ' : 'It says: sound. ',
+      ),
+      agreementText(verdict, o),
+    ),
+    facts([
+      ['Judge', `${o.judge_model} (judge v${o.judge_version})`],
+      [
+        'Evidence',
+        o.mode === 'grounded'
+          ? `Checked against ${o.records_available} records for this position`
+          : 'Ungrounded: too few records, so its own jiu-jitsu. Its false alarms came from here.',
+      ],
+      ['Why', o.rationale],
+      ['Judged', dateTime(o.created_at)],
+    ]),
+    o.claims.length > 0 &&
+      h(
+        'ol',
+        { class: 'claims' },
+        o.claims.map((c) =>
+          h(
+            'li',
+            {},
+            h('strong', {}, `${CLAIM_STATUS[c.status] ?? c.status}: `),
+            c.claim,
+            c.reason && h('span', { class: 'muted' }, ` (${c.reason})`),
+          ),
+        ),
+      ),
+  );
+}
+
+/**
+ * Blind first: the server sends an opinion only once this Cue has a verdict,
+ * so before that the page can only say that one is waiting.
+ */
+function opinionSection(d) {
+  const o = d.opinions;
+  if (!o?.available || !d.session.coaching_cue) return null;
+  if (o.hidden > 0) {
+    return h(
+      'p',
+      { class: 'muted small' },
+      'An AI second opinion on this Cue is waiting. It shows once you save your verdict, so it can’t sway you.',
+    );
+  }
+  if (o.shown.length === 0) {
+    return (
+      d.verdicts.current &&
+      h(
+        'p',
+        { class: 'muted small' },
+        'No AI second opinion on this Cue yet. scripts/judge/opine.sh --go gets one.',
+      )
+    );
+  }
+  return h(
+    'div',
+    { class: 'opinions' },
+    h('h3', {}, 'AI second opinion'),
+    h(
+      'p',
+      { class: 'muted small' },
+      'From the cue judge, which failed validation on false alarms (4 of 11 sound Cues flagged; the bar is 2). A second opinion, never a verdict: Cue trust measures how far to trust it.',
+    ),
+    o.shown.map((x) => opinionCard(d.verdicts.current?.verdict, x)),
+  );
+}
+
+function agreementStatus(r, bar) {
+  if (r.status === 'not_enough') {
+    return h(
+      'p',
+      { class: 'callout warn' },
+      `Not enough to say yet. You’ve both judged ${r.paired} Cues of the ${bar.minPaired} needed: ${r.caught.of} you called wrong and ${r.falseAlarms.of} you called sound, of the ${bar.minEach} of each needed.`,
+    );
+  }
+  return r.status === 'cleared'
+    ? h(
+        'p',
+        { class: 'callout ok' },
+        'It clears the bar. Letting it triage would be a decision of its own: nothing has changed.',
+      )
+    : h(
+        'p',
+        { class: 'callout bad' },
+        'Below the bar: keep judging yourself. Its opinions count toward nothing either way.',
+      );
+}
+
+function sessionLinks(title, ids) {
+  if (ids.length === 0) return null;
+  const shown = ids.slice(0, 10);
+  return h(
+    'div',
+    {},
+    h('p', { class: 'small' }, title),
+    h(
+      'ul',
+      {},
+      shown.map((id) => h('li', {}, sessionLink(id))),
+    ),
+    ids.length > shown.length &&
+      h('p', { class: 'small muted' }, `and ${ids.length - shown.length} more`),
+  );
+}
+
+function secondOpinionSection() {
+  const title = 'AI second opinion vs you';
+  if (!state.meta.opinionsAvailable) {
+    return section(
+      title,
+      h(
+        'p',
+        { class: 'callout warn' },
+        'Unavailable: apply migration 027 (cue_ai_opinions), then run scripts/judge/opine.sh.',
+      ),
+    );
+  }
+  const r = secondOpinionReport(state.sessions);
+  const bar = r.bar;
+  return section(
+    title,
+    h(
+      'p',
+      { class: 'muted' },
+      `Each opinion shows only after your own verdict, so these are blind comparisons. The bar it failed in August, read over more Cues: at least ${pct(bar.minCatch)} of your wrong Cues flagged and at most ${pct(bar.maxFalseAlarm)} of your sound ones. August: 13 of 17 caught, 4 of 11 sound flagged.`,
+    ),
+    r.instruments.length === 0 &&
+      h(
+        'p',
+        { class: 'muted' },
+        'No Cue has both your verdict and an opinion yet.',
+      ),
+    r.instruments.map((x) =>
+      h(
+        'div',
+        { class: 'instrument' },
+        h('h3', {}, x.instrument),
+        agreementStatus(x, bar),
+        facts([
+          ['Cues you’ve both judged', String(x.paired)],
+          [
+            'Your wrong Cues it flagged',
+            `${x.caught.n} of ${x.caught.of} (${share(x.caught.n, x.caught.of)})`,
+          ],
+          [
+            '… checked against records',
+            `${x.caughtByMode.grounded.n} of ${x.caughtByMode.grounded.of}`,
+          ],
+          [
+            '… without records',
+            `${x.caughtByMode.ungrounded.n} of ${x.caughtByMode.ungrounded.of}`,
+          ],
+          [
+            'Your sound Cues it flagged',
+            `${x.falseAlarms.n} of ${x.falseAlarms.of} (${share(x.falseAlarms.n, x.falseAlarms.of)})`,
+          ],
+          [
+            '… checked against records',
+            `${x.falseAlarmsByMode.grounded.n} of ${x.falseAlarmsByMode.grounded.of}`,
+          ],
+          [
+            '… without records',
+            `${x.falseAlarmsByMode.ungrounded.n} of ${x.falseAlarmsByMode.ungrounded.of}`,
+          ],
+          [
+            'Your shallow Cues it flagged (not scored)',
+            `${x.shallowFlagged.n} of ${x.shallowFlagged.of}`,
+          ],
+        ]),
+        sessionLinks('It passed these; you judged them wrong:', x.missed),
+        sessionLinks(
+          'It flagged these; you judged them sound:',
+          x.falselyFlagged,
+        ),
+      ),
+    ),
+    r.waiting > 0 &&
+      h(
+        'p',
+        {},
+        h(
+          'button',
+          { type: 'button', class: 'link', onclick: showUnjudged },
+          `${r.waiting} ${r.waiting === 1 ? 'opinion is' : 'opinions are'} waiting behind your verdict`,
+        ),
+      ),
+    r.unopined > 0 &&
+      h(
+        'p',
+        { class: 'small muted' },
+        `${r.unopined} judged ${r.unopined === 1 ? 'Cue has' : 'Cues have'} no opinion yet: scripts/judge/opine.sh --go.`,
+      ),
+  );
 }
 
 // ── Records behind wrong Cues (#132 story 6) ────────────────────────────────
@@ -1228,6 +1514,7 @@ function renderTrust() {
           ])
         : h('p', { class: 'muted' }, 'Nothing judged yet.'),
     ),
+    secondOpinionSection(),
   );
   main.scrollTop = 0;
 }

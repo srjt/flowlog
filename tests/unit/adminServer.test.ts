@@ -25,7 +25,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { VerdictRow } from '../../scripts/admin/review';
+import type { AiOpinionRow, VerdictRow } from '../../scripts/admin/review';
 
 const SERVER = join(__dirname, '..', '..', 'scripts', 'admin', 'server.ts');
 const USER = 'operator';
@@ -98,6 +98,9 @@ interface Seen {
 
 let seen: Seen[] = [];
 let table: VerdictRow[] = [];
+let opinions: AiOpinionRow[] = [];
+/** A database before migration 027: no `better_cue`, no `cue_ai_opinions`. */
+let before027 = false;
 let ids = 0;
 
 const writesToVerdicts = () =>
@@ -148,6 +151,25 @@ function stubSupabase(req: IncomingMessage, res: ServerResponse, body: string) {
         created_at: '2026-10-01T18:00:05Z',
       },
     ]);
+  }
+  const missing = (what: string) => {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ message: `${what} does not exist` }));
+  };
+  if (path === 'cue_ai_opinions') {
+    if (before027) return missing('relation cue_ai_opinions');
+    const session = q.get('session_id')?.replace(/^eq\./, '');
+    return reply(
+      page(opinions.filter((o) => !session || o.session_id === session)),
+    );
+  }
+  if (
+    before027 &&
+    path === 'cue_verdicts' &&
+    ((q.get('select') ?? '').includes('better_cue') ||
+      body.includes('better_cue'))
+  ) {
+    return missing('column cue_verdicts.better_cue');
   }
   if (path === 'cue_verdicts') {
     const session = q.get('session_id')?.replace(/^eq\./, '');
@@ -263,6 +285,8 @@ afterAll(async () => {
 beforeEach(() => {
   seen = [];
   table = [];
+  opinions = [];
+  before027 = false;
 });
 
 interface Reply {
@@ -510,5 +534,152 @@ describe('the method gate', () => {
 
   it('still serves reads', async () => {
     expect((await call('GET', '/api/sessions')).status).toBe(200);
+  });
+});
+
+// ── Migration 027: the AI second opinion and the better Cue ─────────────────
+
+const RATIONALE = 'nothing addresses the mistake: frames are a bottom-side fix';
+
+const opinion = (o: Partial<AiOpinionRow> = {}): AiOpinionRow => ({
+  session_id: SESSION_ID,
+  cue: CUE,
+  defective: true,
+  mode: 'ungrounded',
+  records_available: 0,
+  claims: [{ claim: 'Frame on the hip', status: 'off_target', reason: 'x' }],
+  rationale: RATIONALE,
+  judge_model: 'judge-model',
+  judge_version: '1',
+  created_at: '2026-10-02T09:00:00Z',
+  ...o,
+});
+
+describe('the AI second opinion is blind first, enforced by the server', () => {
+  it('sends nothing of an opinion until the Cue is judged, only that one waits', async () => {
+    opinions = [opinion()];
+
+    const list = await call('GET', '/api/sessions');
+    expect(list.json().opinionsAvailable).toBe(true);
+    const [summary] = list.json().sessions as Record<string, unknown>[];
+    expect(summary).toMatchObject({ ai: [], aiHidden: 1 });
+
+    const detail = await call('GET', `/api/sessions/${SESSION_ID}`);
+    expect(detail.json().opinions).toEqual({
+      available: true,
+      shown: [],
+      hidden: 1,
+    });
+    // Not in the payload at all, so not in devtools either.
+    for (const body of [list.text, detail.text]) {
+      expect(body).not.toContain(RATIONALE);
+      expect(body).not.toContain('off_target');
+    }
+  });
+
+  it('reveals it in the answer to the verdict, and hides it again on clearing', async () => {
+    opinions = [opinion()];
+
+    const judged = await post(WRONG);
+    expect(judged.json().opinions).toMatchObject({
+      available: true,
+      hidden: 0,
+      shown: [{ defective: true, rationale: RATIONALE }],
+    });
+    const [summary] = (await call('GET', '/api/sessions')).json()
+      .sessions as Record<string, unknown>[];
+    expect(summary).toMatchObject({
+      aiHidden: 0,
+      ai: [
+        {
+          instrument: 'judge-model (judge v1)',
+          defective: true,
+          mode: 'ungrounded',
+        },
+      ],
+    });
+
+    const cleared = await post({
+      sessionId: SESSION_ID,
+      cue: CUE,
+      verdict: null,
+    });
+    expect(cleared.json().opinions).toEqual({
+      available: true,
+      shown: [],
+      hidden: 1,
+    });
+    expect(cleared.text).not.toContain(RATIONALE);
+  });
+
+  it('never shows an opinion about an earlier Cue against this one', async () => {
+    opinions = [opinion({ cue: 'The Cue before a Re-analyze.' })];
+    const judged = await post(WRONG);
+    expect(judged.json().opinions).toEqual({
+      available: true,
+      shown: [],
+      hidden: 0,
+    });
+  });
+});
+
+describe('the better Cue (migration 027)', () => {
+  it('is stored with a shallow or wrong verdict', async () => {
+    const res = await post({
+      ...WRONG,
+      betterCue: '  Frame on the far hip and get to your side. ',
+    });
+    expect(res.status).toBe(200);
+    const [row] = JSON.parse(writesToVerdicts()[0]?.body ?? '[]');
+    expect(row.better_cue).toBe('Frame on the far hip and get to your side.');
+    expect(res.json().current).toMatchObject({
+      better_cue: 'Frame on the far hip and get to your side.',
+    });
+  });
+
+  it('is refused on a sound verdict, before anything is written', async () => {
+    const res = await post({
+      sessionId: SESSION_ID,
+      cue: CUE,
+      verdict: 'sound',
+      betterCue: 'Something else.',
+    });
+    expect(res.status).toBe(400);
+    expect(writesToVerdicts()).toEqual([]);
+  });
+});
+
+describe('before migration 027 is applied', () => {
+  beforeEach(() => {
+    before027 = true;
+  });
+
+  it('still lists and saves verdicts, and says what is missing', async () => {
+    const list = (await call('GET', '/api/sessions')).json();
+    expect(list).toMatchObject({
+      verdictsAvailable: true,
+      opinionsAvailable: false,
+      betterCueAvailable: false,
+    });
+
+    const res = await post(WRONG);
+    expect(res.status).toBe(200);
+    const writes = writesToVerdicts();
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(writes[0]?.body ?? '[]')[0]).not.toHaveProperty(
+      'better_cue',
+    );
+    expect(res.json().opinions).toEqual({
+      available: false,
+      shown: [],
+      hidden: 0,
+    });
+  });
+
+  it('refuses a better Cue with a message that names the migration', async () => {
+    const res = await post({ ...WRONG, betterCue: 'Frame first.' });
+    expect(res.status).toBe(409);
+    expect(res.json().error).toMatch(/migration 027/);
+    expect(writesToVerdicts()).toEqual([]);
   });
 });

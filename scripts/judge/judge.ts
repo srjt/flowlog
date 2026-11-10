@@ -25,6 +25,16 @@ import type { GroundableRecord } from '../../src/sports/grounding.ts';
 /** A model call. Returns raw text; the judge parses it. */
 export type Complete = (prompt: string) => Promise<string>;
 
+/**
+ * The judge's version: its prompts (`prompts.ts`), sufficiency gate and
+ * decision rule (`verdict.ts`). Stored with every live opinion (migration
+ * 027), because a changed judge is a different instrument and its agreement
+ * with the operator has to be measured from scratch. Bump it with any change
+ * to what the judge decides; `tests/unit/judgeOpinions.test.ts` pins the
+ * prompts to it so a prompt edit can't slip through unversioned.
+ */
+export const JUDGE_VERSION = '1';
+
 const STATUSES: ClaimStatus[] = [
   'supported',
   'contradicted',

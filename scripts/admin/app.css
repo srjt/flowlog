@@ -514,6 +514,33 @@ textarea {
   margin-top: 12px;
 }
 
+/* ── AI second opinion ───────────────────────────────────────────────────── */
+
+.opinions,
+.instrument {
+  margin-top: 16px;
+}
+
+.opinions h3,
+.instrument h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.opinion {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+}
+
+.opinion p {
+  margin: 0 0 6px;
+}
+
+.claims {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
 .earlier p {
   margin: 0;
 }

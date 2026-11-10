@@ -46,6 +46,8 @@ function summary(
     verdictReason: verdict === 'wrong' ? 'model_wrong' : null,
     earlierVerdicts: 0,
     cueWriter: 'pro-model',
+    ai: [],
+    aiHidden: 0,
     ...extra,
   };
 }

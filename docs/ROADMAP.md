@@ -19,6 +19,7 @@ bring it back.
 - **The loop, weekly:**
   1. Record sessions in the app.
   2. Judge the new Cues in the review tool: sound, shallow or wrong, and why.
+     On shallow or wrong, add what it should have said when you know.
   3. Open **Cue trust**. Read the status and the top reason.
   4. Fix only what the top reason points at, one fix at a time, then measure
      again.
@@ -27,12 +28,13 @@ bring it back.
 
 | # | step | who | state |
 | --- | --- | --- | --- |
-| 1 | Deploy what's merged: `npx supabase db push` (migrations 024–026), **then** `npx supabase functions deploy process-session` | You | open |
+| 1 | Deploy what's merged: `npx supabase db push` (migrations 024–026), **then** `npx supabase functions deploy process-session` | You | migrations applied 10 Nov; confirm the function deploy |
 | 2 | Ship the app update: compare fingerprints with build 30; if only `.gitignore` differs, OTA to `testflight` | You | open |
 | 3 | #138: one real Re-analyze, including a declined one; an agent reads the rows | You + agent | after step 1 |
 | 4 | Judge every Cue written since the Pro model went live (8 Oct). This is also #137's read | You | after step 1 |
 | 5 | Read **Cue trust**; choose the fix from the top reason | You + agent | after step 4 |
 | 6 | #153 (draft PR #154): merge only after #137 reads out, and only if off-target records show up as a real share of wrong Cues | — | waiting |
+| 7 | AI second opinion and the "what should it have said?" box: after merge, `npx supabase db push` (027), then `scripts/judge/opine.sh --go`. Keep judging as usual; it shows each opinion only after your verdict, and **Cue trust** measures it against the bar it failed in August (`docs/ADMIN.md`) | You | in review |
 
 ## Parked (GitHub label `parked`)
 
@@ -44,7 +46,7 @@ bring it back.
 | Corpus growth and cleanup | #97, #100, #133 | verdicts show `records_wrong` among the top reasons |
 | Certification go-live | #77, #132 (story 12) | verdicts show `records_wrong` or `records_misapplied` among the top reasons |
 | Semantic retrieval | #116 | verdicts show `off_target` or `records_misapplied` among the top reasons |
-| Automated judge | #62 | about 50 or more Cues carry verdicts |
+| Automated judge as a release gate | #62 | about 50 or more Cues carry verdicts. The blind second opinion (step 7) runs meanwhile and never counts as a verdict |
 
 Still active: #137, #138, #153, #30 (the cue-quality map) and #139 (the findings
 log, for reference).
@@ -54,8 +56,8 @@ log, for reference).
 - **Measure before changing** (#139). On the coaching path, change one thing at
   a time, and bump `pipeline_version` (`src/constants/pipelineVersion.ts`) when
   what a row means changes.
-- **Migrations go in merge order;** never reserve numbers ahead. 027 is drafted
-  in #154.
+- **Migrations go in merge order;** never reserve numbers ahead. 027 is the
+  AI second opinion; draft #154 moves to 028.
 - **Apply migrations before `functions deploy`.** The function writes the new
   columns on every Session.
 - **In PR text, write "Part of #N",** never "does not close #N": GitHub reads

@@ -158,6 +158,13 @@ lands where the fault is:
 | `off_target`          | sound jiu-jitsu aimed at the wrong problem (about half of #61's defects) |
 | `model_wrong`         | no relevant records, and the model's own jiu-jitsu was wrong             |
 
+**What should it have said?** On a shallow or wrong verdict, an optional box
+takes the Cue you would have given, at most 25 words like any Cue (a live word
+count shows under it). Paired with the Cue it replaces, each one is a
+preference pair: the start of an evaluation set, and the only training data
+worth having if Flowlog ever tunes its own model. A sound Cue takes none; the
+database refuses one there (migration 027).
+
 A note is optional free text. **No row means unjudged**: there is never a
 "fine by default", and _Unjudged_ is its own filter. Saving again changes the
 verdict in place; _Clear verdict_ returns the Cue to unjudged. The database
@@ -236,6 +243,66 @@ verdicts. Everything on it is computed in the page from the session list
 The session list gains each Cue's writer from one extra read of
 `session_prompts`, without the prompt text.
 
+The page ends with **AI second opinion vs you**, described next.
+
+### The AI second opinion
+
+The cue judge (`scripts/judge`, #61) splits a Cue into claims and checks each
+one against the Coaching records for its position, as a black belt reading the
+corpus would. It **failed** its validation (`scripts/judge/VALIDATION.md`): it
+caught 13 of 17 wrong Cues but flagged 4 of 11 sound ones, against a bar of at
+most 2. So it runs here as a second opinion that has to earn trust, never as a
+verdict.
+
+**Getting opinions.** From the repo root on your Mac, with `GEMINI_API_KEY` and
+the service-role key in `.env`:
+
+```bash
+scripts/judge/opine.sh
+```
+
+```bash
+scripts/judge/opine.sh --go
+```
+
+The first is a dry run: how many Cues have no opinion yet from this judge, and
+roughly how many model calls judging them costs. `--go` judges them and stores
+each result in `cue_ai_opinions` (migration 027); `--limit N` takes the newest
+N. It is idempotent: a re-run judges only Cues that are new, or whose text a
+Re-analyze replaced. `JUDGE_MODEL` picks the model (default
+`gemini-3.1-pro-preview`). The judge is told the Cue, its target position and
+the key mistake, never your verdict, reason, note or better Cue.
+
+**Blind first.** You see an opinion only after saving your own verdict on the
+same Cue, so it can never anchor you. The server enforces it: until then it
+sends the page only that an opinion is waiting, never what it says, and
+`opine.sh` prints how many it stored, never what they found. Saving a verdict
+reveals the opinion under the form: what it said, whether that agrees with
+you, whether records backed the check (_grounded_) or it relied on its own
+jiu-jitsu (_ungrounded_, where its false alarms came from), and each claim it
+checked. Clearing the verdict hides it again. An opinion about an earlier Cue
+is never shown against the current one.
+
+**Earning trust.** On the Cue trust page, per judge (model and
+`JUDGE_VERSION`, since a changed judge is a new instrument): how many Cues you
+have both judged, how many of your wrong Cues it flagged and how many of your
+sound ones, each split grounded and ungrounded, and your shallow ones apart,
+unscored. The split matters both ways: ungrounded is where its false alarms
+came from, and a grounded check reads the records that may have written the Cue
+(#62's caveat), so it leans toward passing. Your verdicts are the independent
+side that shows either bias. Disagreements are listed so you can read them. The hand-over bar
+(`HAND_OVER_BAR` in `review.ts`) is the bar it failed in August, read over many
+more Cues: at least 12 in 17 of your wrong Cues flagged and at most 2 in 11 of
+your sound ones, over at least 50 Cues you have both judged, with 10 or more of
+each. It reads _not enough to say yet_, then _clears the bar_ or _below the
+bar_.
+
+**What it is not.** Never a verdict: nothing is written to `cue_verdicts`, it
+counts toward neither the trust target nor the records panel, and nothing in
+the app, Grounding, the quality gate or the certification queue reads it.
+Clearing the bar switches nothing on; letting the judge triage would be a
+separate decision.
+
 ### Records behind wrong Cues
 
 Opened from the sidebar link (`#records`). Every Coaching record that sat
@@ -275,10 +342,13 @@ would feed it.
 
 ### Deploying it
 
-Apply migration `026_cue_verdicts.sql` after 024 and 025: `supabase db push`
-refuses a migration that sorts below one already applied (docs/ROADMAP.md).
-Nothing else is deployed; the tool runs locally. Until 026 is applied the page
+Apply migration `026_cue_verdicts.sql` after 024 and 025, and
+`027_ai_second_opinion.sql` after 026: `supabase db push` refuses a migration
+that sorts below one already applied (docs/ROADMAP.md). Nothing else is
+deployed; the tool and `opine.sh` run locally. Until 026 is applied the page
 says so in place of the verdict controls, and everything else works as before.
+Until 027 is, verdicts still save, without the better-Cue box, and the Cue
+trust page says the second opinion needs it.
 
 ## Why local, and why it writes only one thing
 
@@ -291,7 +361,8 @@ one operator, which is a different risk:
   role key already in `.env`. No new client-reachable function over
   `sessions`, nothing about athletes reachable from the internet. Its one
   table, `cue_verdicts`, is locked down like `session_prompts`: RLS on, client
-  grants revoked, no policy. Moving the tool to a deployed `/admin` later is
+  grants revoked, no policy. So is `cue_ai_opinions`, which the tool only reads
+  and `scripts/judge/opine.sh` writes, on the same machine with the same key. Moving the tool to a deployed `/admin` later is
   cheap; un-exposing data is not.
 - **Basic auth plus a loopback Host check.** Binding keeps other machines out.
   The credentials and the Host check keep out other pages in your own browser,
@@ -325,4 +396,10 @@ one operator, which is a different risk:
 - `scripts/admin/app.js`, `index.html`, `app.css`: the page. Database text is
   only ever inserted as text nodes, never as HTML.
 - `tests/unit/adminServer.test.ts` runs the real server against a stub
-  Supabase on loopback: the write route, its refusals, and the method gate.
+  Supabase on loopback: the write route, its refusals, the method gate, and
+  that an opinion never reaches the page before its Cue is judged.
+- `tests/unit/adminSecondOpinion.test.ts`: the better Cue, the blind-first
+  reveal, the agreement report and migration 027.
+- `scripts/judge/opine.ts` (pure half in `opinion.ts`, tested in
+  `tests/unit/judgeOpinions.test.ts`) and `scripts/judge/services.ts`, the
+  model calls and serving-store reads it shares with the validation run.
