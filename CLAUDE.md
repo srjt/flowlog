@@ -10,6 +10,16 @@ a trend log that surfaces recurring weaknesses over time.
 
 Tagline: "Talk. Reflect. Improve."
 
+## Current Focus (read first)
+
+Until further notice the project works on one question: **"I trust the cues it
+gives me."** The plan, the target and the loop are in `docs/ROADMAP.md`.
+
+- Issues labelled **`parked`** are out of scope. Don't build them unless the
+  owner unparks them; each parked issue says what would bring it back.
+- On the coaching path, change one thing at a time, and only what the
+  **Cue trust** page's top reason points at (`docs/ADMIN.md`).
+
 ## Current State
 
 - **Phase:** 1 — Project scaffold, provider abstraction layer, sport context system

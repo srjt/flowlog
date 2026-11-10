@@ -206,6 +206,36 @@ narrow the list, the same count for the current view. Sessions with no Cue (a
 declined take) cannot be judged and are not counted. Read a pattern against
 this: "7 wrong" means little out of 12 judged.
 
+### Cue trust
+
+Opened from the sidebar link **Cue trust** (`#trust`). It answers the
+project's current focus, _"do I trust the cues it gives me?"_, from your own
+verdicts. Everything on it is computed in the page from the session list
+(`trustReport` in `review.ts`), so it needs no extra request and is unit-tested.
+
+- **The target.** `TRUST_TARGET` in `review.ts`: at most 1 in 5 wrong over your
+  last 20 judged Cues. It reads _not enough judged yet_ until 20 are judged,
+  then _met_ or _not there yet_. Only verdicts on the Cue a Session holds now
+  count; a verdict about an earlier Cue judged text no athlete sees any more.
+- **Against the baseline.** Your recent split beside the #36 hand read
+  (`FROZEN_BASELINE`: 36 cues, 11 sound, 8 shallow, 17 wrong, 47%), written
+  before the Pro coaching model. A link lists the Cues still waiting for a
+  verdict.
+- **Why the wrong ones are wrong.** The reasons in the window, most common
+  first. Each one names the part of the pipeline a fix belongs in, and the
+  parked issues it would unpark (`REASON_POINTS_AT`). **This is how the next
+  fix is chosen: by the top reason, not by what seems interesting.**
+- **By the model that wrote the Cue.** From the latest prompt-log run of each
+  Session (`cueWriter`). A Cue from the coaching model's transient-failure
+  fallback shows under that model's name, the quality gate's fixed fallback
+  shows as such, and Sessions from before the prompt log show as not logged.
+  This is #137's "which model actually answered".
+- **Cue length.** Median and longest, and how many are within 3 words of the
+  25-word cap (#137 asks whether the cap is now the binding constraint).
+
+The session list gains each Cue's writer from one extra read of
+`session_prompts`, without the prompt text.
+
 ### Records behind wrong Cues
 
 Opened from the sidebar link (`#records`). Every Coaching record that sat
