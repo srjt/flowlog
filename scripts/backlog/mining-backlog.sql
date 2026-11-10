@@ -97,7 +97,7 @@ order by sessions desc;
 -- `mistake_concerns` is what decided whether to ground. Read it against the
 -- target position the Cue then resolved to: 'position' with no target, or
 -- 'submission'/'transition' with one, is where the classifier and the Cue
--- disagree and is worth reading. NULL is a row from before migration 027 and
+-- disagree and is worth reading. NULL is a row from before migration 028 and
 -- is excluded, never counted as 'unknown'.
 -- ─────────────────────────────────────────────────────────────────────────────
 select

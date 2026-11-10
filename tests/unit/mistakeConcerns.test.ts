@@ -1,6 +1,6 @@
 /**
  * Grounding abstains when the key mistake is not about a position (#153,
- * migration 027).
+ * migration 028).
  *
  * Seams, in the order the decision travels:
  *   1. Extraction says what the mistake concerns (the BJJ prompt), and both
@@ -10,7 +10,7 @@
  *      write. Deno cannot load under Jest, so that half is a source scan, as in
  *      `sessionPerspective` and `reanalysisProvenance`.
  *   3. The client's Supabase mapping, against a captured client.
- *   4. Migration 027, and the review tool's outcome list kept equal to it.
+ *   4. Migration 028, and the review tool's outcome list kept equal to it.
  *
  * The client reference pipeline runs for real in
  * `tests/integration/FlowlogPipeline.test.ts`.
@@ -59,7 +59,7 @@ const read = (rel: string) =>
 
 const EDGE = read('supabase/functions/process-session/index.ts');
 const AI = read('supabase/functions/_shared/ai.ts');
-const SQL = read('supabase/migrations/027_grounding_not_positional.sql');
+const SQL = read('supabase/migrations/028_grounding_not_positional.sql');
 const SQL_010 = read('supabase/migrations/010_grounding_experiment.sql');
 const APP_JS = read('scripts/admin/app.js');
 
@@ -382,16 +382,16 @@ describe('SupabaseStorageProvider maps sessions.mistake_concerns', () => {
     expect(mockWrites[1]?.payload).not.toHaveProperty('mistake_concerns');
   });
 
-  it('reads a row from before migration 027 as not recorded', async () => {
+  it('reads a row from before migration 028 as not recorded', async () => {
     mockRowFromDb = { id: 'old', user_id: 'u1', sport_key: 'bjj' };
     const saved = await provider.saveSession(base);
     expect(saved.mistakeConcerns).toBeNull();
   });
 });
 
-// ── 4. Migration 027 ────────────────────────────────────────────────────────
+// ── 4. Migration 028 ────────────────────────────────────────────────────────
 
-describe('migration 027', () => {
+describe('migration 028', () => {
   const constraint = slice(
     SQL,
     'alter table public.sessions\n  drop constraint',
@@ -495,7 +495,7 @@ describe('migration 027', () => {
         'comment on column public.sessions.grounding_gate_passed',
         '$$;',
       ),
-    ).toMatch(/grounding = 'not_positional', migration 027\)\. NULL is not 0/);
+    ).toMatch(/grounding = 'not_positional', migration 028\)\. NULL is not 0/);
   });
 
   it('does not backfill', () => {

@@ -57,7 +57,7 @@ export interface GroundableRecord {
  *   transition  executing a specific move, not controlling a position
  *   unknown     Extraction could not tell, or said something else
  *
- * Exactly the values `sessions.mistake_concerns` accepts (migration 027).
+ * Exactly the values `sessions.mistake_concerns` accepts (migration 028).
  */
 export type MistakeConcerns =
   | 'position'
@@ -105,7 +105,7 @@ export interface GroundableExtraction {
   /**
    * What the key mistake is about (#153). Read only by `groundingScope`.
    * Absent or null means not recorded (a replayed row from before migration
-   * 027) and grounds exactly as `'unknown'` does, which is as before.
+   * 028) and grounds exactly as `'unknown'` does, which is as before.
    */
   mistakeConcerns?: MistakeConcerns | null;
 }

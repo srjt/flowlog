@@ -120,9 +120,9 @@ taken from the most direct evidence there is, and the page says which:
 4. Otherwise **unknown**, never guessed, and labelled as not recorded.
 
 When the Session recorded that its key mistake is about a `submission` or a
-`transition` (`sessions.mistake_concerns`, migration 027), the rebuild looks no
+`transition` (`sessions.mistake_concerns`, migration 028), the rebuild looks no
 records up, as the pipeline does (`not_positional`, #153), and says so in a
-caveat. A Session from before 027 recorded nothing and is rebuilt as before.
+caveat. A Session from before 028 recorded nothing and is rebuilt as before.
 
 When the Session stored its record ids, the page compares them with today's
 selection. Replaying a Session that targeted "Berimbolo" with the side taken

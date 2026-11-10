@@ -76,7 +76,7 @@ export interface ExtractionOutput {
    * such a mistake would ground the cue in a different problem. `'unknown'`
    * grounds exactly as `'position'` does, so an unsure Extraction never loses
    * grounding. `ExtractionService` turns any other value into `'unknown'`.
-   * Persisted on the Session (migration 027).
+   * Persisted on the Session (migration 028).
    */
   mistakeConcerns: MistakeConcerns;
 }

@@ -364,7 +364,7 @@ function mapSession(row: any): Session {
     // Null on rows from before migration 024: not recorded, which is NOT the
     // recorded abstention 'unknown' (#130).
     perspective: row.perspective ?? null,
-    // Null on rows from before migration 027: not recorded, which is NOT the
+    // Null on rows from before migration 028: not recorded, which is NOT the
     // recorded 'unknown' (#153).
     mistakeConcerns: row.mistake_concerns ?? null,
     // Null on rows from before migration 025: not recorded (#135).

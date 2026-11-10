@@ -70,12 +70,12 @@ export interface Session extends SessionDiagramFields {
   perspective?: ExtractionPerspective | null;
   /**
    * What the key mistake is about, as Extraction reported it (#153 /
-   * migration 027). Grounding abstained, as `not_positional`, when it said
+   * migration 028). Grounding abstained, as `not_positional`, when it said
    * `submission` or `transition`.
    *
    * `null` means NOT RECORDED — the row predates the column — and must never be
    * read as `'unknown'`, which is Extraction's recorded abstention. Optional
-   * because rows read before 027 is applied lack it.
+   * because rows read before 028 is applied lack it.
    */
   mistakeConcerns?: MistakeConcerns | null;
   targetPosition: string | null;

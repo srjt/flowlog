@@ -21,6 +21,12 @@
 -- 'position' and 'unknown' ground exactly as before, so an unsure Extraction
 -- never quietly loses grounding.
 --
+-- ── Numbering ────────────────────────────────────────────────────────────────
+--
+-- 028 in merge order. This was drafted as 027 while parked; the AI second
+-- opinion (PR #156) took 027, so apply this AFTER 027. Nothing here depends on
+-- 027's schema; only the order of application matters (docs/ROADMAP.md).
+--
 -- ── `not_positional` is not `no_position` ───────────────────────────────────
 --
 -- `no_position` means the taxonomy failed to resolve a position, and the mining
@@ -98,7 +104,7 @@ alter table public.sessions
 comment on column public.sessions.mistake_concerns is
   $$What the key mistake is about, as Extraction reported it (#153).
 
-    NULL means NOT RECORDED: the Session was written before migration 027. It
+    NULL means NOT RECORDED: the Session was written before migration 028. It
     is never "Extraction could not tell" and must not be counted as one. There
     is no backfill.
 
@@ -136,7 +142,7 @@ comment on column public.sessions.grounding is
                      (mistake_concerns, #153), so grounding abstained and
                      looked nothing up. A decision, not a gap: neither
                      no_position nor no_records, and nothing to mine or fix.
-                     Only on pipeline_version 1.4.0+ (migration 027).
+                     Only on pipeline_version 1.4.0+ (migration 028).
 
     CAVEAT (migration 019). On pipeline_version 1.0.0 this column records what
     was SELECTED, not what the model received: the prompt carried the literal
@@ -156,7 +162,7 @@ comment on column public.sessions.grounding_candidates is
     number of rows the pipeline fetched. Null on rows predating the column, and
     null when the count was unavailable — null is unknown, and the mining
     backlog excludes it rather than guessing. Null too when grounding =
-    'not_positional' (migration 027): grounding abstained and looked nothing up.
+    'not_positional' (migration 028): grounding abstained and looked nothing up.
 
     With grounding = no_records: 0 means the corpus is empty for that position
     (mine it), > 0 means records existed but were filtered out (mining will not
@@ -182,7 +188,7 @@ comment on column public.sessions.grounding_gate_passed is
 
     NULL means not recorded: every row before this column existed, and any row
     where grounding was never looked up or ranked (a declined take, a lookup
-    failure, or grounding = 'not_positional', migration 027). NULL is not 0 —
+    failure, or grounding = 'not_positional', migration 028). NULL is not 0 —
     0 means the gate rejected everything, which is a finding about the corpus,
     and reading one as the other is the #58 error one layer down.$$;
 

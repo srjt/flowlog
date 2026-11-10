@@ -558,7 +558,7 @@ Deno.serve(async (req: Request) => {
           // What the key mistake is about (#153), here for the same reason:
           // the declined insert writes it too. It decided whether to ground,
           // so an abstention can be audited against the target the cue then
-          // resolved to. 'unknown' is recorded; only a pre-027 row is NULL.
+          // resolved to. 'unknown' is recorded; only a pre-028 row is NULL.
           mistake_concerns: extraction.mistakeConcerns,
           coaching_cue: analysis.cue,
           target_position: analysis.targetPosition,

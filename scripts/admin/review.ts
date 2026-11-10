@@ -16,7 +16,7 @@ export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Every value `sessions.grounding` can hold (migration 027's CHECK).
+ * Every value `sessions.grounding` can hold (migration 028's CHECK).
  *
  * `not_positional` (#153) is its own outcome: grounding abstained because
  * Extraction said the mistake is about a submission or a transition. It is
@@ -67,8 +67,8 @@ export interface SessionRow {
    */
   perspective?: 'top' | 'bottom' | 'unknown' | null;
   /**
-   * Migration 027: what Extraction said the key mistake is about (#153).
-   * NULL means not recorded (a Session from before 027), never 'unknown'.
+   * Migration 028: what Extraction said the key mistake is about (#153).
+   * NULL means not recorded (a Session from before 028), never 'unknown'.
    * Optional: absent until that migration is applied.
    */
   mistake_concerns?:

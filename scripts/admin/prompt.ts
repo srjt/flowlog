@@ -169,7 +169,7 @@ export function inferredPerspective(
  *
  * None when the Session recorded that its mistake is about a submission or a
  * transition (#153): the pipeline abstains on those and looks nothing up. A
- * Session from before migration 027 recorded nothing, which grounds as before.
+ * Session from before migration 028 recorded nothing, which grounds as before.
  */
 export function positionsToday(row: PromptSessionRow, side: Side): string[] {
   const scope = groundingScope({

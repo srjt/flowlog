@@ -110,14 +110,14 @@ the position or the side could not be determined).
     certification queue or the app reads it.
   - Apply 026 after 024 and 025 (migration numbers are taken in merge order).
 - `mistake_concerns` on sessions, and the `not_positional` grounding outcome
-  (migration 027, #153). `mistake_concerns` is what Extraction said the key
+  (migration 028, #153). `mistake_concerns` is what Extraction said the key
   mistake is about: `position`, `submission`, `transition` or `unknown`,
   enforced by a CHECK. **NULL means not recorded** (a Session written before
-  027), never `unknown`, so any rate over it is taken over
+  028), never `unknown`, so any rate over it is taken over
   `mistake_concerns is not null`. Written on all four Session writes and
   overwritten by Re-analyze, like `perspective`. Not backfilled.
   - On `submission` or `transition` grounding abstains and records
-    `grounding = 'not_positional'`, which 027 adds to the `grounding` CHECK
+    `grounding = 'not_positional'`, which 028 adds to the `grounding` CHECK
     (`sessions_grounding_check`, dropped and recreated with every earlier
     value kept). It is neither `no_position` nor `no_records`, and the mining
     backlog counts it as neither. An abstained Session writes the funnel a
@@ -127,7 +127,7 @@ the position or the side could not be determined).
   - `pipeline_version` moved to `1.4.0` with it, since record selection
     changed: `not_positional` appears only on 1.4.0+ rows.
   - `process-session` writes the column on every Session and the new outcome
-    on abstained ones, so apply 027 before deploying that function, or writes
+    on abstained ones, so apply 028 before deploying that function, or writes
     fail with PGRST204 or a CHECK violation.
 - `quality_gate_passed` stored: dashboard can filter to high-confidence outputs only
 - `thumbs_up` field: binary user feedback, feeds quality monitoring pipeline

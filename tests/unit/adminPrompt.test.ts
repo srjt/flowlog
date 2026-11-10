@@ -349,7 +349,7 @@ describe("cue review: today's prompt", () => {
   });
 });
 
-// ── The abstention, mirrored (#153, migration 027) ──────────────────────────
+// ── The abstention, mirrored (#153, migration 028) ──────────────────────────
 // The rebuild is the prompt the pipeline WOULD send now, so it has to abstain
 // where the pipeline does, and only there.
 describe("cue review: today's prompt abstains like the pipeline", () => {
@@ -377,12 +377,12 @@ describe("cue review: today's prompt abstains like the pipeline", () => {
     },
   );
 
-  // NULL is a Session from before 027: not recorded, never an abstention.
+  // NULL is a Session from before 028: not recorded, never an abstention.
   it.each([
     ['position', 'position'],
     ['unknown', 'unknown'],
     ['not recorded', null],
-    ['absent before 027', undefined],
+    ['absent before 028', undefined],
   ] as const)('grounds as before when it recorded %s', (_label, concerns) => {
     const r = reverseTriangle({ mistake_concerns: concerns });
     expect(positionsToday(r, 'bottom')).toEqual(['side-control-bottom']);

@@ -26,7 +26,7 @@
  *   1.4.0  record selection abstains when Extraction says the key mistake is
  *          about finishing a submission or executing a transition, not a
  *          position, recording `grounding = 'not_positional'` and no records
- *          (#153, 027). Before it, such a session was grounded on whatever
+ *          (#153, 028). Before it, such a session was grounded on whatever
  *          positions were co-mentioned beside the mistake.
  *
  * What the version can and cannot segment for 1.3.0: re-analysis stamps the
