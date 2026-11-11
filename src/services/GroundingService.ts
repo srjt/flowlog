@@ -9,6 +9,7 @@
  */
 export {
   candidatePositions,
+  groundingScope,
   groundingSection,
   rankRecords,
   rankRecordsWithStats,
@@ -17,5 +18,6 @@ export {
 export type {
   GroundableExtraction,
   GroundableRecord,
+  GroundingScope,
   RankedRecords,
 } from '@/sports/grounding';

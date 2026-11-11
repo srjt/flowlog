@@ -129,6 +129,31 @@ describe('mining backlog (#58)', () => {
     expect(b.outcomes.declined).toBe(1);
   });
 
+  // #153: grounding abstained because the mistake is about a submission or a
+  // transition. Not a taxonomy gap (its "Reverse Triangle" is no position to
+  // add) and not a corpus gap (its candidates are null: nothing was looked up).
+  it('counts not_positional as itself, never as no_position or no_records', () => {
+    const b = rankBacklog([
+      row({
+        grounding: 'not_positional',
+        grounding_candidates: null,
+        target_position_id: null,
+        positions_visited: ['Side Control', 'Reverse Triangle'],
+      }),
+      // Even with a target the Cue resolved to, it is not a gap to mine.
+      row({
+        grounding: 'not_positional',
+        grounding_candidates: null,
+        target_position_id: 'side-control-bottom',
+        positions_visited: ['Side Control', 'Triangle Choke'],
+      }),
+    ]);
+    expect(b.mine).toEqual([]);
+    expect(b.filteredOut).toEqual([]);
+    expect(b.unresolved).toEqual([]);
+    expect(b.outcomes).toEqual({ not_positional: 2 });
+  });
+
   it('counts every outcome, including sessions predating the logging', () => {
     const b = rankBacklog([
       row({ grounding: 'grounded' }),

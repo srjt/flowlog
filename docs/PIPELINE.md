@@ -69,6 +69,50 @@ All downstream stages use this context — never hardcoded sport logic.
 - Output: strict JSON `ExtractionOutput`
 - Rule: extraction prompt does NOT generate coaching. Separation is intentional
   and must be maintained.
+- Besides the facts, Extraction makes the judgements that need the language:
+  whether there is anything to coach (`hasCoachableContent`, #44), which side
+  the athlete was on (`perspective`, #48), whether the gi was stated
+  (`statedGi`, #60), and what the key mistake is about (`mistakeConcerns`,
+  #153): `position`, `submission` (their own attack), `transition` or
+  `unknown`. Each is normalised on both sides, and an unexpected value becomes
+  `unknown`. `normaliseMistakeConcerns` is single-sourced in
+  `src/sports/grounding.ts`, so the client and the edge cannot disagree.
+
+## Stage 2a½: Grounding
+
+Selects the Coaching records placed in front of the coaching model. It runs
+BEFORE coaching, from the extraction: the cue's own target position is resolved
+from the coaching output, too late to inform the call it is part of. The
+decisions are dependency-free and shared by `FlowlogPipeline.loadGrounding` and
+the edge function: `src/sports/grounding.ts` (scope, ranking, rendering) and
+`src/sports/experiment.ts` (outcomes and the arm).
+
+1. **Whether to ground at all** (`groundingScope`, #153). When Extraction says
+   the key mistake is about a `submission` or a `transition`, grounding
+   abstains: no records are looked up, ranked or injected, and the Session
+   records `grounding = 'not_positional'`. The positions co-mentioned beside
+   such a mistake ("couldn't finish the reverse triangle" with
+   `["Side Control", "Reverse Triangle"]`) would otherwise ground the cue in a
+   different problem; #116 measured 3 of 16 grounded Sessions doing so.
+   `position` and `unknown` ground exactly as before, so an unsure Extraction
+   never quietly loses grounding.
+2. **Candidate positions**: every position in `positionsVisited` that resolves
+   to a canonical id, using the side and the transcript.
+3. **Fetch, gi filter, rank, cap**: records for those positions, filtered by gi
+   context, ranked by overlap with the key mistake, gated by
+   `GROUNDING_MIN_RELEVANCE` and capped at `GROUNDING_RECORD_LIMIT`.
+4. **Outcome** (`sessions.grounding`): `grounded` or `withheld` (the arms, at a
+   rollout of 1 always `grounded`), or the eligibility outcomes `no_position`
+   (nothing resolved: a taxonomy problem), `no_records` (nothing survived: a
+   corpus or filter problem), `declined` (nothing to coach) and
+   `not_positional` (abstained on purpose: neither of the first two, and
+   nothing for the mining backlog). Re-analysis inherits only an arm;
+   eligibility is recomputed from the edited extraction.
+
+The funnel is stored beside the outcome: `grounding_candidates` (the pool),
+`grounding_gate_passed` (cleared the relevance gate) and `grounding_records`
+(injected). When nothing was looked up (declined, abstained, or a failed
+lookup) the first two are NULL, meaning not measured, never 0.
 
 ## Stage 2b: Coaching Generation
 

@@ -120,6 +120,8 @@ export class SupabaseStorageProvider implements IStorageProvider {
         // NULL when the caller did not record it (#130): never 'unknown',
         // which is Extraction's own recorded abstention.
         perspective: session.perspective ?? null,
+        // Same rule (#153): NULL when not recorded, never 'unknown'.
+        mistake_concerns: session.mistakeConcerns ?? null,
         coaching_cue: session.coachingCue,
         target_position_id: session.targetPositionId,
         gi: session.gi ?? null,
@@ -193,6 +195,11 @@ export class SupabaseStorageProvider implements IStorageProvider {
         // Same rule: omitted leaves the stored side alone rather than erasing it.
         ...(update.perspective !== undefined && {
           perspective: update.perspective,
+        }),
+        // What the edited transcript's mistake is about (#153), overwriting
+        // the old one. Omitted leaves the stored value alone.
+        ...(update.mistakeConcerns !== undefined && {
+          mistake_concerns: update.mistakeConcerns,
         }),
         // Re-analysis regenerates the diagram with the cue, or clears it on a
         // declined one (#135). Written as one group keyed on the outcome, so a
@@ -357,6 +364,9 @@ function mapSession(row: any): Session {
     // Null on rows from before migration 024: not recorded, which is NOT the
     // recorded abstention 'unknown' (#130).
     perspective: row.perspective ?? null,
+    // Null on rows from before migration 028: not recorded, which is NOT the
+    // recorded 'unknown' (#153).
+    mistakeConcerns: row.mistake_concerns ?? null,
     // Null on rows from before migration 025: not recorded (#135).
     diagramOutcome: row.diagram_outcome ?? null,
     diagramSpec: row.diagram_spec ?? null,

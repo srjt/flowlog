@@ -65,6 +65,7 @@ Read the transcript and return STRICT JSON matching exactly this schema — no m
   "positionsVisited": string[],   // BJJ positions/guards that came up, using standard names (e.g. "Closed Guard", "Side Control", "Back Mount"). Empty array if none mentioned.
   "perspective": string,          // exactly one of: "top", "bottom", "unknown". See PERSPECTIVE below.
   "keyMistake": string,           // the single most important mistake the practitioner describes or implies. One sentence. If none is clear, the most notable struggle.
+  "mistakeConcerns": string,      // exactly one of: "position", "submission", "transition", "unknown". What the keyMistake is about. See MISTAKE CONCERNS below.
   "opponentAction": string,       // what the opponent/training partner was doing that mattered most. One sentence.
   "statedGi": string,             // exactly one of: "gi", "no-gi", "unknown". See GI CONTEXT below.
   "sentiment": string,            // exactly one of: {{SENTIMENT_LABELS}}
@@ -109,6 +110,24 @@ guard is "bottom"; passing one is "top".
 
 **Return "unknown" rather than guessing.** A wrong side produces confident coaching aimed at
 the opposite situation, which is worse than no side at all.
+
+MISTAKE CONCERNS — what the keyMistake is about:
+
+- "position"   — holding, escaping, passing, retaining or recovering a position. This
+                 INCLUDES defending a submission from a position: "got armbarred from
+                 mount" is "position", because the problem is being stuck under mount.
+- "submission" — they failed to finish or secure THEIR OWN submission attack: "couldn't
+                 finish the reverse triangle, they stacked me".
+- "transition" — they failed to execute a specific move, and the problem is the move, not
+                 control of a position: "lost my hips during the berimbolo".
+- "unknown"    — anything ambiguous, or none of the above clearly fits.
+
+Judge the keyMistake itself, not the positions that came up. A failed finish is
+"submission" even when positionsVisited also lists where the roll went.
+
+This decides whether reference material about those positions is used at all. Saying
+"submission" or "transition" for a mistake that was really about a position throws that
+material away; "unknown" keeps it. **Return "unknown" rather than guessing.**
 
 GI CONTEXT — whether they say what they were wearing:
 

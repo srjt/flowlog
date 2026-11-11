@@ -1,4 +1,9 @@
-import { assignGrounding, GROUNDING_ROLLOUT } from '@/sports/experiment';
+import {
+  assignGrounding,
+  GROUNDING_ROLLOUT,
+  notPositional,
+} from '@/sports/experiment';
+import { groundingScope, type MistakeConcerns } from '@/sports/grounding';
 
 describe('assignGrounding', () => {
   it('is deterministic — a retry cannot flip a session between arms', () => {
@@ -144,17 +149,24 @@ describe('assignGrounding — an inherited arm (#117)', () => {
   // `no_position`, `no_records` and `declined` are eligibility outcomes, not
   // arms. Treating one as an arm would freeze a stale eligibility decision
   // into a session that has since become eligible.
-  it.each(['no_position', 'no_records', 'declined', '', null, undefined])(
-    'falls through to a fresh draw for a non-arm value (%s)',
-    (inherited) => {
-      const fresh = assignGrounding('stable-key', 6, { hasPosition: true });
-      const withNonArm = assignGrounding('stable-key', 6, {
-        hasPosition: true,
-        inheritedArm: inherited as string | null,
-      });
-      expect(withNonArm).toEqual(fresh);
-    },
-  );
+  it.each([
+    'no_position',
+    'no_records',
+    'declined',
+    // An abstention is eligibility too (#153): an edited transcript that turns
+    // out to be about a position gets a genuine draw, not a frozen abstention.
+    'not_positional',
+    '',
+    null,
+    undefined,
+  ])('falls through to a fresh draw for a non-arm value (%s)', (inherited) => {
+    const fresh = assignGrounding('stable-key', 6, { hasPosition: true });
+    const withNonArm = assignGrounding('stable-key', 6, {
+      hasPosition: true,
+      inheritedArm: inherited as string | null,
+    });
+    expect(withNonArm).toEqual(fresh);
+  });
 
   it('still assigns deterministically when nothing is inherited', () => {
     const a = assignGrounding('s', 5, { hasPosition: true });
@@ -164,4 +176,60 @@ describe('assignGrounding — an inherited arm (#117)', () => {
     });
     expect(a).toEqual(b);
   });
+});
+
+describe('not_positional (#153)', () => {
+  it('injects nothing and records nothing as available', () => {
+    expect(notPositional()).toEqual({
+      outcome: 'not_positional',
+      inject: 0,
+      available: 0,
+    });
+  });
+
+  // A distinct outcome: `no_position` is a taxonomy failure that feeds the
+  // mining backlog, and an abstention is neither that nor a corpus gap.
+  it('is never no_position, no_records or an arm', () => {
+    expect(['grounded', 'withheld', 'no_position', 'no_records']).not.toContain(
+      notPositional().outcome,
+    );
+  });
+
+  it('hands out a fresh object, so one session cannot mutate another', () => {
+    expect(notPositional()).not.toBe(notPositional());
+  });
+
+  // The arm for a positional session must not move because the field exists:
+  // `groundingScope` hands `assignGrounding` the same ids it always had, so
+  // the same key, the same count and the same draw.
+  it.each<MistakeConcerns | undefined>(['position', 'unknown', undefined])(
+    'leaves the arm of a positional session unchanged (%s)',
+    (concerns) => {
+      const extraction = {
+        positionsVisited: ['Side Control'],
+        keyMistake: 'Let him settle his chest before framing.',
+        opponentAction: 'Held a strong crossface.',
+        perspective: 'bottom' as const,
+        rawTranscript: 'He passed and settled into side control on me.',
+      };
+      const scope = groundingScope({
+        ...extraction,
+        mistakeConcerns: concerns,
+      });
+      expect(scope.kind).toBe('positions');
+      const ids = scope.kind === 'positions' ? scope.positionIds : [];
+      for (const rollout of [0, 0.5, 1]) {
+        for (let i = 0; i < 40; i++) {
+          expect(
+            assignGrounding(`s${i}`, 3, {
+              hasPosition: ids.length > 0,
+              rollout,
+            }),
+          ).toEqual(
+            assignGrounding(`s${i}`, 3, { hasPosition: true, rollout }),
+          );
+        }
+      }
+    },
+  );
 });

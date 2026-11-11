@@ -55,6 +55,10 @@ order by sessions desc;
 --
 -- When grounding is `no_position`, NOTHING in positions_visited resolved, so
 -- the array is exactly the set of free-text positions that failed.
+--
+-- `not_positional` (#153) is deliberately NOT here. Grounding abstained because
+-- the mistake is about a submission or a transition; its positions_visited
+-- were never looked up, and its submission names are not positions to add.
 -- ─────────────────────────────────────────────────────────────────────────────
 select
   lower(trim(pos))        as unresolved_position,
@@ -72,6 +76,10 @@ order by times_seen desc;
 -- `declined` is not a grounding failure: there was nothing coachable in the
 -- recording, so grounding never ran. Counting it as a gap would inflate the
 -- backlog with sessions that had no content to ground.
+--
+-- Nor is `not_positional` (#153, pipeline 1.4.0+): Extraction said the mistake
+-- is about a submission or a transition, so grounding abstained on purpose.
+-- It is neither `no_position` nor `no_records`, and is counted as itself.
 -- ─────────────────────────────────────────────────────────────────────────────
 select
   coalesce(grounding, 'not recorded')  as outcome,
@@ -82,3 +90,22 @@ select
 from public.sessions
 group by grounding
 order by sessions desc;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 5. THE ABSTENTION, AUDITED (#153).
+--
+-- `mistake_concerns` is what decided whether to ground. Read it against the
+-- target position the Cue then resolved to: 'position' with no target, or
+-- 'submission'/'transition' with one, is where the classifier and the Cue
+-- disagree and is worth reading. NULL is a row from before migration 028 and
+-- is excluded, never counted as 'unknown'.
+-- ─────────────────────────────────────────────────────────────────────────────
+select
+  mistake_concerns,
+  grounding,
+  count(*)                                         as sessions,
+  count(*) filter (where target_position_id is null) as no_target_resolved
+from public.sessions
+where mistake_concerns is not null
+group by mistake_concerns, grounding
+order by mistake_concerns, sessions desc;

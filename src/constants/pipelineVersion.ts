@@ -23,6 +23,11 @@
  *          database's exact count (020).
  *   1.3.0  re-analysis writes the grounding provenance it changes the truth of,
  *          and honours the session's existing arm (021).
+ *   1.4.0  record selection abstains when Extraction says the key mistake is
+ *          about finishing a submission or executing a transition, not a
+ *          position, recording `grounding = 'not_positional'` and no records
+ *          (#153, 028). Before it, such a session was grounded on whatever
+ *          positions were co-mentioned beside the mistake.
  *
  * What the version can and cannot segment for 1.3.0: re-analysis stamps the
  * version CURRENT AT THE TIME, so a row re-analysed under 1.0.0 still reads
@@ -34,4 +39,4 @@
  * or how a stored value should be read. A new column that describes itself
  * does not need a bump (migrations 022 and 024 set that precedent).
  */
-export const PIPELINE_VERSION = '1.3.0';
+export const PIPELINE_VERSION = '1.4.0';

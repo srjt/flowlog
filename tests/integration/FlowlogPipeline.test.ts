@@ -1661,3 +1661,248 @@ describe('FlowlogPipeline — the cue diagram spec (#135)', () => {
     });
   });
 });
+
+// ── Grounding abstains when the mistake is not about a position (#153) ──────
+// The measured case `5e78158b` from #116: a reverse triangle that would not
+// finish, with side control co-mentioned, grounded the cue in records about
+// escaping side control. These assert what ends up on the row and what reaches
+// the coaching call.
+describe('FlowlogPipeline — not_positional grounding (#153)', () => {
+  const REVERSE_TRIANGLE = {
+    positionsVisited: ['Side Control', 'Reverse Triangle'],
+    keyMistake:
+      'Unable to finish the reverse triangle; the opponent stacked me and broke it.',
+    opponentAction: 'Stacked me and postured out of the reverse triangle.',
+    sentiment: 'frustrated',
+    perspective: 'bottom' as const,
+  };
+  const TRANSCRIPT =
+    'I got stuck under side control, then went for a reverse triangle but he stacked me and broke it.';
+  // Shares "finish" and "stacked" with the mistake, so it clears the relevance
+  // gate exactly as the side-control records did in production.
+  const SIDE_CONTROL_RECORD = {
+    id: 'rec-scb-underhook',
+    position: 'side-control-bottom',
+    prescription:
+      'Underhook the near leg before he has you stacked, then finish the frame.',
+    why: 'Without the underhook he settles his chest and the pin holds.',
+    detail: 'Elbow tight to your ribs.',
+    counter: '',
+    gi: 'either',
+    level: 'any',
+    opponent: '',
+    certified: false,
+    contested: false,
+    rejected: false,
+  };
+
+  function build(
+    mistakeConcerns: ExtractionOutput['mistakeConcerns'],
+    storage: IStorageProvider = new MockStorageProvider(),
+    coachable = true,
+  ) {
+    const ai = new MockAIProvider(
+      {
+        ...REVERSE_TRIANGLE,
+        mistakeConcerns,
+        hasCoachableContent: coachable,
+        insufficientReason: coachable ? '' : 'no training was described',
+      },
+      [goodCue()],
+    );
+    if (storage instanceof MockStorageProvider) {
+      storage.coachingRecords = [SIDE_CONTROL_RECORD];
+    }
+    const t = new MockTranscriptionProvider();
+    t.result = { ...t.result, transcript: TRANSCRIPT };
+    const pipeline = new FlowlogPipeline({
+      transcription: new TranscriptionService(t),
+      extraction: new ExtractionService(ai),
+      coaching: new CoachingService(ai),
+      qualityGate: new QualityGateService(),
+      storage,
+      groundingRollout: 1,
+    });
+    return { ai, storage, pipeline };
+  }
+
+  const edited = {
+    sportKey: 'bjj' as const,
+    skillLevel: 'Blue Belt' as const,
+    editedTranscript: TRANSCRIPT,
+  };
+
+  it.each<ExtractionOutput['mistakeConcerns']>(['submission', 'transition'])(
+    'abstains on %s: no lookup, nothing injected, the cue still written',
+    async (concerns) => {
+      const { ai, storage, pipeline } = build(concerns);
+      const mock = storage as MockStorageProvider;
+
+      const result = await pipeline.run(input);
+
+      // Decided before the lookup: not one records query.
+      expect(mock.coachingRecordQueries).toHaveLength(0);
+      expect(ai.lastCoachingInput?.groundingRecords).toEqual([]);
+      // The cue is coached from the mistake directly, as an ungrounded one is.
+      expect(result.declined).toBe(false);
+      expect(result.coachingCue).toBe(goodCue().cue);
+
+      const saved = mock.saved[0];
+      expect(saved?.mistakeConcerns).toBe(concerns);
+      expect(saved?.grounding).toBe('not_positional');
+      expect(saved?.groundingRecords).toBe(0);
+      expect(saved?.groundingAvailable).toBe(0);
+      expect(saved?.groundingRecordIds).toEqual([]);
+      // Not measured, never 0: 0 candidates would file a corpus gap (#58) and
+      // 0 gate-passers would claim the gate rejected everything (#119).
+      expect(saved?.groundingCandidates).toBeNull();
+      expect(saved?.groundingGatePassed).toBeNull();
+      expect(saved?.pipelineVersion).toBe('1.4.0');
+    },
+  );
+
+  // The owner's refinement: an unsure Extraction never quietly loses
+  // grounding. This is the measured behaviour, kept on purpose for 'unknown'.
+  it('still grounds the same extraction when it says unknown', async () => {
+    const { ai, storage, pipeline } = build('unknown');
+    const mock = storage as MockStorageProvider;
+
+    await pipeline.run(input);
+
+    expect(mock.coachingRecordQueries[0]?.positionIds).toEqual([
+      'side-control-bottom',
+    ]);
+    expect(ai.lastCoachingInput?.groundingRecords?.map((r) => r.id)).toEqual([
+      SIDE_CONTROL_RECORD.id,
+    ]);
+    const saved = mock.saved[0];
+    expect(saved?.mistakeConcerns).toBe('unknown');
+    expect(saved?.grounding).toBe('grounded');
+    expect(saved?.groundingCandidates).toBe(1);
+    expect(saved?.groundingGatePassed).toBe(1);
+  });
+
+  // `position` must change nothing: the same row as `unknown`, field aside.
+  it('leaves a position extraction exactly as it was', async () => {
+    const asPosition = build('position');
+    const asUnknown = build('unknown');
+
+    await asPosition.pipeline.run(input);
+    await asUnknown.pipeline.run(input);
+
+    const a = (asPosition.storage as MockStorageProvider).saved[0];
+    const b = (asUnknown.storage as MockStorageProvider).saved[0];
+    expect(a?.mistakeConcerns).toBe('position');
+    expect(a?.grounding).toBe('grounded');
+    expect({ ...a, mistakeConcerns: null }).toEqual({
+      ...b,
+      mistakeConcerns: null,
+    });
+    expect(asPosition.ai.lastCoachingInput?.groundingRecords).toEqual(
+      asUnknown.ai.lastCoachingInput?.groundingRecords,
+    );
+  });
+
+  it('records it on a declined take, where nothing grounds', async () => {
+    const { storage, pipeline } = build('submission', undefined, false);
+    const mock = storage as MockStorageProvider;
+
+    const result = await pipeline.run(input);
+
+    expect(result.declined).toBe(true);
+    expect(mock.saved[0]?.mistakeConcerns).toBe('submission');
+    // Declined outranks the abstention: nothing was coachable at all.
+    expect(mock.saved[0]?.grounding).toBe('declined');
+  });
+
+  it('abstains on re-analysis too, whatever arm the row held', async () => {
+    const { ai, storage, pipeline } = build('submission');
+    const mock = storage as MockStorageProvider;
+
+    await pipeline.reanalyze({
+      ...edited,
+      sessionId: 'existing-1',
+      userId: 'user-1',
+      existingGrounding: 'grounded',
+    });
+
+    expect(mock.coachingRecordQueries).toHaveLength(0);
+    expect(ai.lastCoachingInput?.groundingRecords).toEqual([]);
+    const { update } = mock.updated[0]!;
+    expect(update.mistakeConcerns).toBe('submission');
+    expect(update.grounding).toBe('not_positional');
+    expect(update.groundingRecords).toBe(0);
+    expect(update.groundingAvailable).toBe(0);
+    expect(update.groundingRecordIds).toEqual([]);
+    expect(update.groundingCandidates).toBeNull();
+    expect(update.groundingGatePassed).toBeNull();
+  });
+
+  // Eligibility, not an arm: an edited transcript that turns out to be about
+  // the position gets grounded, not a frozen abstention.
+  it('grounds a re-analysis of a not_positional row that is now positional', async () => {
+    const { ai, storage, pipeline } = build('position');
+    const mock = storage as MockStorageProvider;
+
+    await pipeline.reanalyze({
+      ...edited,
+      sessionId: 'existing-1',
+      userId: 'user-1',
+      existingGrounding: 'not_positional',
+    });
+
+    expect(ai.lastCoachingInput?.groundingRecords).toHaveLength(1);
+    expect(mock.updated[0]?.update.grounding).toBe('grounded');
+    expect(mock.updated[0]?.update.mistakeConcerns).toBe('position');
+  });
+
+  // Against a real store, so the assertion is on the row the second run left.
+  it("re-analysis overwrites it with the edited transcript's answer", async () => {
+    const storage = new LocalTestStorageProvider();
+    const userId = 'user-153-reanalysis';
+    const first = await build('position', storage).pipeline.run({
+      ...input,
+      userId,
+    });
+
+    await build('submission', storage).pipeline.reanalyze({
+      ...edited,
+      sessionId: first.sessionId,
+      userId,
+    });
+
+    const [row] = await storage.listSessions(userId);
+    expect(row?.id).toBe(first.sessionId);
+    expect(row?.mistakeConcerns).toBe('submission');
+  });
+
+  it('a declined re-analysis overwrites it too', async () => {
+    const storage = new LocalTestStorageProvider();
+    const userId = 'user-153-declined-reanalysis';
+    const first = await build('submission', storage).pipeline.run({
+      ...input,
+      userId,
+    });
+
+    const result = await build('unknown', storage, false).pipeline.reanalyze({
+      ...edited,
+      sessionId: first.sessionId,
+      userId,
+    });
+
+    expect(result.declined).toBe(true);
+    const [row] = await storage.listSessions(userId);
+    expect(row?.mistakeConcerns).toBe('unknown');
+  });
+
+  it('never saves a value the column would reject', async () => {
+    const { storage, pipeline } = build(
+      'technique' as unknown as ExtractionOutput['mistakeConcerns'],
+    );
+    await pipeline.run(input);
+    const saved = (storage as MockStorageProvider).saved[0];
+    expect(saved?.mistakeConcerns).toBe('unknown');
+    // And 'unknown' grounds as before rather than abstaining.
+    expect(saved?.grounding).toBe('grounded');
+  });
+});

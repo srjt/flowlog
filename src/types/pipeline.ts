@@ -3,6 +3,7 @@ import type { Perspective } from '@/sports/positionTypes';
 import type { SportKey } from '@/types/sport';
 import type { GiPreference, SkillLevel } from '@/types/user';
 import type { GiContext } from '@/sports/giContext';
+import type { MistakeConcerns } from '@/sports/grounding';
 
 /**
  * Pipeline & AI contract types.
@@ -68,6 +69,16 @@ export interface ExtractionOutput {
    * the recorder's toggle.
    */
   statedGi: GiContext | 'unknown';
+  /**
+   * What the key mistake is about: a position, the athlete's own submission, a
+   * transition, or `'unknown'` (#153). Grounding abstains on an explicit
+   * `submission` or `transition`, because the positions co-mentioned beside
+   * such a mistake would ground the cue in a different problem. `'unknown'`
+   * grounds exactly as `'position'` does, so an unsure Extraction never loses
+   * grounding. `ExtractionService` turns any other value into `'unknown'`.
+   * Persisted on the Session (migration 028).
+   */
+  mistakeConcerns: MistakeConcerns;
 }
 
 // ── Grounding (Stage 2a½) ───────────────────────────────────────────────────
